@@ -14,7 +14,7 @@ export default function Footer() {
           <img
             src={SITE.logo}
             alt={SITE.name}
-            className="h-16 w-16 object-contain rounded-lg bg-black/40 p-1"
+            className="h-16 w-auto object-contain"
           />
           <div>
             <p className="font-medium leading-none">{SITE.name}</p>

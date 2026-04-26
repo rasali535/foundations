@@ -33,7 +33,7 @@ export default function Navbar() {
           <img
             src={SITE.logo}
             alt={SITE.name}
-            className="h-14 w-14 object-contain rounded-lg bg-black p-1"
+            className="h-14 w-auto object-contain"
           />
           <span className="hidden sm:block text-[10px] tracking-[0.2em] uppercase text-[#475569] leading-tight">
             A Pameltex Group<br />company
