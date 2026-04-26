@@ -11,9 +11,11 @@ export default function Footer() {
       {/* Brand + nav row */}
       <div className="container-x py-12 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8 border-b border-white/10">
         <Link to="/" className="flex items-center gap-3">
-          <span className="w-10 h-10 rounded-full bg-[#D4A373] flex items-center justify-center text-[#1C3F3A] font-semibold">
-            F
-          </span>
+          <img
+            src={SITE.logo}
+            alt={SITE.name}
+            className="h-16 w-16 object-contain rounded-lg bg-black/40 p-1"
+          />
           <div>
             <p className="font-medium leading-none">{SITE.name}</p>
             <p className="text-[10px] mt-1 text-white/60 uppercase tracking-[0.2em]">

@@ -30,14 +30,13 @@ export default function Navbar() {
           data-testid="nav-logo"
           className="flex items-center gap-3 group"
         >
-          <span className="w-9 h-9 rounded-full bg-[#1C3F3A] flex items-center justify-center text-white font-semibold">
-            F
-          </span>
-          <span className="font-medium tracking-tight text-[#0F172A]">
-            <span className="block leading-none">Foundations</span>
-            <span className="block text-[10px] tracking-[0.2em] uppercase text-[#475569]">
-              Counselling Academy
-            </span>
+          <img
+            src={SITE.logo}
+            alt={SITE.name}
+            className="h-14 w-14 object-contain rounded-lg bg-black p-1"
+          />
+          <span className="hidden sm:block text-[10px] tracking-[0.2em] uppercase text-[#475569] leading-tight">
+            A Pameltex Group<br />company
           </span>
         </Link>
 

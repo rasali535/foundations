@@ -7,6 +7,7 @@ export const SITE = {
   phone: "+267 71 000 000",
   address: "Plot 12345, Main Mall, Gaborone, Botswana",
   hours: "Mon – Fri · 08:00 – 17:00 CAT",
+  logo: "https://customer-assets.emergentagent.com/job_foundations-counsel/artifacts/q2aev8u5_Foundations%20Counselling%20academy-%20logo.png",
 };
 
 export const NAV = [
