@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 
 import Reveal from "@/components/Reveal";
-import { COURSES, MOODLE_URL } from "@/data/site";
+import { COURSES, MOODLE_URL, MOODLE_LOGIN_HINT } from "@/data/site";
 
 const TABS = ["Overview", "Modules", "Resources", "Assessment"];
 
@@ -115,6 +115,9 @@ export default function CoursePreview() {
                 <p className="mt-3 text-[11px] text-white/60 leading-relaxed">
                   This is an in-site preview. Full lessons, quizzes and
                   certificate live on our learning platform.
+                </p>
+                <p className="mt-2 text-[11px] text-[#D4A373]">
+                  {MOODLE_LOGIN_HINT}
                 </p>
               </div>
             </div>

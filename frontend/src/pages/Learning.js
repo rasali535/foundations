@@ -12,7 +12,7 @@ import {
 import Reveal from "@/components/Reveal";
 import SectionHeading from "@/components/SectionHeading";
 import CTABanner from "@/components/CTABanner";
-import { COURSES, COURSE_CATEGORIES, MOODLE_URL } from "@/data/site";
+import { COURSES, COURSE_CATEGORIES, MOODLE_URL, MOODLE_LOGIN_HINT } from "@/data/site";
 
 export default function Learning() {
   const [filter, setFilter] = useState("All");
@@ -52,6 +52,10 @@ export default function Learning() {
                 Enrol your team
               </a>
             </div>
+            <p className="mt-4 text-xs text-[#475569]" data-testid="moodle-hint">
+              <span className="inline-block w-2 h-2 rounded-full bg-[#D4A373] mr-2 align-middle" />
+              {MOODLE_LOGIN_HINT}
+            </p>
           </Reveal>
         </div>
       </section>

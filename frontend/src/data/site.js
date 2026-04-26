@@ -22,7 +22,8 @@ export const NAV = [
   { label: "Contact", to: "/contact" },
 ];
 
-export const MOODLE_URL = "https://learn.foundationsca.co.bw";
+export const MOODLE_URL = "https://sandbox.moodledemo.net";
+export const MOODLE_LOGIN_HINT = "Demo login: student / sandbox24";
 
 export const COURSE_CATEGORIES = [
   "All",
@@ -48,7 +49,7 @@ export const COURSES = [
       "Apply micro-recovery practices to your workday",
       "Set boundaries that hold under pressure",
     ],
-    moodlePath: "/course/view.php?id=101",
+    moodlePath: "/login/index.php",
     accent: "#81B29A",
   },
   {
@@ -66,7 +67,7 @@ export const COURSES = [
       "Recognise risk and escalate appropriately",
       "Reduce stigma in your team",
     ],
-    moodlePath: "/course/view.php?id=102",
+    moodlePath: "/login/index.php",
     accent: "#1C3F3A",
   },
   {
@@ -84,7 +85,7 @@ export const COURSES = [
       "Run candour-positive meetings",
       "Repair safety after incidents",
     ],
-    moodlePath: "/course/view.php?id=103",
+    moodlePath: "/login/index.php",
     accent: "#D4A373",
   },
   {
@@ -102,7 +103,7 @@ export const COURSES = [
       "Use specific scripts in heated moments",
       "Coach your team's emotional habits",
     ],
-    moodlePath: "/course/view.php?id=104",
+    moodlePath: "/login/index.php",
     accent: "#81B29A",
   },
   {
@@ -120,7 +121,7 @@ export const COURSES = [
       "Stay regulated when it heats up",
       "Land on shared next steps",
     ],
-    moodlePath: "/course/view.php?id=105",
+    moodlePath: "/login/index.php",
     accent: "#1C3F3A",
   },
   {
@@ -138,7 +139,7 @@ export const COURSES = [
       "Design supportive operating rhythms",
       "Run trauma-aware critical incidents",
     ],
-    moodlePath: "/course/view.php?id=106",
+    moodlePath: "/login/index.php",
     accent: "#D4A373",
   },
 ];
