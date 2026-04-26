@@ -79,7 +79,15 @@ export default function Footer() {
           <span className="hidden sm:inline text-white/30">·</span>
           <span data-testid="footer-credit">
             Web dev by{" "}
-            <span className="text-[#D4A373] font-medium">Ras Ali Labs</span>
+            <a
+              href="https://www.rasalibassist.themaplin.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="footer-credit-link"
+              className="text-[#D4A373] font-medium hover:text-white transition-colors"
+            >
+              Ras Ali Labs
+            </a>
           </span>
         </div>
       </div>
