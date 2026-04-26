@@ -8,6 +8,7 @@ import About from "@/pages/About";
 import Services from "@/pages/Services";
 import ServiceDetail from "@/pages/ServiceDetail";
 import Learning from "@/pages/Learning";
+import CoursePreview from "@/pages/CoursePreview";
 import Approach from "@/pages/Approach";
 import Industries from "@/pages/Industries";
 import Impact from "@/pages/Impact";
@@ -27,6 +28,7 @@ function App() {
             <Route path="/services" element={<Services />} />
             <Route path="/services/:slug" element={<ServiceDetail />} />
             <Route path="/learning" element={<Learning />} />
+            <Route path="/learning/:slug" element={<CoursePreview />} />
             <Route path="/approach" element={<Approach />} />
             <Route path="/industries" element={<Industries />} />
             <Route path="/impact" element={<Impact />} />

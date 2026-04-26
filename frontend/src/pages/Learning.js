@@ -86,30 +86,34 @@ export default function Learning() {
                   data-testid={`course-card-${c.slug}`}
                   className="group bg-white border border-slate-100 rounded-2xl overflow-hidden h-full flex flex-col hover:-translate-y-1 hover:shadow-[0_18px_36px_-15px_rgba(28,63,58,0.18)] transition-all"
                 >
-                  <div
-                    className="h-40 relative overflow-hidden"
-                    style={{
-                      background: `linear-gradient(135deg, ${c.accent}, #1C3F3A)`,
-                    }}
-                  >
-                    <div className="absolute inset-0 grain opacity-20" />
-                    <div className="absolute top-5 left-5 right-5 flex items-center justify-between text-white/90">
-                      <span className="text-[10px] uppercase tracking-[0.2em] bg-black/20 backdrop-blur-sm px-3 py-1 rounded-full">
-                        {c.category}
-                      </span>
-                      <span className="text-[10px] uppercase tracking-[0.2em]">
-                        {c.level}
-                      </span>
+                  <Link to={`/learning/${c.slug}`} className="block">
+                    <div
+                      className="h-40 relative overflow-hidden"
+                      style={{
+                        background: `linear-gradient(135deg, ${c.accent}, #1C3F3A)`,
+                      }}
+                    >
+                      <div className="absolute inset-0 grain opacity-20" />
+                      <div className="absolute top-5 left-5 right-5 flex items-center justify-between text-white/90">
+                        <span className="text-[10px] uppercase tracking-[0.2em] bg-black/20 backdrop-blur-sm px-3 py-1 rounded-full">
+                          {c.category}
+                        </span>
+                        <span className="text-[10px] uppercase tracking-[0.2em]">
+                          {c.level}
+                        </span>
+                      </div>
+                      <div className="absolute bottom-5 left-5 right-5 text-white">
+                        <GraduationCap size={28} className="opacity-80" />
+                      </div>
                     </div>
-                    <div className="absolute bottom-5 left-5 right-5 text-white">
-                      <GraduationCap size={28} className="opacity-80" />
-                    </div>
-                  </div>
+                  </Link>
 
                   <div className="p-7 flex-1 flex flex-col">
-                    <h3 className="text-xl font-semibold text-[#0F172A] tracking-tight">
-                      {c.title}
-                    </h3>
+                    <Link to={`/learning/${c.slug}`}>
+                      <h3 className="text-xl font-semibold text-[#0F172A] tracking-tight hover:text-[#1C3F3A] transition-colors">
+                        {c.title}
+                      </h3>
+                    </Link>
                     <p className="mt-3 text-sm text-[#475569] leading-relaxed">
                       {c.summary}
                     </p>
@@ -131,16 +135,25 @@ export default function Learning() {
                       <Meta icon={Award} label={c.cpd} />
                     </div>
 
-                    <a
-                      href={moodleUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      data-testid={`course-cta-${c.slug}`}
-                      className="mt-7 inline-flex items-center justify-between gap-2 px-5 py-3 rounded-full bg-[#1C3F3A] text-white text-sm font-medium hover:bg-[#15302C] transition-colors"
-                    >
-                      Start on Moodle
-                      <ArrowUpRight size={16} />
-                    </a>
+                    <div className="mt-7 flex items-center gap-2">
+                      <Link
+                        to={`/learning/${c.slug}`}
+                        data-testid={`course-preview-${c.slug}`}
+                        className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#1C3F3A] text-white text-sm font-medium hover:bg-[#15302C] transition-colors"
+                      >
+                        Preview course
+                      </Link>
+                      <a
+                        href={moodleUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid={`course-cta-${c.slug}`}
+                        aria-label="Open on Moodle"
+                        className="w-11 h-11 inline-flex items-center justify-center rounded-full border border-[#1C3F3A] text-[#1C3F3A] hover:bg-[#1C3F3A] hover:text-white transition-colors"
+                      >
+                        <ArrowUpRight size={16} />
+                      </a>
+                    </div>
                   </div>
                 </article>
               </Reveal>
