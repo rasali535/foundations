@@ -98,7 +98,7 @@ export default function Chatbot() {
         onClick={() => setOpen((o) => !o)}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-[#1C3F3A] text-white shadow-[0_12px_32px_-8px_rgba(28,63,58,0.55)] flex items-center justify-center"
+        className="fixed bottom-6 right-24 z-[60] w-14 h-14 rounded-full bg-[#1C3F3A] text-white shadow-[0_12px_32px_-8px_rgba(28,63,58,0.55)] flex items-center justify-center"
       >
         <AnimatePresence mode="wait">
           {open ? (
@@ -131,7 +131,7 @@ export default function Chatbot() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={{ type: "spring", stiffness: 320, damping: 28 }}
-            className="fixed bottom-24 right-6 z-50 w-[min(92vw,380px)] h-[560px] bg-white rounded-2xl border border-slate-200 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.18)] flex flex-col overflow-hidden"
+            className="fixed bottom-24 right-6 z-[60] w-[min(92vw,380px)] h-[560px] bg-white rounded-2xl border border-slate-200 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.18)] flex flex-col overflow-hidden"
           >
             <div className="px-5 py-4 bg-[#1C3F3A] text-white flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-[#D4A373] flex items-center justify-center text-[#1C3F3A]">
