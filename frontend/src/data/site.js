@@ -14,11 +14,133 @@ export const NAV = [
   { label: "Home", to: "/" },
   { label: "About", to: "/about" },
   { label: "Services", to: "/services" },
+  { label: "Learning", to: "/learning" },
   { label: "Approach", to: "/approach" },
   { label: "Industries", to: "/industries" },
   { label: "Impact", to: "/impact" },
   { label: "Team", to: "/team" },
   { label: "Contact", to: "/contact" },
+];
+
+export const MOODLE_URL = "https://learn.foundationsca.co.bw";
+
+export const COURSE_CATEGORIES = [
+  "All",
+  "Resilience",
+  "Mental Health",
+  "Leadership",
+  "Communication",
+];
+
+export const COURSES = [
+  {
+    slug: "resilience-burnout",
+    title: "Building Resilience & Preventing Burnout",
+    category: "Resilience",
+    level: "Foundation",
+    duration: "4 weeks · self-paced",
+    modules: 6,
+    cpd: "8 CPD hours",
+    summary:
+      "Practical, evidence-based tools to recognise early-warning signs of burnout, regulate stress, and build a sustainable working rhythm.",
+    outcomes: [
+      "Identify your personal burnout signals",
+      "Apply micro-recovery practices to your workday",
+      "Set boundaries that hold under pressure",
+    ],
+    moodlePath: "/course/view.php?id=101",
+    accent: "#81B29A",
+  },
+  {
+    slug: "mental-health-first-aid",
+    title: "Mental Health First Aid for the Workplace",
+    category: "Mental Health",
+    level: "Intermediate",
+    duration: "6 weeks · self-paced",
+    modules: 8,
+    cpd: "12 CPD hours",
+    summary:
+      "Equip yourself to spot, support and signpost colleagues in distress — confidently, ethically and within professional limits.",
+    outcomes: [
+      "Have a confident, structured supportive conversation",
+      "Recognise risk and escalate appropriately",
+      "Reduce stigma in your team",
+    ],
+    moodlePath: "/course/view.php?id=102",
+    accent: "#1C3F3A",
+  },
+  {
+    slug: "psychological-safety-leaders",
+    title: "Psychological Safety for Leaders",
+    category: "Leadership",
+    level: "Advanced",
+    duration: "5 weeks · self-paced",
+    modules: 7,
+    cpd: "10 CPD hours",
+    summary:
+      "Move psychological safety from buzzword to operating discipline — design rituals, language and feedback loops that hold under stress.",
+    outcomes: [
+      "Diagnose your team's safety baseline",
+      "Run candour-positive meetings",
+      "Repair safety after incidents",
+    ],
+    moodlePath: "/course/view.php?id=103",
+    accent: "#D4A373",
+  },
+  {
+    slug: "emotional-intelligence-work",
+    title: "Emotional Intelligence at Work",
+    category: "Leadership",
+    level: "Foundation",
+    duration: "4 weeks · self-paced",
+    modules: 6,
+    cpd: "8 CPD hours",
+    summary:
+      "Sharpen self-awareness, regulation and social skill — the four EI capabilities that separate effective leaders from competent ones.",
+    outcomes: [
+      "Map your EI profile honestly",
+      "Use specific scripts in heated moments",
+      "Coach your team's emotional habits",
+    ],
+    moodlePath: "/course/view.php?id=104",
+    accent: "#81B29A",
+  },
+  {
+    slug: "difficult-conversations",
+    title: "Managing Difficult Conversations",
+    category: "Communication",
+    level: "Intermediate",
+    duration: "3 weeks · self-paced",
+    modules: 5,
+    cpd: "6 CPD hours",
+    summary:
+      "A structured, respectful approach to the conversations most people avoid — performance, behaviour, conflict and change.",
+    outcomes: [
+      "Open hard conversations cleanly",
+      "Stay regulated when it heats up",
+      "Land on shared next steps",
+    ],
+    moodlePath: "/course/view.php?id=105",
+    accent: "#1C3F3A",
+  },
+  {
+    slug: "trauma-informed-leadership",
+    title: "Trauma-Informed Leadership",
+    category: "Leadership",
+    level: "Advanced",
+    duration: "6 weeks · self-paced",
+    modules: 8,
+    cpd: "12 CPD hours",
+    summary:
+      "Lead in contexts where stress, loss and adversity are part of the work — without re-traumatising your people or burning yourself out.",
+    outcomes: [
+      "Apply the six trauma-informed principles",
+      "Design supportive operating rhythms",
+      "Run trauma-aware critical incidents",
+    ],
+    moodlePath: "/course/view.php?id=106",
+    accent: "#D4A373",
+  },
 ];
 
 export const SERVICES = [

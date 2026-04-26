@@ -21,6 +21,7 @@ import {
   PILLARS,
   METRICS,
   INDUSTRIES,
+  COURSES,
   SITE,
 } from "@/data/site";
 
@@ -242,6 +243,70 @@ export default function Home() {
                 <div className="border border-slate-200 rounded-xl px-5 py-6 text-center hover:bg-[#1C3F3A] hover:text-white transition-colors">
                   <p className="font-medium tracking-tight">{ind.title}</p>
                 </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Personal development preview */}
+      <section className="section bg-[#F1F5F2]">
+        <div className="container-x">
+          <div className="grid md:grid-cols-12 gap-10 items-end mb-12">
+            <div className="md:col-span-7">
+              <SectionHeading
+                eyebrow="Learning · Personal development"
+                title="Online courses to grow the work-self."
+                description="Self-paced, evidence-led courses delivered through our learning platform. CPD-friendly, designed for working professionals."
+              />
+            </div>
+            <div className="md:col-span-5 md:text-right">
+              <Link
+                to="/learning"
+                data-testid="home-learning-cta"
+                className="btn-primary"
+              >
+                Browse all courses
+                <ArrowRight size={16} />
+              </Link>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-6">
+            {COURSES.slice(0, 3).map((c, i) => (
+              <Reveal key={c.slug} delay={i * 0.05}>
+                <Link
+                  to="/learning"
+                  data-testid={`home-course-${c.slug}`}
+                  className="group block bg-white rounded-2xl overflow-hidden h-full hover:-translate-y-1 hover:shadow-[0_18px_36px_-15px_rgba(28,63,58,0.18)] transition-all"
+                >
+                  <div
+                    className="h-32 relative"
+                    style={{
+                      background: `linear-gradient(135deg, ${c.accent}, #1C3F3A)`,
+                    }}
+                  >
+                    <div className="absolute inset-0 grain opacity-20" />
+                    <span className="absolute top-4 left-4 text-[10px] uppercase tracking-[0.2em] bg-black/20 backdrop-blur-sm text-white/90 px-3 py-1 rounded-full">
+                      {c.category}
+                    </span>
+                    <GraduationCap
+                      className="absolute bottom-4 left-4 text-white/80"
+                      size={24}
+                    />
+                  </div>
+                  <div className="p-6">
+                    <h3 className="text-lg font-medium text-[#0F172A] tracking-tight">
+                      {c.title}
+                    </h3>
+                    <p className="mt-2 text-sm text-[#475569]">
+                      {c.duration} · {c.cpd}
+                    </p>
+                    <span className="mt-5 inline-flex items-center gap-2 text-sm text-[#1C3F3A] font-medium group-hover:gap-3 transition-all">
+                      View course <ArrowRight size={14} />
+                    </span>
+                  </div>
+                </Link>
               </Reveal>
             ))}
           </div>
