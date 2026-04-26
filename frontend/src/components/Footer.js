@@ -43,9 +43,9 @@ export default function Footer() {
         </nav>
       </div>
 
-      {/* Contact row */}
-      <div className="container-x py-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 text-sm text-white/85">
-        <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+      {/* Contact row — centered */}
+      <div className="container-x py-8 flex flex-col items-center justify-center gap-4 text-sm text-white/85 text-center">
+        <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
           <span className="flex items-center gap-2">
             <MapPin size={16} className="text-[#D4A373]" />
             {SITE.address}
@@ -70,10 +70,17 @@ export default function Footer() {
         <p className="text-xs text-white/60">{SITE.hours}</p>
       </div>
 
-      {/* Copyright */}
+      {/* Copyright — centered */}
       <div className="border-t border-white/10">
-        <div className="container-x py-5 text-xs text-white/50 text-center lg:text-left">
-          © {new Date().getFullYear()} {SITE.name}. All rights reserved.
+        <div className="container-x py-5 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 text-xs text-white/50 text-center">
+          <span>
+            © {new Date().getFullYear()} {SITE.name}. All rights reserved.
+          </span>
+          <span className="hidden sm:inline text-white/30">·</span>
+          <span data-testid="footer-credit">
+            Web dev by{" "}
+            <span className="text-[#D4A373] font-medium">Ras Ali Labs</span>
+          </span>
         </div>
       </div>
     </footer>
