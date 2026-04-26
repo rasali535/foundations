@@ -1,0 +1,127 @@
+{
+  "theme": "Light",
+  "archetype": "1 (Organic & Earthy with Corporate Polish)",
+  "colors": {
+    "background": {
+      "primary": "#FAFAFA",
+      "secondary": "#F1F5F2",
+      "tertiary": "#E6D5C3"
+    },
+    "brand": {
+      "primary": "#1C3F3A",
+      "secondary": "#81B29A",
+      "accent": "#D4A373"
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#475569",
+      "inverse": "#FFFFFF"
+    },
+    "surface": {
+      "card": "#FFFFFF",
+      "glass": "rgba(255, 255, 255, 0.8)"
+    },
+    "border": "#E2E8F0"
+  },
+  "typography": {
+    "fonts": {
+      "heading": "Outfit, sans-serif",
+      "body": "Manrope, sans-serif"
+    },
+    "scales": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tight leading-none font-bold",
+      "h2": "text-3xl sm:text-4xl tracking-tight leading-tight font-semibold",
+      "h3": "text-xl sm:text-2xl tracking-tight font-medium",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm uppercase tracking-[0.2em] font-medium text-[#81B29A]"
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous spacing, premium corporate feel, bento grids for frameworks.",
+    "container_padding": "px-6 md:px-12 lg:px-24",
+    "section_spacing": "py-24 md:py-32",
+    "grid_modes": {
+      "marketing": "grid-cols-1 md:grid-cols-12 gap-8",
+      "bento": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6"
+    }
+  },
+  "surfaces_and_borders": {
+    "cards": "bg-white rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100",
+    "glassmorphism": "backdrop-blur-xl bg-white/80 border border-white/40 shadow-sm",
+    "hero_overlay": "bg-black/40"
+  },
+  "animations": {
+    "page_transitions": "Smooth fade and slight Y-translate using framer-motion",
+    "scroll_reveals": "Staggered fade-up for grid items and text blocks",
+    "hover_states": "Cards lift -translate-y-1 with expanded soft shadow",
+    "chatbot": "Spring animation on open, staggered message bubbles"
+  },
+  "components": {
+    "navigation": "Sticky glassmorphism header, z-50, solid layout",
+    "hero": "80vh min-height, dynamic image background with bg-black/40 overlay, bold typography, staggered entrance",
+    "four_pillars": "Bento grid layout with subtle hover effects and abstract icons",
+    "chatbot_widget": "Floating bottom-right widget, distinct brand primary color (#1C3F3A), sleek corporate chat interface",
+    "buttons": "Rounded-lg, px-6 py-3, bg-[#1C3F3A] text-white, hover:bg-[#15302C] hover:-translate-y-0.5 shadow-sm transition-all duration-200"
+  },
+  "media": {
+    "image_urls": {
+      "hero_background": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/708648c2-4bf9-4e29-9a58-36cee2a03565/images/434935005e9b2cf100a81d7923faa1ac485b0629266c0a16eeaca4b71495241e.png",
+        "description": "Abstract 3D smooth organic shapes in bone white and deep forest green for home page hero"
+      },
+      "framework_background": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/708648c2-4bf9-4e29-9a58-36cee2a03565/images/2d837ab14b4a48dbfcdeb980067ccd5c47144a76e2bba9d52f9c198f093a7dfc.png",
+        "description": "Minimalist abstract architectural background for Four Pillars / Approach section"
+      },
+      "impact_abstract": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/708648c2-4bf9-4e29-9a58-36cee2a03565/images/0a398d0d81913ac14b3e0b124a42731ae7c1d5af06f34b5c9035605d7a4c4d90.png",
+        "description": "Abstract 3D glass spheres on sand surface for Impact / Capability Statement"
+      },
+      "team_meeting_1": {
+        "url": "https://images.unsplash.com/photo-1758691737158-18ffa31c0a46?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHwyfHxkaXZlcnNlJTIwY29ycG9yYXRlJTIwdGVhbSUyMG1lZXRpbmclMjBwcm9mZXNzaW9uYWx8ZW58MHx8fHwxNzc3MjE2NzEwfDA&ixlib=rb-4.1.0&q=85",
+        "description": "Diverse corporate team meeting for About Us / Team"
+      },
+      "team_meeting_2": {
+        "url": "https://images.pexels.com/photos/8068712/pexels-photo-8068712.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Diverse business team collaborating for Organisational Development Service"
+      },
+      "counselling_1": {
+        "url": "https://images.unsplash.com/photo-1538026139293-9a46ee2a0101?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTB8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBtZW50YWwlMjBoZWFsdGglMjBjb3Vuc2VsbGluZyUyMHJvb218ZW58MHx8fHwxNzc3MjE2NzEwfDA&ixlib=rb-4.1.0&q=85",
+        "description": "Professional counselling room for EAP & Counselling Service"
+      },
+      "counselling_2": {
+        "url": "https://images.pexels.com/photos/14797777/pexels-photo-14797777.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Therapy session for Psychosocial Risk Management"
+      },
+      "office_architecture": {
+        "url": "https://images.unsplash.com/photo-1754479146459-dbba4f921949?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzl8MHwxfHNlYXJjaHwyfHxjbGVhbiUyMG1vZGVybiUyMGNvcnBvcmF0ZSUyMG9mZmljZSUyMGFyY2hpdGVjdHVyZXxlbnwwfHx8fDE3NzcyMTY3MTB8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Clean modern corporate office architecture for Corporate Training"
+      }
+    }
+  },
+  "pages_and_routing": {
+    "Home": "Overview of services, hero, pillars, impact counters, testimonials",
+    "About Us": "Mission, Pameltex Group connection, team profiles",
+    "Services": "Multi-page structure (EAP & Counselling, Corporate Training, Psychosocial Risk, Org Development)",
+    "Our Approach": "Deep dive into Assessment, Intervention, Reinforcement, Reporting",
+    "Industries": "Financial Services, Healthcare, Education, Government, Manufacturing",
+    "Contact": "Consultation form, location details",
+    "Privacy Policy": "Standard legal text layout"
+  },
+  "accessibility_and_testing": {
+    "contrast": "Ensure minimum 4.5:1 ratio for text on all backgrounds. Use text-shadow over images if needed.",
+    "testing": "All interactive and key informational elements MUST include a data-testid attribute (e.g. data-testid='contact-submit-btn')"
+  },
+  "instructions_to_main_agent": [
+    "Use react-router-dom for multi-page navigation.",
+    "Install and use framer-motion for scroll-reveals and page transitions.",
+    "Install lucide-react for icons.",
+    "Implement the UI using React (.js files, no .tsx as requested) + Tailwind.",
+    "Use standard Shadcn components (Cards, Forms, Inputs, Buttons) but heavily customize padding and border-radii as per design guidelines.",
+    "Ensure the floating chatbot is accessible globally across all routes. Make sure it has open-state animation and message microinteractions.",
+    "For the hero section, use 'hero_background' image with a bg-black/40 overlay. Do NOT make the overlay too dark.",
+    "Implement the 'Four Pillars Framework' using a bento grid with abstract icons and hover motion.",
+    "Ensure generous spacing (p-8 to p-24) to maintain the premium corporate feel.",
+    "Use data-testid attributes on all interactive elements as per the critical rules."
+  ]
+}
