@@ -65,3 +65,14 @@ A modern, sleek, multi-page corporate website for **Foundations Counselling Acad
 - Pagination for `/api/contact` and `/api/chat/leads` (currently caps at 500)
 - Rollback of orphan `chat_messages.user` row on LLM failure
 - Surface chatbot lead-submit error toast (currently silent)
+
+## Updates — Feb 2026 session 2
+- Footer redesigned to **horizontal layout** (brand+nav row, centered contact row, centered copyright)
+- Added **"Web dev by Ras Ali Labs"** credit linking to https://www.rasalibassist.themaplin.com
+- Custom **brand logo** integrated (transparent PNG processed from user-supplied artwork; saved to `/app/frontend/public/foundations-logo.png`); used in Navbar + Footer
+- Chatbot toggle moved to `bottom-24 right-6` (z-[60]) and panel to `bottom-44 right-6` to clear the Emergent platform badge
+- New **Learning** section (top-nav item between Services and Approach):
+  - `/learning` page: 6 placeholder courses (Resilience, MHFA, Psychological Safety, EI, Difficult Conversations, Trauma-Informed Leadership) with category filter chips, "How learning works" 3-step section
+  - `/learning/:slug` **CoursePreview** page mimicking a Moodle course experience: progress bar, sticky tabs (Overview/Modules/Resources/Assessment), interactive module checkboxes with locked progression, downloadable resources, sidebar with course meta
+  - Home page now shows a 3-course Personal Development preview with `/learning` CTA
+- Moodle wired to **public sandbox** for now: `https://sandbox.moodledemo.net` (login: student/sandbox24); shown as a hint on Learning + CoursePreview pages. Single-line swap when real Moodle is ready (MOODLE_URL in `/app/frontend/src/data/site.js`)
