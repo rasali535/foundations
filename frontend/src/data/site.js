@@ -311,8 +311,8 @@ export const TEAM = [
 ];
 
 export const HERO_IMG =
-  "https://static.prod-images.emergentagent.com/jobs/708648c2-4bf9-4e29-9a58-36cee2a03565/images/434935005e9b2cf100a81d7923faa1ac485b0629266c0a16eeaca4b71495241e.png";
+  "https://images.unsplash.com/photo-1522071820081-009f0129c71c?ixlib=rb-4.0.3&auto=format&fit=crop&w=2850&q=80";
 export const FRAMEWORK_IMG =
-  "https://static.prod-images.emergentagent.com/jobs/708648c2-4bf9-4e29-9a58-36cee2a03565/images/2d837ab14b4a48dbfcdeb980067ccd5c47144a76e2bba9d52f9c198f093a7dfc.png";
+  "https://images.unsplash.com/photo-1552664730-d307ca884978?ixlib=rb-4.0.3&auto=format&fit=crop&w=2940&q=80";
 export const IMPACT_IMG =
-  "https://static.prod-images.emergentagent.com/jobs/708648c2-4bf9-4e29-9a58-36cee2a03565/images/0a398d0d81913ac14b3e0b124a42731ae7c1d5af06f34b5c9035605d7a4c4d90.png";
+  "https://images.unsplash.com/photo-1460925895917-afdab827c52f?ixlib=rb-4.0.3&auto=format&fit=crop&w=2426&q=80";
