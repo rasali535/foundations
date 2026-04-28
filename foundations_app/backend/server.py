@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+﻿from fastapi import FastAPI, APIRouter, HTTPException
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -81,7 +81,7 @@ class ChatMessageResponse(BaseModel):
 
 
 # ---------- System prompt ----------
-SYSTEM_PROMPT = """You are Aria, the friendly assistant for Foundations Counselling Academy — a Pameltex Group company in Botswana specialising in workplace mental health and organisational development.
+SYSTEM_PROMPT = """You are Aliana, the friendly assistant for Foundations Counselling Academy — a Pameltex Group company in Botswana specialising in workplace mental health and organisational development.
 
 Your role:
 - Help HR managers, executives and procurement teams understand our services.

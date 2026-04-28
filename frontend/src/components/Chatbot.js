@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageCircle, X, Send, Sparkles, Loader2, CheckCircle2 } from "lucide-react";
@@ -8,7 +8,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const initialBot = {
   role: "assistant",
   content:
-    "Hi, I'm Aria. I can help you find the right service — EAP, training, psychosocial risk, or organisational development. What's the workplace challenge on your mind?",
+    "Hi, I'm Aliana. I can help you find the right service — EAP, training, psychosocial risk, or organisational development. What's the workplace challenge on your mind?",
 };
 
 function getSessionId() {
@@ -94,7 +94,7 @@ export default function Chatbot() {
     <>
       <motion.button
         data-testid="chatbot-toggle"
-        aria-label="Open chat"
+        Aliana-label="Open chat"
         onClick={() => setOpen((o) => !o)}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
@@ -138,7 +138,7 @@ export default function Chatbot() {
                 <Sparkles size={16} />
               </div>
               <div>
-                <p className="text-sm font-medium leading-none">Aria</p>
+                <p className="text-sm font-medium leading-none">Aliana</p>
                 <p className="text-[11px] text-white/70 mt-1">
                   Foundations Counselling Academy
                 </p>
@@ -177,7 +177,7 @@ export default function Chatbot() {
                   {busy && (
                     <div className="bg-white border border-slate-100 rounded-2xl px-4 py-2.5 inline-flex items-center gap-2 text-sm text-[#475569]">
                       <Loader2 size={14} className="animate-spin" />
-                      Aria is typing…
+                      Aliana is typing…
                     </div>
                   )}
                 </div>

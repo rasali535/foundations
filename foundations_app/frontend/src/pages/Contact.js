@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import axios from "axios";
 import { toast } from "sonner";
 import { Mail, Phone, MapPin, Send, Loader2, CheckCircle2 } from "lucide-react";
@@ -217,7 +217,7 @@ export default function Contact() {
               <div className="bg-[#F1F5F2] rounded-2xl p-8 border border-[#E2E8F0]">
                 <p className="eyebrow">Prefer to chat?</p>
                 <p className="mt-3 text-[#0F172A] font-medium">
-                  Aria, our assistant, is in the bottom-right corner.
+                  Aliana, our assistant, is in the bottom-right corner.
                 </p>
                 <p className="mt-2 text-sm text-[#475569]">
                   She can answer service questions and pass you to a human within

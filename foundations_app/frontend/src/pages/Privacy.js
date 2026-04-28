@@ -1,4 +1,4 @@
-import Reveal from "@/components/Reveal";
+﻿import Reveal from "@/components/Reveal";
 import { SITE } from "@/data/site";
 
 export default function Privacy() {
@@ -63,7 +63,7 @@ export default function Privacy() {
             </Block>
 
             <Block title="7. Chatbot interactions">
-              Conversations with our chatbot, Aria, are stored to improve service
+              Conversations with our chatbot, Aliana, are stored to improve service
               quality and route follow-up. We do not use them for advertising
               and we do not share them with third parties beyond what is
               described above.
