@@ -98,7 +98,7 @@ export default function Chatbot() {
         onClick={() => setOpen((o) => !o)}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
-        className="fixed bottom-24 right-6 z-[60] w-14 h-14 rounded-full bg-[#1C3F3A] text-white shadow-[0_12px_32px_-8px_rgba(28,63,58,0.55)] flex items-center justify-center"
+        className="fixed bottom-24 right-6 z-[60] w-14 h-14 rounded-full bg-[#4C1D95] text-white shadow-[0_12px_32px_-8px_rgba(28,63,58,0.55)] flex items-center justify-center"
       >
         <AnimatePresence mode="wait">
           {open ? (
@@ -133,8 +133,8 @@ export default function Chatbot() {
             transition={{ type: "spring", stiffness: 320, damping: 28 }}
             className="fixed bottom-44 right-6 z-[60] w-[min(92vw,380px)] h-[560px] bg-white rounded-2xl border border-slate-200 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.18)] flex flex-col overflow-hidden"
           >
-            <div className="px-5 py-4 bg-[#1C3F3A] text-white flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-[#D4A373] flex items-center justify-center text-[#1C3F3A]">
+            <div className="px-5 py-4 bg-[#4C1D95] text-white flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-[#D4A373] flex items-center justify-center text-[#4C1D95]">
                 <Sparkles size={16} />
               </div>
               <div>
@@ -167,7 +167,7 @@ export default function Chatbot() {
                       animate={{ opacity: 1, y: 0 }}
                       className={`max-w-[85%] text-sm rounded-2xl px-4 py-2.5 leading-relaxed ${
                         m.role === "user"
-                          ? "ml-auto bg-[#1C3F3A] text-white"
+                          ? "ml-auto bg-[#4C1D95] text-white"
                           : "bg-white border border-slate-100 text-[#0F172A]"
                       }`}
                     >
@@ -190,13 +190,13 @@ export default function Chatbot() {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     placeholder="Ask about services, EAP, training…"
-                    className="flex-1 text-sm px-3 py-2 rounded-full bg-[#F1F5F2] outline-none focus:ring-2 ring-[#1C3F3A]/20"
+                    className="flex-1 text-sm px-3 py-2 rounded-full bg-[#F1F5F2] outline-none focus:ring-2 ring-[#4C1D95]/20"
                   />
                   <button
                     data-testid="chatbot-send"
                     type="submit"
                     disabled={busy || !input.trim()}
-                    className="w-9 h-9 rounded-full bg-[#1C3F3A] text-white flex items-center justify-center disabled:opacity-50"
+                    className="w-9 h-9 rounded-full bg-[#4C1D95] text-white flex items-center justify-center disabled:opacity-50"
                   >
                     <Send size={15} />
                   </button>
@@ -226,7 +226,7 @@ export default function Chatbot() {
                     value={lead[k]}
                     onChange={(e) => setLead({ ...lead, [k]: e.target.value })}
                     placeholder={label}
-                    className="w-full text-sm px-4 py-2.5 rounded-lg bg-white border border-slate-200 outline-none focus:ring-2 ring-[#1C3F3A]/20"
+                    className="w-full text-sm px-4 py-2.5 rounded-lg bg-white border border-slate-200 outline-none focus:ring-2 ring-[#4C1D95]/20"
                   />
                 ))}
                 <select

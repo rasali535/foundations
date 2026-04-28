@@ -40,43 +40,45 @@ export default function Navbar() {
           </span>
         </Link>
 
-        <nav className="hidden lg:flex items-center gap-8">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              data-testid={`nav-${item.label.toLowerCase()}`}
-              end={item.to === "/"}
-              className={({ isActive }) =>
-                `text-sm font-medium transition-colors relative ${
-                  isActive
-                    ? "text-[#1C3F3A]"
-                    : "text-[#475569] hover:text-[#1C3F3A]"
-                }`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {item.label}
-                  {isActive && (
-                    <motion.span
-                      layoutId="navdot"
-                      className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#D4A373]"
-                    />
-                  )}
-                </>
-              )}
-            </NavLink>
-          ))}
-        </nav>
+        <div className="hidden lg:flex items-center gap-8">
+          <nav className="flex items-center gap-8">
+            {NAV.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                data-testid={`nav-${item.label.toLowerCase()}`}
+                end={item.to === "/"}
+                className={({ isActive }) =>
+                  `text-sm font-medium transition-colors relative ${
+                    isActive
+                      ? "text-[#1C3F3A]"
+                      : "text-[#475569] hover:text-[#1C3F3A]"
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    {item.label}
+                    {isActive && (
+                      <motion.span
+                        layoutId="navdot"
+                        className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#D4A373]"
+                      />
+                    )}
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </nav>
 
-        <Link
-          to="/contact"
-          data-testid="nav-cta"
-          className="hidden lg:inline-flex btn-primary text-sm"
-        >
-          Book a consultation
-        </Link>
+          <Link
+            to="/contact"
+            data-testid="nav-cta"
+            className="btn-primary text-sm"
+          >
+            Book a consultation
+          </Link>
+        </div>
 
         <button
           data-testid="mobile-menu-toggle"
