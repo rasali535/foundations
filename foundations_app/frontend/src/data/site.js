@@ -3,7 +3,7 @@ export const SITE = {
   short: "Foundations",
   parent: "A Pameltex Group company",
   tagline: "Workplaces where people thrive — measurably.",
-  email: "hello@academyfoundations.com",
+  email: "info@academyfoundations.com",
   phone: "+267 71 000 000",
   address: "Plot 12345, Main Mall, Gaborone, Botswana",
   hours: "Mon – Fri · 08:00 – 17:00 CAT",
