@@ -4,8 +4,8 @@ export const SITE = {
   parent: "A Pameltex Group company",
   tagline: "Workplaces where people thrive — measurably.",
   email: "info@academyfoundations.com",
-  phone: "+267 71 000 000",
-  address: "Plot 12345, Main Mall, Gaborone, Botswana",
+  phone: "+267 72 534 203",
+  address: "Plot 18680 Khuhurutse St Phase 2, Gaborone",
   hours: "Mon – Fri · 08:00 – 17:00 CAT",
   logo: "/logo.png",
 };
@@ -166,25 +166,32 @@ export const METRICS = [
 
 export const TEAM = [
   {
-    name: "Dr. Naledi Motswagole",
-    role: "Principal Consultant",
-    creds: "PhD Clinical Psychology · MBPsS",
-    bio: "Two decades guiding executive teams across Southern Africa on workplace mental health and psychosocial risk.",
-    img: "https://images.unsplash.com/photo-1758691737158-18ffa31c0a46?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHwyfHxkaXZlcnNlJTIwY29ycG9yYXRlJTIwdGVhbSUyMG1lZXRpbmclMjBwcm9mZXNzaW9uYWx8ZW58MHx8fHwxNzc3MjE2NzEwfDA&ixlib=rb-4.1.0&q=85",
+    name: "Caroline Sithole",
+    role: "Principal Counsellor",
+    creds: "MSc · BSc · PSY",
+    bio: "Board-certified counsellor majoring in Cognitive Behavioral Therapy (CBT), guiding clients toward self-reliance and self-discovery.",
+    img: "/caroline.jpg",
   },
   {
-    name: "Tebogo K. Selepe",
-    role: "Head of Corporate Programmes",
-    creds: "MSc Organisational Psychology",
-    bio: "Designs leadership and culture interventions for regulated industries; previously a banking-sector HR executive.",
-    img: "https://images.pexels.com/photos/8068712/pexels-photo-8068712.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    name: "Thamu X Gordon Mthupa",
+    role: "Lead Counselor",
+    creds: "",
+    bio: "Leads the counseling department with compassion and expertise, dedicated to fostering a supportive environment for our clients.",
+    img: "/thamu.jpg",
   },
   {
-    name: "Lesego Pule",
-    role: "Lead Clinician — EAP",
-    creds: "MA Counselling Psychology · BAP",
-    bio: "Heads our 24/7 clinical roster; specialist in trauma-focused CBT and critical-incident response.",
-    img: "https://images.pexels.com/photos/14797777/pexels-photo-14797777.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    name: "Alpheaus Chiwaze",
+    role: "Head of Operations",
+    creds: "",
+    bio: "Multi-disciplinary creative and technologist specializing in premium web design, development, and digital experiences.",
+    img: "/alpheaus.jpg",
+  },
+  {
+    name: "Ms. Sithembinkosi Rutendo Mthupa",
+    role: "Client Services Director",
+    creds: "MBA · BCom Management",
+    bio: "Oversees corporate partnerships, contract management, and service delivery across our regional portfolio, ensuring seamless operational execution.",
+    img: "/team-mthupa.jpg",
   },
 ];
 

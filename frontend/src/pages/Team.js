@@ -18,7 +18,7 @@ export default function Team() {
       </section>
 
       <section className="container-x">
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           {TEAM.map((m, i) => (
             <Reveal key={m.name} delay={i * 0.05}>
               <article
