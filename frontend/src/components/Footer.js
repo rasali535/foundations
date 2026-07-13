@@ -82,7 +82,7 @@ export default function Footer() {
           <span data-testid="footer-credit">
             Web dev by{" "}
             <a
-              href="https://www.rasalibassist.themaplin.com"
+              href="https://www.rasalilabs.com"
               target="_blank"
               rel="noopener noreferrer"
               data-testid="footer-credit-link"
