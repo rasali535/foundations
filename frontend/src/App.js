@@ -16,6 +16,7 @@ import Team from "@/pages/Team";
 import Contact from "@/pages/Contact";
 import Privacy from "@/pages/Privacy";
 import NotFound from "@/pages/NotFound";
+import IntakeForm from "@/pages/IntakeForm";
 
 function App() {
   return (
@@ -35,6 +36,7 @@ function App() {
             <Route path="/team" element={<Team />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/privacy" element={<Privacy />} />
+            <Route path="/intake" element={<IntakeForm />} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>

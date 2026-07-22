@@ -42,6 +42,13 @@ export default function Footer() {
           >
             Privacy
           </Link>
+          <Link
+            to="/intake"
+            data-testid="footer-nav-intake"
+            className="text-white/80 hover:text-white transition-colors"
+          >
+            Intake Form
+          </Link>
         </nav>
       </div>
 

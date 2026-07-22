@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import axios from "axios";
 import { toast } from "sonner";
 import { Mail, Phone, MapPin, Send, Loader2, CheckCircle2 } from "lucide-react";
@@ -50,6 +51,16 @@ export default function Contact() {
             description="Use the form, the chatbot, email or phone — whichever feels right. We respond within one business day."
             testid="contact-heading"
           />
+
+          <div className="mt-8 p-6 bg-[#F1F5F2] rounded-xl border border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h4 className="font-semibold text-[#1C3F3A] text-lg">Virtual Therapy Client Intake</h4>
+              <p className="text-sm text-[#475569] mt-1">Are you an individual client ready to start virtual counselling or psychosocial support? Complete our secure intake wizard directly.</p>
+            </div>
+            <Link to="/intake" className="btn-primary text-xs whitespace-nowrap self-start md:self-auto">
+              Open Intake Form
+            </Link>
+          </div>
         </div>
       </section>
 
