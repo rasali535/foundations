@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import Reveal from "@/components/Reveal";
+import Counter from "@/components/Counter";
 import SectionHeading from "@/components/SectionHeading";
 import CTABanner from "@/components/CTABanner";
 import SEO from "@/components/SEO";
