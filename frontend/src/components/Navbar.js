@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { Menu, X } from "lucide-react";
+import { Menu, X, ArrowUpRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { NAV, SITE } from "../data/site";
 
@@ -20,7 +20,7 @@ export default function Navbar() {
       data-testid="site-header"
       className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ${
         scrolled
-          ? "backdrop-blur-xl bg-white/80 border-b border-white/40"
+          ? "backdrop-blur-xl bg-white/90 border-b border-slate-200/80 shadow-sm"
           : "bg-transparent"
       }`}
     >
@@ -40,18 +40,18 @@ export default function Navbar() {
           </span>
         </Link>
 
-        <div className="hidden lg:flex items-center gap-8">
-          <nav className="flex items-center gap-8">
+        <div className="hidden lg:flex items-center gap-7">
+          <nav className="flex items-center gap-6" aria-label="Main Navigation">
             {NAV.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
-                data-testid={`nav-${item.label.toLowerCase()}`}
+                data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
                 end={item.to === "/"}
                 className={({ isActive }) =>
-                  `text-sm font-medium transition-colors relative ${
+                  `text-sm font-medium transition-colors relative py-1 ${
                     isActive
-                      ? "text-[#1C3F3A]"
+                      ? "text-[#1C3F3A] font-semibold"
                       : "text-[#475569] hover:text-[#1C3F3A]"
                   }`
                 }
@@ -62,7 +62,7 @@ export default function Navbar() {
                     {isActive && (
                       <motion.span
                         layoutId="navdot"
-                        className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#D4A373]"
+                        className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#D4A373]"
                       />
                     )}
                   </>
@@ -74,9 +74,10 @@ export default function Navbar() {
           <Link
             to="/contact"
             data-testid="nav-cta"
-            className="btn-primary text-sm"
+            className="btn-primary text-sm shadow-sm hover:shadow-md transition-all flex items-center gap-1.5"
           >
-            Book a consultation
+            <span>Book / Enquire</span>
+            <ArrowUpRight size={15} />
           </Link>
         </div>
 
@@ -84,9 +85,9 @@ export default function Navbar() {
           data-testid="mobile-menu-toggle"
           aria-label="Toggle menu"
           onClick={() => setOpen(!open)}
-          className="lg:hidden p-2 rounded-full hover:bg-black/5"
+          className="lg:hidden p-2 rounded-full hover:bg-black/5 text-[#1C3F3A]"
         >
-          {open ? <X size={22} /> : <Menu size={22} />}
+          {open ? <X size={24} /> : <Menu size={24} />}
         </button>
       </div>
 
@@ -96,7 +97,7 @@ export default function Navbar() {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="lg:hidden overflow-hidden bg-white border-t border-slate-100"
+            className="lg:hidden overflow-hidden bg-white border-t border-slate-100 shadow-xl"
           >
             <div className="container-x py-6 flex flex-col gap-4">
               {NAV.map((item) => (
@@ -104,11 +105,11 @@ export default function Navbar() {
                   key={item.to}
                   to={item.to}
                   end={item.to === "/"}
-                  data-testid={`mobile-nav-${item.label.toLowerCase()}`}
+                  data-testid={`mobile-nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
                   onClick={() => setOpen(false)}
                   className={({ isActive }) =>
-                    `text-base font-medium ${
-                      isActive ? "text-[#1C3F3A]" : "text-[#475569]"
+                    `text-base font-medium py-2 border-b border-slate-50 transition-colors ${
+                      isActive ? "text-[#1C3F3A] font-semibold" : "text-[#475569]"
                     }`
                   }
                 >
@@ -119,11 +120,11 @@ export default function Navbar() {
                 to="/contact"
                 onClick={() => setOpen(false)}
                 data-testid="mobile-nav-cta"
-                className="btn-primary text-sm w-fit mt-2"
+                className="btn-primary text-center mt-2 flex items-center justify-center gap-2"
               >
-                Book a consultation
+                Book / Enquire
+                <ArrowUpRight size={16} />
               </Link>
-              <p className="text-xs text-[#475569] mt-4">{SITE.parent}</p>
             </div>
           </motion.div>
         )}

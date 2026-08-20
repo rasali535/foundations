@@ -1,29 +1,103 @@
 export const SITE = {
   name: "Foundations Counselling Academy",
-  short: "Foundations",
+  short: "Foundations Counselling Academy (FCA)",
   parent: "A Pameltex Group company",
-  tagline: "Workplaces where people thrive — measurably.",
+  tagline: "People first. Practical support. Sustainable performance.",
   email: "info@academyfoundations.com",
   phone: "+267 72 534 203",
-  address: "Plot 18680 Khuhurutse St Phase 2, Gaborone",
-  hours: "Mon – Fri · 08:00 – 17:00 CAT",
+  whatsapp: "+267 72 534 203",
+  address: "Plot 18680 Khuhurutse St, Phase 2, Gaborone, Botswana",
+  hours: "Mon – Fri: 09:00 – 17:00 · Sat: 09:00 – 13:00 (Subject to confirmation)",
   logo: "/foundations-logo.png",
+  canonicalUrl: "https://www.academyfoundations.com",
 };
 
 export const NAV = [
   { label: "Home", to: "/" },
+  { label: "Counselling", to: "/counselling" },
+  { label: "Corporate", to: "/corporate-wellness" },
+  { label: "Training", to: "/training-team-building" },
+  { label: "Online Programmes", to: "/learning" },
   { label: "About", to: "/about" },
-  { label: "Services", to: "/services" },
-  { label: "Learning", to: "/learning" },
-  { label: "Approach", to: "/approach" },
-  { label: "Industries", to: "/industries" },
-  { label: "Impact", to: "/impact" },
-  { label: "Team", to: "/team" },
   { label: "Contact", to: "/contact" },
 ];
 
+export const WHATSAPP_NUMBER = "26772534203";
+export const WHATSAPP_LINK = "https://wa.me/26772534203";
+
+export const getWhatsAppUrl = (context = "general") => {
+  const messages = {
+    counselling: "Hello FCA, I would like to enquire about counselling.",
+    corporate: "Hello FCA, I would like to enquire about corporate wellness services.",
+    training: "Hello FCA, I would like to enquire about team training.",
+    general: "Hello FCA, I would like to enquire about your services."
+  };
+  const text = encodeURIComponent(messages[context] || messages.general);
+  return `https://wa.me/26772534203?text=${text}`;
+};
+
 export const KAJABI_URL = "https://academyfoundations.mykajabi.com";
 export const KAJABI_LOGIN_HINT = "Direct access via FCA Kajabi Member Portal";
+
+export const CORE_PATHWAYS = [
+  {
+    slug: "counselling",
+    title: "Counselling",
+    eyebrow: "Personal Support",
+    headline: "Warm, confidential personal support.",
+    description: "Individual, couples, and family therapy in-person in Gaborone or online.",
+    to: "/counselling",
+    cta: "Book / Enquire",
+    whatsappContext: "counselling",
+    accent: "#81B29A",
+    audience: "Individuals, couples, parents, families"
+  },
+  {
+    slug: "corporate-wellness",
+    title: "Corporate Wellness & EAP",
+    eyebrow: "Workplace Wellbeing",
+    headline: "Healthy people. Sustainable performance.",
+    description: "Comprehensive EAP, ISO 45003 psychosocial risk management, and crisis support.",
+    to: "/corporate-wellness",
+    cta: "Request Consultation",
+    whatsappContext: "corporate",
+    accent: "#1C3F3A",
+    audience: "HR, People & Culture, Executives, Teams"
+  },
+  {
+    slug: "training-team-building",
+    title: "Training & Team Building",
+    eyebrow: "Team Development",
+    headline: "High-impact team building & mental wellness.",
+    description: "Experiential team building, leader resilience, and workplace mental health workshops.",
+    to: "/training-team-building",
+    cta: "Request a Quote",
+    whatsappContext: "training",
+    accent: "#D4A373",
+    audience: "Companies, institutions, professional teams"
+  },
+  {
+    slug: "online-programmes",
+    title: "Online Programmes",
+    eyebrow: "Digital Learning",
+    headline: "Self-paced CPD masterclasses & toolkits.",
+    description: "Accredited masterclasses and practical workbooks hosted on our Kajabi member hub.",
+    to: "/learning",
+    cta: "Explore Programmes",
+    whatsappContext: "general",
+    accent: "#0F172A",
+    audience: "Individuals, managers, professionals"
+  }
+];
+
+export const FEATURED_OFFER = {
+  title: "7-Day Steadiness Planner & Burnout Reset",
+  description: "A practical, evidence-led digital workbook designed to help professionals recognise early burnout signals, regulate work stress, and build sustainable daily rhythms.",
+  badge: "Featured Online Resource",
+  kajabi_url: "https://academyfoundations.mykajabi.com",
+  cta_text: "Get Free Access on Kajabi",
+  active: true
+};
 
 export const COURSE_CATEGORIES = [
   "All",
@@ -146,40 +220,58 @@ export const COURSES = [
 
 export const SERVICES = [
   {
-    slug: "eap-counselling",
-    title: "EAP & Counselling",
+    slug: "counselling",
+    title: "Counselling & Psychotherapy",
     category: "Responsive",
     short:
-      "Confidential, evidence-based counselling and crisis support for employees and their families.",
+      "Confidential, evidence-based counselling and crisis support for individuals, couples and families.",
     long:
-      "We deliver a fully-managed Employee Assistance Programme covering 1:1 counselling (in-person, voice and chat), 24/7 crisis lines, trauma debriefing and proactive wellbeing campaigns. Sessions are private, ethical and outcome-tracked.",
+      "We deliver compassionate, private counselling (in-person in Gaborone and virtual) covering individual therapy, couples counselling, and family support. Sessions are solution-focused, ethical and strictly confidential.",
     bullets: [
-      "Short-term solution-focused counselling",
-      "Critical-incident & trauma response",
-      "Family & dependant access",
-      "Quarterly utilisation & themes reporting",
-      "Multilingual care across SADC",
+      "Individual counselling (50–60 min sessions)",
+      "Couples & relationship therapy",
+      "In-person in Phase 2, Gaborone & secure virtual sessions",
+      "Non-emergency, solution-focused framework",
+      "Confidential & professional intake onboarding",
     ],
     image:
       "https://images.unsplash.com/photo-1538026139293-9a46ee2a0101?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTB8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBtZW50YWwlMjBoZWFsdGglMjBjb3Vuc2VsbGluZyUyMHJvb218ZW58MHx8fHwxNzc3MjE2NzEwfDA&ixlib=rb-4.1.0&q=85",
   },
   {
-    slug: "corporate-training",
-    title: "Corporate Training",
-    category: "Developmental",
+    slug: "corporate-wellness",
+    title: "Workplace Wellness & EAP",
+    category: "Corporate",
     short:
-      "Practical workshops that build resilient leaders, mentally fit teams and psychologically safe cultures.",
+      "Full-service Employee Assistance Programmes, 24/7 crisis support and organisational wellbeing.",
     long:
-      "From mental health literacy for line managers to advanced trauma-informed leadership programmes, our training is licensed, accredited where applicable, and tailored to your operating context.",
+      "We partner with corporate and public sector employers to provide confidential EAP counselling, trauma debriefing, wellness days, and quarterly utilisation reporting that protects employee performance.",
     bullets: [
-      "Mental Health First Aid (accredited)",
-      "Leader resilience & burnout prevention",
-      "Psychological safety for teams",
-      "Difficult conversations & conflict",
-      "Custom industry curricula",
+      "Employee Assistance Programmes (EAP)",
+      "ISO 45003 psychosocial risk assessments",
+      "Critical-incident debriefing & crisis response",
+      "Executive & manager wellbeing coaching",
+      "Quarterly aggregate utilisation reporting",
     ],
     image:
       "https://images.unsplash.com/photo-1754479146459-dbba4f921949?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzl8MHwxfHNlYXJjaHwyfHxjbGVhbiUyMG1vZGVybiUyMGNvcnBvcmF0ZSUyMG9mZmljZSUyMGFyY2hpdGVjdHVyZXxlbnwwfHx8fDE3NzcyMTY3MTB8MA&ixlib=rb-4.1.0&q=85",
+  },
+  {
+    slug: "training-team-building",
+    title: "Training & Team Building",
+    category: "Developmental",
+    short:
+      "Experiential team-building retreats, resilience training, and workplace mental health workshops.",
+    long:
+      "We deliver high-impact, custom team building and corporate training designed to build trust, sharpen communication, resolve interpersonal friction, and elevate team performance.",
+    bullets: [
+      "Experiential team building & retreats",
+      "Leader resilience & burnout prevention",
+      "Mental health literacy for managers",
+      "Managing difficult conversations & conflict",
+      "Psychological safety operating rhythms",
+    ],
+    image:
+      "https://images.pexels.com/photos/14797777/pexels-photo-14797777.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
   },
   {
     slug: "psychosocial-risk",
@@ -195,24 +287,6 @@ export const SERVICES = [
       "Board-level risk dashboards",
       "Compliance & audit support",
       "Annual re-measurement",
-    ],
-    image:
-      "https://images.pexels.com/photos/14797777/pexels-photo-14797777.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-  },
-  {
-    slug: "organisational-development",
-    title: "Organisational Development",
-    category: "Developmental",
-    short:
-      "Culture, change and team-effectiveness work that turns wellbeing into performance.",
-    long:
-      "We partner on culture diagnostics, change management, leadership capability and team effectiveness — translating insight into rituals, behaviours and KPIs that stick.",
-    bullets: [
-      "Culture & engagement diagnostics",
-      "Change management coaching",
-      "Executive team effectiveness",
-      "Values & behaviour design",
-      "Performance & wellbeing KPIs",
     ],
     image:
       "https://images.pexels.com/photos/8068712/pexels-photo-8068712.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
@@ -246,44 +320,22 @@ export const PILLARS = [
   },
 ];
 
-export const INDUSTRIES = [
+export const HOW_IT_WORKS_STEPS = [
   {
-    slug: "financial-services",
-    title: "Financial Services",
-    body:
-      "High-pressure, regulated environments. We help reduce burnout, manage psychosocial risk and protect performance.",
+    step: "01",
+    title: "Choose your support",
+    description: "Identify whether you need individual counselling, corporate EAP wellness, team training, or online CPD programmes."
   },
   {
-    slug: "healthcare",
-    title: "Healthcare",
-    body:
-      "Trauma-informed support for clinicians, debriefing, compassion-fatigue programmes and resilient rosters.",
+    step: "02",
+    title: "Contact FCA or enrol",
+    description: "Reach out via WhatsApp or phone for counselling, request a corporate consultation, or enrol directly in Kajabi masterclasses."
   },
   {
-    slug: "education",
-    title: "Education",
-    body:
-      "Educator wellbeing, safeguarding training and student-facing mental health literacy.",
-  },
-  {
-    slug: "government",
-    title: "Government & Public Sector",
-    body:
-      "Large-scale assessments, compliance-grade reporting and culturally adapted interventions.",
-  },
-  {
-    slug: "manufacturing",
-    title: "Manufacturing & Mining",
-    body:
-      "Frontline-friendly EAP delivery, shift-worker resilience and incident response capability.",
-  },
-];
-
-export const METRICS = [
-  { value: 12, suffix: "+", label: "Years of practice" },
-  { value: 150, suffix: "+", label: "Organisations supported" },
-  { value: 28, suffix: "k", label: "Lives reached" },
-  { value: 96, suffix: "%", label: "Client retention" },
+    step: "03",
+    title: "Begin your practical next step",
+    description: "Confirm session availability, receive your tailored proposal, or start learning at your own pace immediately."
+  }
 ];
 
 export const TEAM = [
@@ -317,9 +369,72 @@ export const TEAM = [
   },
 ];
 
+export const METRICS = [
+  { value: 12, suffix: "+", label: "Years of practice" },
+  { value: 150, suffix: "+", label: "Organisations supported" },
+  { value: 28, suffix: "k", label: "Lives reached" },
+  { value: 96, suffix: "%", label: "Client retention" },
+];
+
+export const INDUSTRIES = [
+  {
+    slug: "financial-services",
+    title: "Financial Services",
+    body: "High-pressure, regulated environments. We help reduce burnout, manage psychosocial risk and protect performance.",
+  },
+  {
+    slug: "healthcare",
+    title: "Healthcare",
+    body: "Trauma-informed support for clinicians, debriefing, compassion-fatigue programmes and resilient rosters.",
+  },
+  {
+    slug: "education",
+    title: "Education",
+    body: "Educator wellbeing, safeguarding training and student-facing mental health literacy.",
+  },
+  {
+    slug: "government",
+    title: "Government & Public Sector",
+    body: "Large-scale assessments, compliance-grade reporting and culturally adapted interventions.",
+  },
+  {
+    slug: "manufacturing",
+    title: "Manufacturing & Mining",
+    body: "Frontline-friendly EAP delivery, shift-worker resilience and incident response capability.",
+  },
+];
+
 export const HERO_IMG =
   "https://images.unsplash.com/photo-1522071820081-009f0129c71c?ixlib=rb-4.0.3&auto=format&fit=crop&w=2850&q=80";
 export const FRAMEWORK_IMG =
   "https://images.unsplash.com/photo-1552664730-d307ca884978?ixlib=rb-4.0.3&auto=format&fit=crop&w=2940&q=80";
 export const IMPACT_IMG =
   "https://images.unsplash.com/photo-1460925895917-afdab827c52f?ixlib=rb-4.0.3&auto=format&fit=crop&w=2426&q=80";
+
+export const RESOURCES_LIST = [
+  {
+    slug: "steadiness-planner",
+    title: "7-Day Steadiness Planner",
+    type: "Downloadable PDF Workbook",
+    description: "Evidence-led daily exercises to recognise burnout triggers, regulate stress, and build calm momentum.",
+    link: "https://academyfoundations.mykajabi.com",
+    badge: "Free Tool"
+  },
+  {
+    slug: "psychosocial-risk-checklist",
+    title: "ISO 45003 Workplace Risk Checklist",
+    type: "Executive Guide",
+    description: "A quick-audit checklist for HR and business leaders to identify top psychosocial hazards in team operations.",
+    link: "/corporate-wellness",
+    badge: "B2B Guide"
+  },
+  {
+    slug: "mental-health-conversation-guide",
+    title: "Line Manager Supportive Conversation Guide",
+    type: "Practical Script & Framework",
+    description: "How to open and manage supportive 1:1 conversations with a team member in distress ethically and effectively.",
+    link: "/training-team-building",
+    badge: "Manager Script"
+  }
+];
+

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Navbar from "./Navbar";
 import Footer from "./Footer";
 import Chatbot from "./Chatbot";
+import FloatingWhatsApp from "./FloatingWhatsApp";
 
 export default function Layout() {
   const location = useLocation();
@@ -30,6 +31,7 @@ export default function Layout() {
       </main>
       <Footer />
       <Chatbot />
+      <FloatingWhatsApp />
     </div>
   );
 }
