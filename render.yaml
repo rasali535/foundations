@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: foundations-counselling-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: MONGO_URL
+        sync: false
+      - key: DB_NAME
+        value: foundations_db
+      - key: SESSION_SECRET_KEY
+        generateValue: true
+      - key: EMERGENT_LLM_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://academyfoundations.com,https://www.academyfoundations.com,http://localhost:3000
+      - key: ADMIN_USER
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false

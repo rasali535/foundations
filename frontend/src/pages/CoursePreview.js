@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 
 import Reveal from "@/components/Reveal";
-import { COURSES, MOODLE_URL, MOODLE_LOGIN_HINT } from "@/data/site";
+import { COURSES, KAJABI_URL, KAJABI_LOGIN_HINT } from "@/data/site";
 
 const TABS = ["Overview", "Modules", "Resources", "Assessment"];
 
@@ -37,7 +37,7 @@ export default function CoursePreview() {
     );
   }
 
-  const moodleUrl = `${MOODLE_URL}${course.moodlePath}`;
+  const kajabiUrl = `${KAJABI_URL}${course.kajabiPath || "/products"}`;
   const modules = generateModules(course);
   const progress = Math.round((completed.length / modules.length) * 100);
 
@@ -103,21 +103,21 @@ export default function CoursePreview() {
                   />
                 </div>
                 <a
-                  href={moodleUrl}
+                  href={kajabiUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  data-testid="course-open-moodle"
+                  data-testid="course-open-kajabi"
                   className="mt-6 w-full inline-flex items-center justify-between gap-2 px-5 py-3 rounded-full bg-[#D4A373] text-[#1C3F3A] text-sm font-medium hover:bg-white transition-colors"
                 >
-                  Continue on Moodle
+                  Enroll on Kajabi
                   <ArrowUpRight size={16} />
                 </a>
                 <p className="mt-3 text-[11px] text-white/60 leading-relaxed">
-                  This is an in-site preview. Full lessons, quizzes and
-                  certificate live on our learning platform.
+                  This is an in-site preview. Full masterclasses, workbooks and
+                  certificates live on our Kajabi learning hub.
                 </p>
                 <p className="mt-2 text-[11px] text-[#D4A373]">
-                  {MOODLE_LOGIN_HINT}
+                  {KAJABI_LOGIN_HINT}
                 </p>
               </div>
             </div>
@@ -196,7 +196,7 @@ export default function CoursePreview() {
                   Course modules
                 </h2>
                 <p className="mt-3 text-sm text-[#475569]">
-                  Tick off as you go. Full video and assessment open on Moodle.
+                  Tick off as you go. Full video masterclasses and assessments open on Kajabi.
                 </p>
                 <ul className="mt-8 space-y-3">
                   {modules.map((m, i) => {
@@ -272,7 +272,7 @@ export default function CoursePreview() {
                 </h2>
                 <p className="mt-3 text-sm text-[#475569]">
                   Workbooks and reference cards. Full library available on
-                  Moodle.
+                  Kajabi.
                 </p>
                 <ul className="mt-8 space-y-3">
                   {RESOURCES(course).map((r) => (
@@ -290,7 +290,7 @@ export default function CoursePreview() {
                         </p>
                       </div>
                       <a
-                        href={moodleUrl}
+                        href={kajabiUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="w-10 h-10 rounded-full bg-[#1C3F3A] text-white flex items-center justify-center hover:bg-[#15302C]"
@@ -317,15 +317,15 @@ export default function CoursePreview() {
                   <p className="mt-3 text-[#475569] leading-relaxed">
                     Complete all modules, then take a 20-question scenario-based
                     quiz. Pass at 80%+ and instantly download a CPD-verifiable
-                    certificate to your inbox and Moodle profile.
+                    certificate to your inbox and Kajabi profile.
                   </p>
                   <a
-                    href={moodleUrl}
+                    href={kajabiUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn-primary mt-6"
                   >
-                    Start assessment on Moodle
+                    Start assessment on Kajabi
                     <ArrowUpRight size={16} />
                   </a>
                 </div>

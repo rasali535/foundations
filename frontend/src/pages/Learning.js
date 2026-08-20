@@ -12,7 +12,7 @@ import {
 import Reveal from "@/components/Reveal";
 import SectionHeading from "@/components/SectionHeading";
 import CTABanner from "@/components/CTABanner";
-import { COURSES, COURSE_CATEGORIES, MOODLE_URL, MOODLE_LOGIN_HINT } from "@/data/site";
+import { COURSES, COURSE_CATEGORIES, KAJABI_URL, KAJABI_LOGIN_HINT } from "@/data/site";
 
 export default function Learning() {
   const [filter, setFilter] = useState("All");
@@ -29,19 +29,19 @@ export default function Learning() {
           <SectionHeading
             eyebrow="Learning · Personal development"
             title="Online courses for the work-self that wants to keep growing."
-            description="Self-paced, evidence-led, and CPD-friendly. Enrol on our learning platform — start, pause and return whenever life lets you. New courses added each quarter."
+            description="Self-paced, evidence-led, and CPD-friendly. Enrol on our Kajabi learning hub — start, pause and return whenever life lets you. New courses added each quarter."
             testid="learning-heading"
           />
           <Reveal delay={0.1}>
             <div className="mt-10 flex flex-wrap items-center gap-3">
               <a
-                href={MOODLE_URL}
+                href={KAJABI_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid="learning-platform-cta"
                 className="btn-primary"
               >
-                Open the learning platform
+                Open Kajabi Learning Hub
                 <ArrowUpRight size={16} />
               </a>
               <a
@@ -52,9 +52,9 @@ export default function Learning() {
                 Enrol your team
               </a>
             </div>
-            <p className="mt-4 text-xs text-[#475569]" data-testid="moodle-hint">
+            <p className="mt-4 text-xs text-[#475569]" data-testid="kajabi-hint">
               <span className="inline-block w-2 h-2 rounded-full bg-[#D4A373] mr-2 align-middle" />
-              {MOODLE_LOGIN_HINT}
+              {KAJABI_LOGIN_HINT}
             </p>
           </Reveal>
         </div>
@@ -83,7 +83,7 @@ export default function Learning() {
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filtered.map((c, i) => {
-            const moodleUrl = `${MOODLE_URL}${c.moodlePath}`;
+            const kajabiUrl = `${KAJABI_URL}${c.kajabiPath || "/products"}`;
             return (
               <Reveal key={c.slug} delay={i * 0.05}>
                 <article
@@ -148,11 +148,11 @@ export default function Learning() {
                         Preview course
                       </Link>
                       <a
-                        href={moodleUrl}
+                        href={kajabiUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         data-testid={`course-cta-${c.slug}`}
-                        aria-label="Open on Moodle"
+                        aria-label="Open on Kajabi"
                         className="w-11 h-11 inline-flex items-center justify-center rounded-full border border-[#1C3F3A] text-[#1C3F3A] hover:bg-[#1C3F3A] hover:text-white transition-colors"
                       >
                         <ArrowUpRight size={16} />
@@ -217,7 +217,7 @@ function Meta({ icon: Icon, label }) {
 const STEPS = [
   {
     t: "Enrol on the platform",
-    b: "Sign in (or create an account) to our Moodle-based learning portal. One login, all your courses.",
+    b: "Sign in (or create an account) to our Kajabi-based learning portal. One login, all your courses.",
   },
   {
     t: "Learn at your pace",

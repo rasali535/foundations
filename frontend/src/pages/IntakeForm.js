@@ -4,7 +4,8 @@ import SEO from '../components/SEO';
 import './IntakeForm.css';
 
 const IntakeForm = () => {
-    const formspreeId = import.meta.env.VITE_FORMSPREE_ID || 'xdajqjev';
+    const API = `${process.env.REACT_APP_BACKEND_URL || ''}/api`;
+    const formspreeId = (typeof process !== 'undefined' && process.env?.REACT_APP_FORMSPREE_ID) || 'xdajqjev';
     const isPlaceholderId = formspreeId === 'YOUR_FORM_ID';
 
     const [step, setStep] = useState(1);
@@ -235,50 +236,67 @@ const IntakeForm = () => {
         setIsSubmitting(true);
         setSubmitError('');
 
-        const submissionPayload = {
-            ...formData,
-            support_needed_list: [
-                ...formData.support,
-                formData.support_other ? `Other: ${formData.support_other}` : null
-            ].filter(Boolean).join(', '),
-            wellbeing_symptoms_list: formData.wellbeing_symptoms.join(', '),
-            virtual_readiness: [
-                formData.readiness1 ? 'Private space available' : null,
-                formData.readiness2 ? 'Reliable internet/phone' : null,
-                formData.readiness3 ? 'Not driving during sessions' : null,
-                formData.readiness4 ? 'Understand confidentiality limits' : null
-            ].filter(Boolean).join(', ')
+        const clinicalPayload = {
+            full_name: formData.full_name,
+            dob: formData.dob,
+            age: formData.age || undefined,
+            gender: formData.gender || undefined,
+            phone: formData.phone,
+            email: formData.email,
+            location: formData.location || undefined,
+            preferred_contact_method: formData.contact_method,
+            emergency_contact_name: formData.emergency_name,
+            emergency_contact_relationship: formData.emergency_relationship,
+            emergency_contact_phone: formData.emergency_phone,
+            reason_for_seeking_therapy: formData.reason,
+            support_needed: formData.support,
+            support_other: formData.support_other || undefined,
+            wellbeing_symptoms: formData.wellbeing_symptoms,
+            safety_screen: {
+                self_harm: formData.self_harm,
+                harm_others: formData.harm_others,
+                unsafe_environment: formData.unsafe,
+                abuse_experienced: formData.abuse,
+                risk_explanation: formData.risk_details || undefined
+            },
+            previous_mental_health_support: formData.previous_support_choice,
+            previous_support_details: formData.previous_support_details || undefined,
+            current_medication: formData.medication,
+            consent_acknowledged: true,
+            typed_signature: formData.signature,
+            consent_date: formData.consent_date
         };
 
-        if (isPlaceholderId) {
-            setTimeout(() => {
-                setIsSubmitting(false);
-                setSubmitSuccess(true);
-                localStorage.removeItem('pameltex_intake_draft');
-            }, 1500);
-            return;
-        }
-
         try {
-            const response = await fetch(`https://formspree.io/f/${formspreeId}`, {
+            const response = await fetch(`${API}/clinical/intake`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
-                body: JSON.stringify(submissionPayload)
+                body: JSON.stringify(clinicalPayload)
             });
 
             if (response.ok) {
                 setSubmitSuccess(true);
                 localStorage.removeItem('pameltex_intake_draft');
             } else {
-                const responseData = await response.json();
-                throw new Error(responseData.error || 'Failed to submit form.');
+                // Fallback to direct Formspree relay if local backend is unconfigured
+                const fallbackResponse = await fetch(`https://formspree.io/f/${formspreeId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(clinicalPayload)
+                });
+                if (fallbackResponse.ok) {
+                    setSubmitSuccess(true);
+                    localStorage.removeItem('pameltex_intake_draft');
+                } else {
+                    throw new Error('Failed to transmit clinical intake form. Please contact our clinic directly.');
+                }
             }
         } catch (err) {
             console.error('Submission error:', err);
-            setSubmitError(err.message || 'An error occurred during submission. Please try again.');
+            setSubmitError(err.message || 'An error occurred during submission. Please contact our clinic at info@academyfoundations.com.');
         } finally {
             setIsSubmitting(false);
         }
