@@ -22,7 +22,7 @@
 | Requirement | Current State | Target State | Action Required |
 | :--- | :--- | :--- | :--- |
 | **Desktop Nav** | Home, About, Services (dropdown), Learning, Approach, Industries, Impact, Team, Contact (9 items) | Max 7 items: **Home, Counselling, Corporate, Training, Online Programmes, About, Contact** + persistent **Book / Enquire** button | Refactor `Navbar.js` to 7 streamlined items with primary header CTA |
-| **Mobile Nav** | Standard sliding drawer | Floating WhatsApp quick-action (`wa.me/26772534203`) + clean hamburger drawer with safe-area spacing | Implement sticky mobile floating WhatsApp CTA and safe-area padding |
+| **Mobile Nav** | Standard sliding drawer | Floating WhatsApp quick-action (`wa.me/+267 73 860 490`) + clean hamburger drawer with safe-area spacing | Implement sticky mobile floating WhatsApp CTA and safe-area padding |
 | **Footer** | Generic columns | 4 clear service columns (Counselling, Corporate, Training, Online), verified Botswana contact info, legal links | Refactor `Footer.js` to match official 4 pathways and add legal links |
 | **Legal Pages** | `/privacy` only | `/privacy`, `/terms`, `/cookies`, `/disclaimer`, `/refunds` | Create `/terms`, `/cookies`, `/disclaimer`, `/refunds` legal placeholder pages |
 

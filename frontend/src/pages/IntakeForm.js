@@ -267,32 +267,68 @@ const IntakeForm = () => {
             consent_date: formData.consent_date
         };
 
+        const formspreePayload = {
+            _subject: `New Virtual Client Intake: ${formData.full_name}`,
+            "Full Name": formData.full_name,
+            "Date of Birth": formData.dob,
+            "Age": formData.age || 'Not specified',
+            "Gender": formData.gender || 'Not specified',
+            "Phone Number": formData.phone,
+            "Email Address": formData.email,
+            "Location / City": formData.location || 'Not specified',
+            "Preferred Contact Method": formData.contact_method,
+            "Emergency Contact Name": formData.emergency_name,
+            "Emergency Contact Relationship": formData.emergency_relationship,
+            "Emergency Contact Phone": formData.emergency_phone,
+            "Reason for Seeking Therapy": formData.reason,
+            "Support Needed": formData.support.length > 0 ? (formData.support.join(', ') + (formData.support_other ? ` (Other: ${formData.support_other})` : '')) : (formData.support_other || 'Not specified'),
+            "Wellbeing Symptoms": formData.wellbeing_symptoms.join(', '),
+            "Safety Screen - Self Harm": formData.self_harm,
+            "Safety Screen - Harm Others": formData.harm_others,
+            "Safety Screen - Unsafe Environment": formData.unsafe,
+            "Safety Screen - Abuse": formData.abuse,
+            "Safety Screen - Risk Details": formData.risk_details || 'None',
+            "Previous Support History": formData.previous_support_choice,
+            "Previous Support Details": formData.previous_support_details || 'None',
+            "Current Medication": formData.medication,
+            "Virtual Readiness Confirmed": "Yes",
+            "Consent Name": formData.consent_name,
+            "Typed Signature": formData.signature,
+            "Consent Date": formData.consent_date
+        };
+
         try {
-            const response = await fetch(`${API}/clinical/intake`, {
+            // 1. Send formatted intake details to Formspree for instant email notification
+            const formspreePromise = fetch(`https://formspree.io/f/${formspreeId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(formspreePayload)
+            });
+
+            // 2. Concurrently record in isolated clinical backend for DB records & triage
+            const backendPromise = fetch(`${API}/clinical/intake`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
                 body: JSON.stringify(clinicalPayload)
+            }).catch(err => {
+                console.warn('Backend DB intake recording failed or offline:', err);
+                return null;
             });
 
-            if (response.ok) {
+            const [formspreeRes, backendRes] = await Promise.all([formspreePromise, backendPromise]);
+
+            if (formspreeRes.ok || (backendRes && backendRes.ok)) {
                 setSubmitSuccess(true);
                 localStorage.removeItem('pameltex_intake_draft');
             } else {
-                // Fallback to direct Formspree relay if local backend is unconfigured
-                const fallbackResponse = await fetch(`https://formspree.io/f/${formspreeId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                    body: JSON.stringify(clinicalPayload)
-                });
-                if (fallbackResponse.ok) {
-                    setSubmitSuccess(true);
-                    localStorage.removeItem('pameltex_intake_draft');
-                } else {
-                    throw new Error('Failed to transmit clinical intake form. Please contact our clinic directly.');
-                }
+                const errData = await formspreeRes.json().catch(() => ({}));
+                throw new Error(errData.error || 'Failed to transmit clinical intake form. Please contact our clinic directly at info@academyfoundations.com.');
             }
         } catch (err) {
             console.error('Submission error:', err);
