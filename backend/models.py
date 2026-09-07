@@ -316,3 +316,91 @@ class CRMActivityLog(BaseModel):
     action: str  # client_created, intake_received, client_updated, note_created, note_updated, note_deleted, booking_created, booking_rescheduled, booking_cancelled, booking_completed, booking_no_show, email_sent, email_failed, whatsapp_sent, whatsapp_failed
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=now_iso)
+
+# ==================== Corporate Organisation & HR Models ====================
+
+HR_MIN_REPORTING_COUNT = 5  # Privacy threshold: buckets with fewer records are suppressed
+
+class Organisation(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    name: str
+    code: str  # Unique code e.g. "CORP-LETS"
+    status: str = "active"  # active, inactive, suspended
+    contract_start: Optional[str] = None  # YYYY-MM-DD
+    contract_end: Optional[str] = None    # YYYY-MM-DD
+    allocated_sessions: Optional[int] = None  # Contract session pool
+    contact_person: Optional[str] = None
+    contact_email: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+class OrganisationCreate(BaseModel):
+    name: str
+    code: str
+    status: str = "active"
+    contract_start: Optional[str] = None
+    contract_end: Optional[str] = None
+    allocated_sessions: Optional[int] = None
+    contact_person: Optional[str] = None
+    contact_email: Optional[str] = None
+    notes: Optional[str] = None
+
+class OrganisationUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    status: Optional[str] = None
+    contract_start: Optional[str] = None
+    contract_end: Optional[str] = None
+    allocated_sessions: Optional[int] = None
+    contact_person: Optional[str] = None
+    contact_email: Optional[str] = None
+    notes: Optional[str] = None
+
+class OrganisationUser(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    organisation_id: str
+    user_id: str  # Maps to USERS_DB username/sub
+    email: str
+    name: str
+    role: str = "hr_admin"  # hr_admin, hr_viewer
+    active: bool = True
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+class OrganisationUserCreate(BaseModel):
+    username: str
+    password: str
+    email: str
+    name: str
+    role: str = "hr_admin"  # hr_admin, hr_viewer
+
+class AggregateMetric(BaseModel):
+    count: Optional[int] = None
+    display: str  # e.g. "42", "<5", "0"
+    suppressed: bool = False
+
+class HRContractStatus(BaseModel):
+    organisation_id: str
+    organisation_name: str
+    contract_status: str
+    contract_start: Optional[str] = None
+    contract_end: Optional[str] = None
+    allocated_sessions: Optional[int] = None
+    sessions_used: int
+    sessions_remaining: Optional[int] = None
+    utilisation_percentage: Optional[float] = None
+    is_configured: bool = False
+
+class HRDashboardResponse(BaseModel):
+    organisation_id: str
+    organisation_name: str
+    period: str
+    total_sessions: AggregateMetric
+    completed: AggregateMetric
+    cancelled: AggregateMetric
+    no_show: AggregateMetric
+    session_types: Dict[str, AggregateMetric]
+    session_modes: Dict[str, AggregateMetric]
+    contract: HRContractStatus
+    privacy_notice: str = "All counts below the privacy threshold (5) are masked to safeguard employee anonymity."

@@ -24,6 +24,7 @@ from routers.crm_router import crm_router
 from routers.booking_router import booking_router
 from routers.therapist_router import therapist_router
 from routers.admin_router import admin_router
+from routers.hr_router import hr_router
 
 # ----------------- Environment & Configuration -----------------
 ROOT_DIR = Path(__file__).parent
@@ -328,6 +329,7 @@ async def login(request: Request, payload: Optional[LoginRequest] = None, userna
     request.session['role'] = user["role"]
     request.session['name'] = user["name"]
     request.session['therapist_id'] = user.get("therapist_id")
+    request.session['organisation_id'] = user.get("organisation_id")
     request.session['login_time'] = now_iso()
     
     return {
@@ -335,7 +337,8 @@ async def login(request: Request, payload: Optional[LoginRequest] = None, userna
         "user": user_key,
         "name": user["name"],
         "role": user["role"],
-        "therapist_id": user.get("therapist_id")
+        "therapist_id": user.get("therapist_id"),
+        "organisation_id": user.get("organisation_id")
     }
 
 @api_router.post("/logout")
@@ -349,7 +352,8 @@ async def get_me(user: Dict = Depends(get_current_user_session)):
         "user_id": user["user_id"],
         "name": user["name"],
         "role": user["role"],
-        "therapist_id": user.get("therapist_id")
+        "therapist_id": user.get("therapist_id"),
+        "organisation_id": user.get("organisation_id")
     }
 
 # --- Marketing / Contact Endpoints ---
@@ -439,6 +443,7 @@ api_router.include_router(crm_router)
 api_router.include_router(booking_router)
 api_router.include_router(therapist_router)
 api_router.include_router(admin_router)
+api_router.include_router(hr_router)
 
 app.include_router(api_router)
 

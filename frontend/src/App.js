@@ -38,6 +38,16 @@ import AdminBookings from "@/admin/pages/AdminBookings";
 import AdminCalendar from "@/admin/pages/AdminCalendar";
 import AdminTherapists from "@/admin/pages/AdminTherapists";
 import AdminSettings from "@/admin/pages/AdminSettings";
+import AdminOrganisations from "@/admin/pages/AdminOrganisations";
+
+// Corporate HR Aggregate-Only Portal Components
+import { HRAuthProvider } from "@/hr/HRAuthContext";
+import HRLayout from "@/hr/HRLayout";
+import HRLogin from "@/hr/pages/HRLogin";
+import HRDashboard from "@/hr/pages/HRDashboard";
+import HRContract from "@/hr/pages/HRContract";
+import HRUtilisation from "@/hr/pages/HRUtilisation";
+import HRReports from "@/hr/pages/HRReports";
 
 function App() {
   return (
@@ -45,6 +55,16 @@ function App() {
       <AdminAuthProvider>
         <BrowserRouter>
           <Routes>
+            {/* ================= Protected Corporate HR Portal Routes ================= */}
+            <Route path="/hr/login" element={<HRAuthProvider><HRLogin /></HRAuthProvider>} />
+            <Route path="/hr" element={<HRAuthProvider><HRLayout /></HRAuthProvider>}>
+              <Route index element={<Navigate to="/hr/dashboard" replace />} />
+              <Route path="dashboard" element={<HRDashboard />} />
+              <Route path="contract" element={<HRContract />} />
+              <Route path="utilisation" element={<HRUtilisation />} />
+              <Route path="reports" element={<HRReports />} />
+            </Route>
+
             {/* ================= Protected Admin CRM & Booking Routes ================= */}
             <Route path="/admin/login" element={<AdminLogin />} />
             
@@ -57,6 +77,7 @@ function App() {
               <Route path="bookings" element={<AdminBookings />} />
               <Route path="calendar" element={<AdminCalendar />} />
               <Route path="therapists" element={<AdminTherapists />} />
+              <Route path="organisations" element={<AdminOrganisations />} />
               <Route path="settings" element={<AdminSettings />} />
             </Route>
 
