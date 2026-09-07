@@ -39,6 +39,9 @@ import AdminCalendar from "@/admin/pages/AdminCalendar";
 import AdminTherapists from "@/admin/pages/AdminTherapists";
 import AdminSettings from "@/admin/pages/AdminSettings";
 import AdminOrganisations from "@/admin/pages/AdminOrganisations";
+import AdminInvoices from "@/admin/pages/AdminInvoices";
+import AdminInvoiceCreate from "@/admin/pages/AdminInvoiceCreate";
+import AdminInvoiceDetail from "@/admin/pages/AdminInvoiceDetail";
 
 // Corporate HR Aggregate-Only Portal Components
 import { HRAuthProvider } from "@/hr/HRAuthContext";
@@ -48,6 +51,7 @@ import HRDashboard from "@/hr/pages/HRDashboard";
 import HRContract from "@/hr/pages/HRContract";
 import HRUtilisation from "@/hr/pages/HRUtilisation";
 import HRReports from "@/hr/pages/HRReports";
+import HRInvoices from "@/hr/pages/HRInvoices";
 
 function App() {
   return (
@@ -63,6 +67,7 @@ function App() {
               <Route path="contract" element={<HRContract />} />
               <Route path="utilisation" element={<HRUtilisation />} />
               <Route path="reports" element={<HRReports />} />
+              <Route path="invoices" element={<HRInvoices />} />
             </Route>
 
             {/* ================= Protected Admin CRM & Booking Routes ================= */}
@@ -78,6 +83,9 @@ function App() {
               <Route path="calendar" element={<AdminCalendar />} />
               <Route path="therapists" element={<AdminTherapists />} />
               <Route path="organisations" element={<AdminOrganisations />} />
+              <Route path="invoices" element={<AdminInvoices />} />
+              <Route path="invoices/new" element={<AdminInvoiceCreate />} />
+              <Route path="invoices/:id" element={<AdminInvoiceDetail />} />
               <Route path="settings" element={<AdminSettings />} />
             </Route>
 

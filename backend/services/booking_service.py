@@ -475,6 +475,13 @@ class BookingService:
         if request.status not in valid_statuses:
             return None, f"Invalid status '{request.status}'. Must be one of {valid_statuses}."
 
+        # Financial integrity check: Prevent altering status if booking is locked in an issued or paid invoice
+        active_inv_id = booking_doc.get("active_invoice_id")
+        if active_inv_id and request.status != booking_doc.get("status"):
+            inv = await db.invoices.find_one({"id": active_inv_id})
+            if inv and inv.get("status") in ["issued", "paid"]:
+                return None, f"Booking status cannot be altered: it is locked in historical {inv.get('status')} invoice {inv.get('invoice_number', active_inv_id)}."
+
         update_fields = {
             "status": request.status,
             "updated_at": now_iso()

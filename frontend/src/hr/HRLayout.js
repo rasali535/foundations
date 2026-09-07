@@ -11,7 +11,8 @@ import {
   ShieldCheck,
   Menu,
   X,
-  Lock
+  Lock,
+  Receipt
 } from 'lucide-react';
 
 const HRLayout = () => {
@@ -57,7 +58,8 @@ const HRLayout = () => {
     { label: 'Dashboard', path: '/hr/dashboard', icon: LayoutDashboard },
     { label: 'Contract Overview', path: '/hr/contract', icon: FileCheck2 },
     { label: 'Utilisation Trends', path: '/hr/utilisation', icon: TrendingUp },
-    { label: 'Aggregate Reports', path: '/hr/reports', icon: BarChart3 }
+    { label: 'Aggregate Reports', path: '/hr/reports', icon: BarChart3 },
+    { label: 'Invoices', path: '/hr/invoices', icon: Receipt }
   ];
 
   const handleLogout = async () => {

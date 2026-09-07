@@ -15,7 +15,8 @@ import {
   ChevronRight,
   Sparkles,
   ExternalLink,
-  Building2
+  Building2,
+  Receipt
 } from 'lucide-react';
 
 const AdminLayout = () => {
@@ -64,6 +65,7 @@ const AdminLayout = () => {
     { label: 'Calendar', path: '/admin/calendar', icon: Calendar },
     { label: 'Therapists', path: '/admin/therapists', icon: UserCheck, roles: ['super_admin', 'admin', 'clinical_admin', 'staff'] },
     { label: 'Corporate Partners', path: '/admin/organisations', icon: Building2, roles: ['super_admin', 'admin'] },
+    { label: 'Invoices', path: '/admin/invoices', icon: Receipt, roles: ['super_admin', 'admin'] },
     { label: 'Settings & Audit', path: '/admin/settings', icon: Settings, roles: ['super_admin', 'admin'] }
   ];
 

@@ -230,6 +230,7 @@ class Booking(BaseModel):
     rescheduled_from_id: Optional[str] = None
     participants: List[BookingParticipant] = Field(default_factory=list)
     notes: Optional[str] = None
+    active_invoice_id: Optional[str] = None  # Reference to linked active invoice (draft, issued, paid)
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
@@ -407,3 +408,86 @@ class HRDashboardResponse(BaseModel):
     contract: HRContractStatus
     detailed_breakdown_available: bool = True
     privacy_notice: str = "All counts below the privacy threshold (5) are masked to safeguard employee anonymity."
+
+# ==================== Corporate Billing & Invoice Models ====================
+
+from decimal import Decimal
+
+SESSION_RATES: Dict[str, Decimal] = {
+    "individual": Decimal("350.00"),
+    "couple": Decimal("600.00"),
+    "family": Decimal("600.00")
+}
+DEFAULT_CURRENCY: str = "BWP"
+
+SESSION_TYPE_DESCRIPTIONS: Dict[str, str] = {
+    "individual": "Individual Counselling",
+    "couple": "Couple Counselling",
+    "family": "Family Counselling"
+}
+
+class InvoiceItem(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    invoice_id: str
+    session_type: str  # individual, couple, family
+    description: str
+    quantity: int
+    unit_price: float
+    line_total: float
+    created_at: str = Field(default_factory=now_iso)
+
+class InvoiceBookingLink(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    invoice_id: str
+    booking_id: str
+    session_type: str
+    starts_at: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+
+class Invoice(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    invoice_number: str  # e.g. "FCA-INV-2026-0001"
+    organisation_id: str
+    organisation_name: str
+    billing_period_start: str  # YYYY-MM-DD
+    billing_period_end: str    # YYYY-MM-DD
+    currency: str = "BWP"
+    subtotal: float
+    total: float
+    total_sessions: int
+    status: str = "draft"  # draft, issued, paid, cancelled
+    issued_at: Optional[str] = None
+    due_date: Optional[str] = None
+    paid_at: Optional[str] = None
+    cancelled_at: Optional[str] = None
+    cancellation_reason: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+class InvoicePreviewItem(BaseModel):
+    session_type: str
+    description: str
+    quantity: int
+    unit_price: float
+    line_total: float
+
+class InvoicePreviewResponse(BaseModel):
+    organisation_id: str
+    organisation_name: str
+    billing_period_start: str
+    billing_period_end: str
+    currency: str = "BWP"
+    items: List[InvoicePreviewItem]
+    total_sessions: int
+    subtotal: float
+    total: float
+
+class InvoiceCreateRequest(BaseModel):
+    organisation_id: str
+    billing_period_start: str  # YYYY-MM-DD
+    billing_period_end: str    # YYYY-MM-DD
+    due_date: Optional[str] = None
+
+class InvoiceCancelRequest(BaseModel):
+    reason: Optional[str] = "Cancelled by admin"
