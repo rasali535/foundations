@@ -317,7 +317,25 @@ async def login(request: Request, payload: Optional[LoginRequest] = None, userna
     user_key = raw_key.strip().lower() if raw_key else ""
     user_pass = payload.password if payload else password
 
-    if not user_key or user_key not in USERS_DB:
+    target_db = request.app.state.db if hasattr(request.app.state, 'db') and request.app.state.db is not None else db
+    if not user_key:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
+
+    if user_key not in USERS_DB and target_db is not None:
+        try:
+            db_user = await target_db.organisation_users.find_one({"user_id": user_key})
+            if db_user and db_user.get("password_hash"):
+                USERS_DB[user_key] = {
+                    "password_hash": db_user["password_hash"],
+                    "role": db_user.get("role", "hr_admin"),
+                    "name": db_user.get("name", user_key),
+                    "organisation_id": db_user.get("organisation_id"),
+                    "therapist_id": None
+                }
+        except Exception:
+            pass
+
+    if user_key not in USERS_DB:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
     
     user = USERS_DB[user_key]

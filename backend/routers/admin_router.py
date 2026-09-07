@@ -132,15 +132,16 @@ async def create_organisation_user(org_id: str, payload: OrganisationUserCreate,
     if username in USERS_DB:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Username '{username}' already exists.")
     
+    pwd_hash = bcrypt.hashpw(payload.password.strip().encode(), bcrypt.gensalt()).decode()
     USERS_DB[username] = {
-        "password_hash": bcrypt.hashpw(payload.password.strip().encode(), bcrypt.gensalt()).decode(),
+        "password_hash": pwd_hash,
         "role": payload.role,
         "name": payload.name.strip(),
         "therapist_id": None,
         "organisation_id": org_id
     }
     
-    return await HRReportingService.create_organisation_user(db, org_id, payload)
+    return await HRReportingService.create_organisation_user(db, org_id, payload, password_hash=pwd_hash)
 
 @admin_router.get("/organisations/{org_id}/users", response_model=List[OrganisationUser])
 async def list_organisation_users(org_id: str, request: Request, user: Dict = Depends(require_admin)):

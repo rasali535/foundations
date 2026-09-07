@@ -364,6 +364,7 @@ class OrganisationUser(BaseModel):
     email: str
     name: str
     role: str = "hr_admin"  # hr_admin, hr_viewer
+    password_hash: Optional[str] = None
     active: bool = True
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)

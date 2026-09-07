@@ -157,13 +157,19 @@ class HRReportingService:
         return await HRReportingService.get_organisation(db, org_id)
 
     @staticmethod
-    async def create_organisation_user(db: AsyncIOMotorDatabase, org_id: str, payload: OrganisationUserCreate) -> OrganisationUser:
+    async def create_organisation_user(
+        db: AsyncIOMotorDatabase,
+        org_id: str,
+        payload: OrganisationUserCreate,
+        password_hash: Optional[str] = None
+    ) -> OrganisationUser:
         org_user = OrganisationUser(
             organisation_id=org_id,
             user_id=payload.username.strip().lower(),
             email=payload.email.strip().lower(),
             name=payload.name.strip(),
             role=payload.role,
+            password_hash=password_hash,
             active=True
         )
         await db.organisation_users.insert_one(org_user.model_dump())
