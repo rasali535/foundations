@@ -8,6 +8,7 @@ from services.crm_service import CRMService
 from services.intake_service import IntakeService
 from services.therapist_service import TherapistService
 from services.booking_service import BookingService
+from services.audit_service import AuditService
 from datetime import datetime, timezone, timedelta
 
 crm_router = APIRouter(prefix="/crm", tags=["CRM"])
@@ -22,24 +23,69 @@ def get_current_user(request: Request) -> Dict[str, Any]:
         role = request.session.get("role")
         if not user_id:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
-        user = {"user_id": user_id, "role": role, "name": request.session.get("name", user_id)}
+        user = {
+            "user_id": user_id,
+            "role": role,
+            "name": request.session.get("name", user_id),
+            "therapist_id": request.session.get("therapist_id")
+        }
     return user
 
 def require_crm_access(request: Request):
     user = get_current_user(request)
-    allowed = ["super_admin", "admin", "staff", "clinical_admin"]
+    allowed = ["super_admin", "admin", "staff", "clinical_admin", "therapist"]
     if user.get("role") not in allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to CRM operations")
     return user
+
+async def is_therapist_assigned_to_client(db, therapist_id: Optional[str], client_id: str) -> bool:
+    if not therapist_id or not client_id:
+        return False
+    booking = await db.bookings.find_one({"client_id": client_id, "therapist_id": therapist_id})
+    return bool(booking)
 
 # ==================== Dashboard Operational Metrics ====================
 @crm_router.get("/dashboard")
 async def get_crm_dashboard(request: Request, user: Dict = Depends(require_crm_access)):
     db = get_db(request)
+    role = user.get("role")
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999).isoformat()
     week_end = (now + timedelta(days=7)).isoformat()
+
+    if role == "therapist":
+        therapist_id = user.get("therapist_id")
+        assigned_client_ids = await db.bookings.distinct("client_id", {"therapist_id": therapist_id})
+        today_bookings_cursor = db.bookings.find({
+            "therapist_id": therapist_id,
+            "starts_at": {"$gte": today_start, "$lte": today_end}
+        }, {"_id": 0}).sort("starts_at", 1)
+        today_bookings = await today_bookings_cursor.to_list(100)
+
+        upcoming_count = await db.bookings.count_documents({
+            "therapist_id": therapist_id,
+            "starts_at": {"$gte": today_start, "$lte": week_end},
+            "status": {"$in": ["confirmed", "pending"]}
+        })
+
+        recent_clients_cursor = db.crm_clients.find({"id": {"$in": assigned_client_ids}}, {"_id": 0}).sort("created_at", -1).limit(5)
+        recent_clients = await recent_clients_cursor.to_list(5)
+
+        return {
+            "kpis": {
+                "total_clients": len(assigned_client_ids),
+                "total_intakes": 0,
+                "today_appointments_count": len(today_bookings),
+                "upcoming_appointments_count": upcoming_count,
+                "cancellations_count": 0,
+                "no_show_count": 0
+            },
+            "today_bookings": today_bookings,
+            "recent_clients": recent_clients,
+            "recent_intakes": [],
+            "recent_activity": []
+        }
 
     total_clients = await db.crm_clients.count_documents({})
     total_intakes = await db.crm_intake_submissions.count_documents({})
@@ -65,8 +111,11 @@ async def get_crm_dashboard(request: Request, user: Dict = Depends(require_crm_a
     recent_clients = await recent_clients_cursor.to_list(5)
 
     # Recent Intakes
-    recent_intakes_cursor = db.crm_intake_submissions.find({}, {"_id": 0}).sort("created_at", -1).limit(5)
-    recent_intakes = await recent_intakes_cursor.to_list(5)
+    if role == "staff":
+        recent_intakes = []
+    else:
+        recent_intakes_cursor = db.crm_intake_submissions.find({}, {"_id": 0}).sort("created_at", -1).limit(5)
+        recent_intakes = await recent_intakes_cursor.to_list(5)
 
     # Recent Activity
     recent_activity_cursor = db.crm_activity_log.find({}, {"_id": 0}).sort("created_at", -1).limit(10)
@@ -75,7 +124,7 @@ async def get_crm_dashboard(request: Request, user: Dict = Depends(require_crm_a
     return {
         "kpis": {
             "total_clients": total_clients,
-            "total_intakes": total_intakes,
+            "total_intakes": total_intakes if role != "staff" else 0,
             "today_appointments_count": len(today_bookings),
             "upcoming_appointments_count": upcoming_count,
             "cancellations_count": cancellations_count,
@@ -99,7 +148,23 @@ async def list_clients(
     user: Dict = Depends(require_crm_access)
 ):
     db = get_db(request)
+    role = user.get("role")
     skip = (page - 1) * limit
+
+    if role == "therapist":
+        therapist_id = user.get("therapist_id")
+        assigned_client_ids = await db.bookings.distinct("client_id", {"therapist_id": therapist_id})
+        clients, total = await CRMService.search_clients(
+            db, query=query, status=status, organisation_id=organisation_id, skip=skip, limit=limit, client_ids_filter=assigned_client_ids
+        )
+        return {
+            "clients": clients,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": (total + limit - 1) // limit if total > 0 else 1
+        }
+
     clients, total = await CRMService.search_clients(
         db, query=query, status=status, organisation_id=organisation_id, skip=skip, limit=limit
     )
@@ -117,6 +182,8 @@ async def create_client_manual(
     request: Request,
     user: Dict = Depends(require_crm_access)
 ):
+    if user.get("role") == "therapist":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Therapist cannot create clients manually")
     db = get_db(request)
     client, _ = await CRMService.find_or_create_client(
         db,
@@ -133,22 +200,43 @@ async def get_client_profile(
     user: Dict = Depends(require_crm_access)
 ):
     db = get_db(request)
+    role = user.get("role")
+
+    # Access control for therapist: must be assigned via booking
+    if role == "therapist":
+        therapist_id = user.get("therapist_id")
+        assigned = await is_therapist_assigned_to_client(db, therapist_id, client_id)
+        if not assigned:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. Therapist is not assigned to this client."
+            )
+
     client = await CRMService.get_client_by_id(db, client_id)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    # Fetch Intakes
-    intakes = await IntakeService.get_client_intakes(db, client_id)
+    # Staff role does not have complete clinical intake access
+    if role == "staff":
+        intakes = []
+    else:
+        intakes = await IntakeService.get_client_intakes(db, client_id)
 
-    # Fetch Bookings
-    bookings, _ = await BookingService.list_bookings(db, client_id=client_id, limit=100)
+    # Bookings: If therapist, filter to therapist's sessions
+    if role == "therapist":
+        bookings, _ = await BookingService.list_bookings(db, client_id=client_id, therapist_id=user.get("therapist_id"), limit=100)
+    else:
+        bookings, _ = await BookingService.list_bookings(db, client_id=client_id, limit=100)
 
     # Fetch CRM Notes
     notes = await CRMService.list_notes(db, client_id)
 
-    # Fetch Activity Log
-    activity_cursor = db.crm_activity_log.find({"client_id": client_id}, {"_id": 0}).sort("created_at", -1).limit(50)
-    activity_logs = await activity_cursor.to_list(50)
+    # Activity Log
+    if role == "therapist":
+        activity_logs = []
+    else:
+        activity_cursor = db.crm_activity_log.find({"client_id": client_id}, {"_id": 0}).sort("created_at", -1).limit(50)
+        activity_logs = await activity_cursor.to_list(50)
 
     return {
         "client": client,
@@ -158,6 +246,71 @@ async def get_client_profile(
         "activity_logs": activity_logs
     }
 
+# ==================== Dedicated Intake Access Endpoints ====================
+@crm_router.get("/clients/{client_id}/intakes")
+async def list_client_intakes(
+    client_id: str,
+    request: Request,
+    user: Dict = Depends(require_crm_access)
+):
+    db = get_db(request)
+    role = user.get("role")
+
+    if role == "staff":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Staff role cannot access clinical intake submissions")
+    elif role == "therapist":
+        therapist_id = user.get("therapist_id")
+        assigned = await is_therapist_assigned_to_client(db, therapist_id, client_id)
+        if not assigned:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. Therapist is not assigned to this client."
+            )
+
+    client = await CRMService.get_client_by_id(db, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    intakes = await IntakeService.get_client_intakes(db, client_id)
+    return intakes
+
+@crm_router.get("/clients/{client_id}/intakes/{intake_id}")
+async def get_single_intake(
+    client_id: str,
+    intake_id: str,
+    request: Request,
+    user: Dict = Depends(require_crm_access)
+):
+    db = get_db(request)
+    role = user.get("role")
+
+    if role == "staff":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Staff role cannot access clinical intake submissions")
+    elif role == "therapist":
+        therapist_id = user.get("therapist_id")
+        assigned = await is_therapist_assigned_to_client(db, therapist_id, client_id)
+        if not assigned:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. Therapist is not assigned to this client."
+            )
+
+    intake_doc = await db.crm_intake_submissions.find_one({"id": intake_id, "client_id": client_id}, {"_id": 0})
+    if not intake_doc:
+        raise HTTPException(status_code=404, detail="Intake submission not found")
+
+    # Record immutable audit event (zero clinical content stored in audit metadata)
+    await AuditService.log_activity(
+        db,
+        action="intake_viewed",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        client_id=client_id,
+        metadata={"intake_id": intake_id}
+    )
+
+    return intake_doc
+
 @crm_router.put("/clients/{client_id}", response_model=CRMClient)
 async def update_client_profile(
     client_id: str,
@@ -165,6 +318,8 @@ async def update_client_profile(
     request: Request,
     user: Dict = Depends(require_crm_access)
 ):
+    if user.get("role") == "therapist":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Therapist cannot edit core client profile")
     db = get_db(request)
     updated = await CRMService.update_client(
         db, client_id, payload, actor_id=user.get("user_id"), actor_name=user.get("name")

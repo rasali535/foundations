@@ -178,9 +178,12 @@ class CRMService:
         status: Optional[str] = None,
         organisation_id: Optional[str] = None,
         skip: int = 0,
-        limit: int = 50
+        limit: int = 50,
+        client_ids_filter: Optional[List[str]] = None
     ) -> Tuple[List[CRMClient], int]:
         filter_dict: Dict[str, Any] = {}
+        if client_ids_filter is not None:
+            filter_dict["id"] = {"$in": client_ids_filter}
         if status:
             filter_dict["status"] = status
         if organisation_id:

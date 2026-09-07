@@ -54,6 +54,26 @@ const AdminClientDetail = () => {
   const [bookLoading, setBookLoading] = useState(false);
   const [bookError, setBookError] = useState('');
 
+  // Intake detail modal state (Read-Only)
+  const [selectedIntake, setSelectedIntake] = useState(null);
+  const [intakeModalOpen, setIntakeModalOpen] = useState(false);
+  const [intakeLoading, setIntakeLoading] = useState(false);
+
+  const handleOpenIntake = async (intakeId) => {
+    setIntakeLoading(true);
+    setIntakeModalOpen(true);
+    try {
+      const res = await api.get(`/crm/clients/${id}/intakes/${intakeId}`);
+      setSelectedIntake(res.data);
+    } catch (err) {
+      console.warn('Could not fetch single intake details:', err);
+      const local = (profile?.intakes || []).find(i => i.id === intakeId);
+      setSelectedIntake(local || null);
+    } finally {
+      setIntakeLoading(false);
+    }
+  };
+
   const fetchProfile = React.useCallback(async () => {
     setLoading(true);
     try {
@@ -370,57 +390,68 @@ const AdminClientDetail = () => {
               No intake forms recorded for this client.
             </div>
           ) : (
-            intakes.map((intake, idx) => {
-              const sub = intake.submission_data || {};
-              const dt = formatSessionDateTime(intake.submitted_at || intake.created_at);
-              return (
-                <div key={intake.id} className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 space-y-4">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                    <div className="flex items-center gap-2.5">
-                      <FileText className="w-5 h-5 text-emerald-600" />
-                      <div>
-                        <h4 className="font-bold text-slate-900 text-sm">
-                          Intake Submission #{idx + 1}
-                        </h4>
-                        <span className="text-[11px] text-slate-400">Received on {dt.full}</span>
+            [...intakes]
+              .sort((a, b) => new Date(b.submitted_at || b.created_at) - new Date(a.submitted_at || a.created_at))
+              .map((intake, idx) => {
+                const sub = intake.submission_data || {};
+                const dt = formatSessionDateTime(intake.submitted_at || intake.created_at);
+                return (
+                  <div key={intake.id} className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                      <div className="flex items-center gap-2.5">
+                        <FileText className="w-5 h-5 text-emerald-600" />
+                        <div>
+                          <h4 className="font-bold text-slate-900 text-sm">
+                            Intake Submission #{intakes.length - idx}
+                          </h4>
+                          <span className="text-[11px] text-slate-400">Received on {dt.full}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {intake.is_high_risk ? (
+                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                            High Priority Escalation
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            Routine Counselling Triage
+                          </span>
+                        )}
+                        <button
+                          onClick={() => handleOpenIntake(intake.id)}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow transition inline-flex items-center gap-1.5"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>View Full Intake</span>
+                        </button>
                       </div>
                     </div>
-                    {intake.is_high_risk ? (
-                      <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300">
-                        High Priority Escalation
-                      </span>
-                    ) : (
-                      <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-300">
-                        Routine Counselling Triage
-                      </span>
-                    )}
-                  </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                    <div className="p-3 bg-slate-50 rounded-xl space-y-1.5">
-                      <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Reason for Seeking Therapy</p>
-                      <p className="text-slate-800 font-medium">{sub.reason_for_seeking_therapy || sub.reason || 'None specified'}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                      <div className="p-3 bg-slate-50 rounded-xl space-y-1.5">
+                        <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Reason for Seeking Therapy</p>
+                        <p className="text-slate-800 font-medium">{sub.reason_for_seeking_therapy || sub.reason || 'None specified'}</p>
+                      </div>
+                      <div className="p-3 bg-slate-50 rounded-xl space-y-1.5">
+                        <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Emergency Contact</p>
+                        <p className="text-slate-800">
+                          {sub.emergency_contact_name || sub.emergency_name || 'N/A'} ({sub.emergency_contact_relationship || sub.emergency_relationship || 'Relation'}) • {sub.emergency_contact_phone || sub.emergency_phone || 'N/A'}
+                        </p>
+                      </div>
                     </div>
-                    <div className="p-3 bg-slate-50 rounded-xl space-y-1.5">
-                      <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Emergency Contact</p>
-                      <p className="text-slate-800">
-                        {sub.emergency_contact_name || sub.emergency_name || 'N/A'} ({sub.emergency_contact_relationship || sub.emergency_relationship || 'Relation'}) • {sub.emergency_contact_phone || sub.emergency_phone || 'N/A'}
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="p-3 bg-slate-50 rounded-xl space-y-1 text-xs">
-                    <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Safety & Wellbeing Screen</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px]">
-                      <div>Self Harm: <strong>{sub.safety_screen?.self_harm || sub.self_harm || 'No'}</strong></div>
-                      <div>Harm Others: <strong>{sub.safety_screen?.harm_others || sub.harm_others || 'No'}</strong></div>
-                      <div>Unsafe Env: <strong>{sub.safety_screen?.unsafe_environment || sub.unsafe || 'No'}</strong></div>
-                      <div>Abuse: <strong>{sub.safety_screen?.abuse_experienced || sub.abuse || 'No'}</strong></div>
+                    <div className="p-3 bg-slate-50 rounded-xl space-y-1 text-xs">
+                      <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Safety & Wellbeing Screen</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px]">
+                        <div>Self Harm: <strong className={sub.self_harm === 'Yes' || sub.safety_screen?.self_harm === 'Yes' ? 'text-rose-600 font-bold' : ''}>{sub.safety_screen?.self_harm || sub.self_harm || 'No'}</strong></div>
+                        <div>Harm Others: <strong className={sub.harm_others === 'Yes' || sub.safety_screen?.harm_others === 'Yes' ? 'text-rose-600 font-bold' : ''}>{sub.safety_screen?.harm_others || sub.harm_others || 'No'}</strong></div>
+                        <div>Unsafe Env: <strong className={sub.unsafe === 'Yes' || sub.safety_screen?.unsafe_environment === 'Yes' ? 'text-rose-600 font-bold' : ''}>{sub.safety_screen?.unsafe_environment || sub.unsafe || 'No'}</strong></div>
+                        <div>Abuse: <strong className={sub.abuse === 'Yes' || sub.safety_screen?.abuse_experienced === 'Yes' ? 'text-rose-600 font-bold' : ''}>{sub.safety_screen?.abuse_experienced || sub.abuse || 'No'}</strong></div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })
+                );
+              })
           )}
         </div>
       )}
@@ -646,6 +677,271 @@ const AdminClientDetail = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Read-Only Intake Submission Modal */}
+      {intakeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-3xl max-h-[90vh] rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-fadeIn">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base">
+                    Client Intake Form Record
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {selectedIntake?.submitted_at
+                      ? `Submitted: ${formatSessionDateTime(selectedIntake.submitted_at).full}`
+                      : 'Historical Client Record'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {selectedIntake?.is_high_risk ? (
+                  <span className="px-3 py-1 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5" /> High Risk
+                  </span>
+                ) : (
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Standard Triage
+                  </span>
+                )}
+                <button
+                  onClick={() => {
+                    setIntakeModalOpen(false);
+                    setSelectedIntake(null);
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200/60 transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Content (Scrollable) */}
+            <div className="p-6 overflow-y-auto space-y-6 text-slate-800 text-xs">
+              {intakeLoading ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-2">
+                  <div className="w-8 h-8 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-slate-400">Loading intake record...</p>
+                </div>
+              ) : selectedIntake ? (
+                (() => {
+                  const sub = selectedIntake.submission_data || {};
+                  const safety = sub.safety_screen || {};
+                  return (
+                    <div className="space-y-6">
+                      {/* Notice Banner */}
+                      <div className="p-3 bg-amber-50 border border-amber-200/80 rounded-xl text-amber-800 text-xs flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 shrink-0 text-amber-600" />
+                        <span>This is an official immutable client intake submission. All viewing access is logged for clinical compliance.</span>
+                      </div>
+
+                      {/* Section 1: Client Information */}
+                      <div className="space-y-2">
+                        <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider text-emerald-700 flex items-center gap-1.5 pb-1 border-b border-slate-100">
+                          <User className="w-3.5 h-3.5" /> Client Identification & Demographics
+                        </h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3 bg-slate-50 rounded-xl">
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold">Full Name</span>
+                            <span className="font-bold text-slate-900">{sub.full_name || `${client.first_name} ${client.last_name}`}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold">Date of Birth / Age</span>
+                            <span className="font-semibold text-slate-800">{sub.dob || client.date_of_birth || 'N/A'} {sub.age ? `(${sub.age} yrs)` : ''}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold">Gender</span>
+                            <span className="font-semibold text-slate-800">{sub.gender || 'Not specified'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold">Phone Number</span>
+                            <span className="font-semibold text-slate-800">{sub.phone || client.phone || 'N/A'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold">Email Address</span>
+                            <span className="font-semibold text-slate-800">{sub.email || client.email || 'N/A'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold">Preferred Contact / Location</span>
+                            <span className="font-semibold text-slate-800">{sub.contact_method || 'Phone'} • {sub.location || client.location || 'N/A'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 2: Emergency Contact */}
+                      <div className="space-y-2">
+                        <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider text-emerald-700 flex items-center gap-1.5 pb-1 border-b border-slate-100">
+                          <Phone className="w-3.5 h-3.5" /> Emergency Contact
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-slate-50 rounded-xl">
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold">Contact Person</span>
+                            <span className="font-bold text-slate-900">{sub.emergency_contact_name || sub.emergency_name || 'None provided'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold">Relationship</span>
+                            <span className="font-semibold text-slate-800">{sub.emergency_contact_relationship || sub.emergency_relationship || 'N/A'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold">Emergency Phone</span>
+                            <span className="font-semibold text-slate-800">{sub.emergency_contact_phone || sub.emergency_phone || 'N/A'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 3: Reason for Seeking Support & Areas */}
+                      <div className="space-y-2">
+                        <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider text-emerald-700 flex items-center gap-1.5 pb-1 border-b border-slate-100">
+                          <FileText className="w-3.5 h-3.5" /> Reason for Seeking Support
+                        </h4>
+                        <div className="p-4 bg-slate-50 rounded-xl space-y-3">
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold mb-1">Primary Reason / Background</span>
+                            <p className="text-slate-800 whitespace-pre-wrap leading-relaxed font-medium">
+                              {sub.reason_for_seeking_therapy || sub.reason || 'None provided'}
+                            </p>
+                          </div>
+                          {Array.isArray(sub.support) && sub.support.length > 0 && (
+                            <div>
+                              <span className="text-[10px] text-slate-400 block font-semibold mb-1.5">Areas of Support Requested</span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {sub.support.map((item, i) => (
+                                  <span key={i} className="px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[11px] font-semibold">
+                                    {item}
+                                  </span>
+                                ))}
+                                {sub.support_other && (
+                                  <span className="px-2.5 py-0.5 rounded-md bg-teal-100 text-teal-800 text-[11px] font-semibold">
+                                    Other: {sub.support_other}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Section 4: Safety & Wellbeing Screening */}
+                      <div className="space-y-2">
+                        <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider text-rose-700 flex items-center gap-1.5 pb-1 border-b border-slate-100">
+                          <AlertCircle className="w-3.5 h-3.5" /> Safety & Wellbeing Screening
+                        </h4>
+                        <div className="p-4 bg-slate-50 rounded-xl space-y-3">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                              <span className="text-[10px] text-slate-400 block font-semibold">Self-Harm Thoughts</span>
+                              <span className={`text-xs font-bold ${
+                                sub.self_harm === 'Yes' || safety.self_harm === 'Yes' ? 'text-rose-600' : 'text-slate-800'
+                              }`}>
+                                {safety.self_harm || sub.self_harm || 'No'}
+                              </span>
+                            </div>
+                            <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                              <span className="text-[10px] text-slate-400 block font-semibold">Harm to Others</span>
+                              <span className={`text-xs font-bold ${
+                                sub.harm_others === 'Yes' || safety.harm_others === 'Yes' ? 'text-rose-600' : 'text-slate-800'
+                              }`}>
+                                {safety.harm_others || sub.harm_others || 'No'}
+                              </span>
+                            </div>
+                            <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                              <span className="text-[10px] text-slate-400 block font-semibold">Unsafe Environment</span>
+                              <span className={`text-xs font-bold ${
+                                sub.unsafe === 'Yes' || safety.unsafe_environment === 'Yes' ? 'text-rose-600' : 'text-slate-800'
+                              }`}>
+                                {safety.unsafe_environment || sub.unsafe || 'No'}
+                              </span>
+                            </div>
+                            <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                              <span className="text-[10px] text-slate-400 block font-semibold">Abuse / Violence</span>
+                              <span className={`text-xs font-bold ${
+                                sub.abuse === 'Yes' || safety.abuse_experienced === 'Yes' ? 'text-rose-600' : 'text-slate-800'
+                              }`}>
+                                {safety.abuse_experienced || sub.abuse || 'No'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {(sub.risk_details || safety.risk_details) && (
+                            <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-900">
+                              <span className="text-[10px] font-bold uppercase tracking-wider block text-rose-700">Risk Details & Immediate Context</span>
+                              <p className="mt-1">{sub.risk_details || safety.risk_details}</p>
+                            </div>
+                          )}
+
+                          {Array.isArray(sub.wellbeing_symptoms) && sub.wellbeing_symptoms.length > 0 && (
+                            <div>
+                              <span className="text-[10px] text-slate-400 block font-semibold mb-1.5">Reported Wellbeing Symptoms</span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {sub.wellbeing_symptoms.map((sym, i) => (
+                                  <span key={i} className="px-2 py-0.5 rounded bg-slate-200/80 text-slate-800 text-[11px]">
+                                    {sym}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Section 5: Prior Support & Declarations */}
+                      <div className="space-y-2">
+                        <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider text-emerald-700 flex items-center gap-1.5 pb-1 border-b border-slate-100">
+                          <Check className="w-3.5 h-3.5" /> Clinical History & Consent
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl">
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold">Previous Mental Health Support</span>
+                            <span className="font-semibold text-slate-800">
+                              {sub.previous_support_choice || 'No'} {sub.previous_support_details ? `— ${sub.previous_support_details}` : ''}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold">Current Medication</span>
+                            <span className="font-semibold text-slate-800">{sub.medication || 'No'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold">Consent Signatory</span>
+                            <span className="font-bold text-slate-900">{sub.consent_name || sub.signature || sub.full_name || 'Signed electronically'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-semibold">Consent Date</span>
+                            <span className="font-semibold text-slate-800">{sub.consent_date || 'On submission'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <p className="text-slate-400 text-center py-6">No intake record details found.</p>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+              <span className="text-[11px] text-slate-400">
+                Foundations Counselling & Advisory CRM • Confidential Clinical Record
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIntakeModalOpen(false);
+                  setSelectedIntake(null);
+                }}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-lg shadow transition"
+              >
+                Close Record
+              </button>
+            </div>
           </div>
         </div>
       )}

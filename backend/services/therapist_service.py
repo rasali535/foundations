@@ -8,14 +8,47 @@ from models import (
 )
 from services.audit_service import AuditService
 
-# Production contains no pre-seeded synthetic therapists.
-# Real therapists are configured dynamically by FCA Admin with capability flags.
-DEFAULT_THERAPISTS: List[Dict[str, Any]] = []
+# Two FCA Test Clinicians configured for booking tests and initial routing.
+# (Temporary test availability: Mon-Fri 08:00-17:00, editable via Admin portal).
+DEFAULT_THERAPISTS: List[Dict[str, Any]] = [
+    {
+        "id": "therapist-caroline-sithole",
+        "name": "Caroline Sithole",
+        "email": "caroline@academyfoundations.com",
+        "phone": "+267 71 000 001",
+        "active": True,
+        "supports_in_person": True,
+        "supports_virtual": False,  # Dedicated In-Person Therapist
+        "specializations": ["In-Person Individual Counselling", "Couple Therapy", "Family Systems"],
+        "working_days": [0, 1, 2, 3, 4],  # Mon-Fri
+        "working_hours_start": "08:00",
+        "working_hours_end": "17:00",
+        "slot_duration_minutes": 60,
+        "default_location": "FCA Central Clinic, Gaborone",
+        "virtual_meeting_link_template": None
+    },
+    {
+        "id": "therapist-alpheaus-chiwaze",
+        "name": "Alpheaus Chiwaze",
+        "email": "alpheaus@academyfoundations.com",
+        "phone": "+267 71 000 002",
+        "active": True,
+        "supports_in_person": False,  # Dedicated Virtual Therapist
+        "supports_virtual": True,
+        "specializations": ["Virtual Individual Counselling", "Corporate Wellness", "Digital Resilience"],
+        "working_days": [0, 1, 2, 3, 4],  # Mon-Fri
+        "working_hours_start": "08:00",
+        "working_hours_end": "17:00",
+        "slot_duration_minutes": 60,
+        "default_location": None,
+        "virtual_meeting_link_template": "https://meet.academyfoundations.com/room/alpheaus-chiwaze"
+    }
+]
 
 class TherapistService:
     @staticmethod
     async def seed_defaults_if_empty(db: AsyncIOMotorDatabase, therapists_list: Optional[List[Dict[str, Any]]] = None):
-        """Optional helper for test suites or manual bootstrap only."""
+        """Seeds default test clinicians if database is empty."""
         to_seed = therapists_list or DEFAULT_THERAPISTS
         if not to_seed:
             return
@@ -25,7 +58,7 @@ class TherapistService:
                 for t in to_seed:
                     t_doc = Therapist(**t).model_dump()
                     await db.therapists.insert_one(t_doc)
-                logging.info(f"Seeded {len(to_seed)} therapists into database.")
+                logging.info(f"Seeded {len(to_seed)} test therapists into database.")
         except Exception as e:
             logging.warning(f"Could not seed therapists: {e}")
 
@@ -35,6 +68,7 @@ class TherapistService:
         active_only: bool = False,
         session_mode: Optional[str] = None
     ) -> List[Therapist]:
+        await TherapistService.seed_defaults_if_empty(db)
         filter_dict: Dict[str, Any] = {}
         if active_only:
             filter_dict["active"] = True
@@ -49,6 +83,7 @@ class TherapistService:
 
     @staticmethod
     async def get_therapist_by_id(db: AsyncIOMotorDatabase, therapist_id: str) -> Optional[Therapist]:
+        await TherapistService.seed_defaults_if_empty(db)
         doc = await db.therapists.find_one({"id": therapist_id}, {"_id": 0})
         return Therapist(**doc) if doc else None
 

@@ -124,20 +124,25 @@ USERS_DB: Dict[str, Dict[str, Any]] = {}
 def bootstrap_super_admin():
     """
     Initializes the super_admin user ONLY if explicit environment credentials
-    (FCA_BOOTSTRAP_ADMIN_EMAIL and FCA_BOOTSTRAP_ADMIN_PASSWORD) are configured.
+    (FCA_BOOTSTRAP_ADMIN_EMAIL / FCA_BOOTSTRAP_ADMIN_PASSWORD or ADMIN_USER / ADMIN_PASSWORD)
+    are configured.
     No hardcoded, default, fallback, or domain-derived passwords are ever accepted.
     """
-    admin_email = os.environ.get("FCA_BOOTSTRAP_ADMIN_EMAIL")
-    admin_password = os.environ.get("FCA_BOOTSTRAP_ADMIN_PASSWORD")
+    admin_email = os.environ.get("FCA_BOOTSTRAP_ADMIN_EMAIL") or os.environ.get("ADMIN_USER")
+    admin_password = os.environ.get("FCA_BOOTSTRAP_ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
 
     if admin_email and admin_password and len(admin_password.strip()) >= 8:
         email_clean = admin_email.strip().lower()
-        USERS_DB[email_clean] = {
+        admin_data = {
             "password_hash": bcrypt.hashpw(admin_password.strip().encode(), bcrypt.gensalt()).decode(),
             "role": "super_admin",
             "name": "FCA System Administrator",
             "therapist_id": None
         }
+        USERS_DB[email_clean] = admin_data
+        if "@" in email_clean:
+            prefix = email_clean.split("@")[0]
+            USERS_DB[prefix] = admin_data
         logging.info(f"Initialized super_admin account for {email_clean}")
     else:
         logging.info("No bootstrap admin credentials provided in environment. User store initialized empty.")

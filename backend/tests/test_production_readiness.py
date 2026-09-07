@@ -468,16 +468,14 @@ async def test_notification_failure_non_blocking(readiness_app):
     notif_logs = await NotificationService.list_notifications(mock_db, client_id=client.id)
     assert len(notif_logs) >= 1
 
-# ==================== 8. Zero Production Therapist Fixtures Seeding ====================
+# ==================== 8. Authorized FCA Test Clinicians Configuration ====================
 @pytest.mark.asyncio
-async def test_no_production_therapist_fixtures_seeded():
-    client = AsyncMongoMockClient()
-    fresh_db = client["clean_fresh_production_db"]
-    # Verify DEFAULT_THERAPISTS is empty
-    assert len(DEFAULT_THERAPISTS) == 0
-    # Calling list_therapists on fresh database returns 0 records
-    therapists = await TherapistService.list_therapists(fresh_db)
-    assert len(therapists) == 0
+async def test_authorized_fca_test_clinicians_configured():
+    # Verify DEFAULT_THERAPISTS contains exactly the two authorized FCA test clinicians
+    assert len(DEFAULT_THERAPISTS) == 2
+    names = [t["name"] for t in DEFAULT_THERAPISTS]
+    assert "Caroline Sithole" in names
+    assert "Alpheaus Chiwaze" in names
 
 # ==================== 9. Admin Bootstrap Security Verification ====================
 @pytest.mark.asyncio
@@ -485,6 +483,8 @@ async def test_admin_bootstrap_security():
     # 1. Without credentials, no admin is created
     os.environ.pop("FCA_BOOTSTRAP_ADMIN_EMAIL", None)
     os.environ.pop("FCA_BOOTSTRAP_ADMIN_PASSWORD", None)
+    os.environ.pop("ADMIN_USER", None)
+    os.environ.pop("ADMIN_PASSWORD", None)
     USERS_DB.clear()
     bootstrap_super_admin()
     assert len(USERS_DB) == 0
@@ -501,4 +501,6 @@ async def test_admin_bootstrap_security():
     # Cleanup
     os.environ.pop("FCA_BOOTSTRAP_ADMIN_EMAIL", None)
     os.environ.pop("FCA_BOOTSTRAP_ADMIN_PASSWORD", None)
+    os.environ.pop("ADMIN_USER", None)
+    os.environ.pop("ADMIN_PASSWORD", None)
     USERS_DB.clear()
