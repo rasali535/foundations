@@ -1,17 +1,43 @@
 import pytest
 import pytest_asyncio
+import bcrypt
 from httpx import AsyncClient, ASGITransport
 from mongomock_motor import AsyncMongoMockClient
 from server import app, USERS_DB
-from services.therapist_service import TherapistService
+from models import Therapist
+
+TEST_THERAPIST_IN_PERSON = {
+    "id": "test-therapist-inperson",
+    "name": "Test In-Person Clinician",
+    "email": "clinician.inperson@example.com",
+    "phone": "+26771000001",
+    "active": True,
+    "supports_in_person": True,
+    "supports_virtual": False,
+    "specializations": ["Individual Counselling", "Couple Therapy"],
+    "working_days": [0, 1, 2, 3, 4],
+    "working_hours_start": "08:00",
+    "working_hours_end": "17:00",
+    "slot_duration_minutes": 60,
+    "default_location": "FCA Test Clinic",
+    "virtual_meeting_link_template": None
+}
 
 @pytest_asyncio.fixture
 async def test_app():
     # Inject mock database into app state
     client = AsyncMongoMockClient()
     mock_db = client["test_foundations_db"]
-    await TherapistService.seed_defaults_if_empty(mock_db)
+    await mock_db.therapists.insert_one(Therapist(**TEST_THERAPIST_IN_PERSON).model_dump())
     app.state.db = mock_db
+    
+    # Inject test admin user into session user store for test run
+    USERS_DB["admin"] = {
+        "password_hash": bcrypt.hashpw(b"adminpass123", bcrypt.gensalt()).decode(),
+        "role": "admin",
+        "name": "Test Operations Admin",
+        "therapist_id": None
+    }
     return app
 
 # ==================== Security & Unauthenticated API Access Tests ====================

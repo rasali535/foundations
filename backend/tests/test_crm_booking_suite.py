@@ -5,7 +5,8 @@ from models import (
     CRMClientCreate, CRMClientUpdate, CRMNoteCreate,
     TherapistCreate, SingleBookingSlot,
     BookingCreateRequest, MultiBookingCreateRequest,
-    BookingRescheduleRequest, BookingStatusUpdateRequest
+    BookingRescheduleRequest, BookingStatusUpdateRequest,
+    Therapist
 )
 from services.crm_service import CRMService, normalize_email, normalize_phone
 from services.intake_service import IntakeService
@@ -13,11 +14,64 @@ from services.therapist_service import TherapistService
 from services.booking_service import BookingService
 from services.notification_service import NotificationService
 
+TEST_THERAPIST_IN_PERSON = {
+    "id": "test-therapist-inperson",
+    "name": "Test In-Person Clinician",
+    "email": "clinician.inperson@example.com",
+    "phone": "+26771000001",
+    "active": True,
+    "supports_in_person": True,
+    "supports_virtual": False,
+    "specializations": ["Individual Counselling", "Couple Therapy"],
+    "working_days": [0, 1, 2, 3, 4],
+    "working_hours_start": "08:00",
+    "working_hours_end": "17:00",
+    "slot_duration_minutes": 60,
+    "default_location": "FCA Test Clinic",
+    "virtual_meeting_link_template": None
+}
+
+TEST_THERAPIST_VIRTUAL = {
+    "id": "test-therapist-virtual",
+    "name": "Test Virtual Specialist",
+    "email": "specialist.virtual@example.com",
+    "phone": "+26771000002",
+    "active": True,
+    "supports_in_person": False,
+    "supports_virtual": True,
+    "specializations": ["Virtual Counselling"],
+    "working_days": [0, 1, 2, 3, 4, 5],
+    "working_hours_start": "08:00",
+    "working_hours_end": "18:00",
+    "slot_duration_minutes": 60,
+    "default_location": None,
+    "virtual_meeting_link_template": "https://meet.example.com/test-virtual"
+}
+
+TEST_THERAPIST_DUAL = {
+    "id": "test-therapist-dual",
+    "name": "Test Dual Clinician",
+    "email": "clinician.dual@example.com",
+    "phone": "+26771000003",
+    "active": True,
+    "supports_in_person": True,
+    "supports_virtual": True,
+    "specializations": ["Family Systems"],
+    "working_days": [0, 1, 2, 3, 4],
+    "working_hours_start": "08:00",
+    "working_hours_end": "18:00",
+    "slot_duration_minutes": 60,
+    "default_location": "FCA Test Clinic",
+    "virtual_meeting_link_template": "https://meet.example.com/test-dual"
+}
+
 @pytest_asyncio.fixture
 async def mock_db():
     client = AsyncMongoMockClient()
     db = client["test_foundations_db"]
-    await TherapistService.seed_defaults_if_empty(db)
+    # Seed explicit test fixtures only
+    for t in [TEST_THERAPIST_IN_PERSON, TEST_THERAPIST_VIRTUAL, TEST_THERAPIST_DUAL]:
+        await db.therapists.insert_one(Therapist(**t).model_dump())
     return db
 
 # ==================== CRM Tests ====================
@@ -31,21 +85,22 @@ async def test_normalization():
 async def test_crm_client_creation_and_matching(mock_db):
     # 1. Create initial client
     client_data = {
-        "first_name": "Kagiso",
+        "first_name": "TestUser",
         "last_name": "Molefe",
-        "email": "kagiso.molefe@example.com",
+        "email": "testuser.molefe@example.com",
         "phone": "+267 71 111 222",
+        "dob": "1990-01-01",
         "gender": "Male"
     }
     client1, is_new = await CRMService.find_or_create_client(mock_db, client_data)
     assert is_new is True
     assert client1.client_number.startswith("FCA-")
-    assert client1.email == "kagiso.molefe@example.com"
+    assert client1.email == "testuser.molefe@example.com"
 
     # 2. Match by exact normalized email
     duplicate_email_data = {
-        "first_name": "Kagiso M",
-        "email": " KAGISO.MOLEFE@example.com ",
+        "first_name": "TestUser M",
+        "email": " TESTUSER.MOLEFE@example.com ",
         "phone": "+267 72 999 888"  # different phone
     }
     client2, is_new2 = await CRMService.find_or_create_client(mock_db, duplicate_email_data)
@@ -55,18 +110,30 @@ async def test_crm_client_creation_and_matching(mock_db):
 
     # 3. Match by exact normalized phone
     duplicate_phone_data = {
-        "first_name": "K. Molefe",
+        "first_name": "T. Molefe",
         "phone": " +267 (71) 111-222 ",
-        "email": "new.email@example.com"
+        "email": "different.email@example.com"
     }
     client3, is_new3 = await CRMService.find_or_create_client(mock_db, duplicate_phone_data)
     assert is_new3 is False
     assert client3.id == client1.id
 
-    # 4. Search client
+    # 4. Same Name + Same DOB with DIFFERENT Email and DIFFERENT Phone must NOT merge (creates separate client)
+    different_person_data = {
+        "first_name": "TestUser",
+        "last_name": "Molefe",
+        "dob": "1990-01-01",
+        "email": "entirely.different@example.com",
+        "phone": "+267 76 888 777"
+    }
+    client4, is_new4 = await CRMService.find_or_create_client(mock_db, different_person_data)
+    assert is_new4 is True
+    assert client4.id != client1.id
+    assert client4.client_number != client1.client_number
+
+    # 5. Search client
     results, total = await CRMService.search_clients(mock_db, query="Molefe")
-    assert total == 1
-    assert results[0].id == client1.id
+    assert total == 2
 
 @pytest.mark.asyncio
 async def test_crm_admin_notes(mock_db):
@@ -93,6 +160,12 @@ async def test_crm_admin_notes(mock_db):
     assert deleted is True
     notes_after = await CRMService.list_notes(mock_db, client.id)
     assert len(notes_after) == 0
+
+    # Verify Note Deletion is audited in activity log without leaking content
+    audit_logs = await mock_db.crm_activity_log.find({"client_id": client.id, "action": "note_deleted"}).to_list(10)
+    assert len(audit_logs) == 1
+    assert audit_logs[0]["metadata"]["note_id"] == note.id
+    assert "content" not in audit_logs[0]["metadata"]
 
 # ==================== Intake Submission Tests ====================
 @pytest.mark.asyncio
@@ -133,25 +206,24 @@ async def test_intake_submission_and_linking(mock_db):
 # ==================== Therapist Routing Tests ====================
 @pytest.mark.asyncio
 async def test_therapist_routing(mock_db):
-    # Kagiso Moeti only supports virtual
-    kagiso = await TherapistService.get_therapist_by_id(mock_db, "therapist-kagiso-moeti")
-    assert kagiso is not None
-    assert kagiso.supports_in_person is False
-    assert kagiso.supports_virtual is True
+    virtual_t = await TherapistService.get_therapist_by_id(mock_db, "test-therapist-virtual")
+    assert virtual_t is not None
+    assert virtual_t.supports_in_person is False
+    assert virtual_t.supports_virtual is True
 
-    # 1. Routing in_person to Kagiso must FAIL
+    # 1. Routing in_person to Virtual-only therapist must FAIL
     t, err = await TherapistService.validate_and_route_therapist(
-        mock_db, session_mode="in_person", therapist_id="therapist-kagiso-moeti"
+        mock_db, session_mode="in_person", therapist_id="test-therapist-virtual"
     )
     assert t is None
     assert "does not support In-person" in err
 
-    # 2. Routing virtual to Kagiso must SUCCEED
+    # 2. Routing virtual to Virtual-only therapist must SUCCEED
     t_v, err_v = await TherapistService.validate_and_route_therapist(
-        mock_db, session_mode="virtual", therapist_id="therapist-kagiso-moeti"
+        mock_db, session_mode="virtual", therapist_id="test-therapist-virtual"
     )
     assert err_v is None
-    assert t_v.id == "therapist-kagiso-moeti"
+    assert t_v.id == "test-therapist-virtual"
 
 # ==================== Booking & Double-Booking Tests ====================
 @pytest.mark.asyncio
@@ -165,7 +237,7 @@ async def test_booking_creation_and_conflict_rejection(mock_db):
 
     req1 = BookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-caroline-sithole",
+        therapist_id="test-therapist-inperson",
         session_type="individual",
         session_mode="in_person",
         starts_at="2026-10-12T09:00:00Z",
@@ -185,7 +257,7 @@ async def test_booking_creation_and_conflict_rejection(mock_db):
     # Conflict 2: Overlapping time (09:30 to 10:30)
     req_overlap = BookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-caroline-sithole",
+        therapist_id="test-therapist-inperson",
         session_type="couple",
         session_mode="in_person",
         starts_at="2026-10-12T09:30:00Z",
@@ -201,15 +273,15 @@ async def test_booking_creation_and_conflict_rejection(mock_db):
 async def test_multi_booking_and_independent_lifecycle(mock_db):
     client, _ = await CRMService.find_or_create_client(mock_db, {
         "first_name": "Mpho",
-        "last_name": "Kgosiemang",
-        "email": "mpho.k@example.com",
+        "last_name": "TestClient",
+        "email": "mpho.test@example.com",
         "phone": "+267 76 222 333"
     })
 
     # 4 Monthly Sessions across October
     multi_req = MultiBookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-dr-thabo-kgosi",
+        therapist_id="test-therapist-dual",
         session_type="family",
         session_mode="virtual",
         slots=[
@@ -219,8 +291,8 @@ async def test_multi_booking_and_independent_lifecycle(mock_db):
             SingleBookingSlot(starts_at="2026-10-26T14:00:00Z"),
         ],
         participants=[
-            {"name": "Spouse Kgosiemang", "participant_role": "partner"},
-            {"name": "Junior Kgosiemang", "participant_role": "child"}
+            {"name": "Spouse Test", "participant_role": "partner"},
+            {"name": "Junior Test", "participant_role": "child"}
         ],
         send_notifications=False
     )

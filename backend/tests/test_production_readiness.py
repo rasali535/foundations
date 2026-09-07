@@ -1,26 +1,84 @@
 import pytest
 import pytest_asyncio
 import asyncio
+import os
+import bcrypt
 from httpx import AsyncClient, ASGITransport
 from mongomock_motor import AsyncMongoMockClient
-from server import app, USERS_DB
+from server import app, USERS_DB, bootstrap_super_admin
 from services.crm_service import CRMService, normalize_email, normalize_phone
 from services.intake_service import IntakeService
-from services.therapist_service import TherapistService
+from services.therapist_service import TherapistService, DEFAULT_THERAPISTS
 from services.booking_service import BookingService
 from services.notification_service import NotificationService
 from models import (
     BookingCreateRequest, MultiBookingCreateRequest, SingleBookingSlot,
     BookingRescheduleRequest, BookingStatusUpdateRequest,
-    CRMNoteCreate, TherapistCreate, TherapistBlockCreate
+    CRMNoteCreate, TherapistCreate, TherapistBlockCreate, Therapist
 )
+
+TEST_THERAPIST_IN_PERSON = {
+    "id": "readiness-therapist-inperson",
+    "name": "Readiness In-Person Clinician",
+    "email": "inperson.clinician@example.com",
+    "phone": "+26771000010",
+    "active": True,
+    "supports_in_person": True,
+    "supports_virtual": False,
+    "specializations": ["Individual Counselling", "Couple Therapy", "Family Systems"],
+    "working_days": [0, 1, 2, 3, 4],
+    "working_hours_start": "08:00",
+    "working_hours_end": "18:00",
+    "slot_duration_minutes": 60,
+    "default_location": "FCA Clinic Test",
+    "virtual_meeting_link_template": None
+}
+
+TEST_THERAPIST_VIRTUAL = {
+    "id": "readiness-therapist-virtual",
+    "name": "Readiness Virtual Specialist",
+    "email": "virtual.specialist@example.com",
+    "phone": "+26771000020",
+    "active": True,
+    "supports_in_person": False,
+    "supports_virtual": True,
+    "specializations": ["Virtual Counselling"],
+    "working_days": [0, 1, 2, 3, 4, 5],
+    "working_hours_start": "08:00",
+    "working_hours_end": "18:00",
+    "slot_duration_minutes": 60,
+    "default_location": None,
+    "virtual_meeting_link_template": "https://meet.example.com/test-room"
+}
 
 @pytest_asyncio.fixture
 async def readiness_app():
     client = AsyncMongoMockClient()
     mock_db = client["test_foundations_db"]
-    await TherapistService.seed_defaults_if_empty(mock_db)
+    # Seed explicit test fixtures
+    await mock_db.therapists.insert_one(Therapist(**TEST_THERAPIST_IN_PERSON).model_dump())
+    await mock_db.therapists.insert_one(Therapist(**TEST_THERAPIST_VIRTUAL).model_dump())
     app.state.db = mock_db
+
+    # Register test fixture roles in session store
+    USERS_DB["staff_user"] = {
+        "password_hash": bcrypt.hashpw(b"staffpass123", bcrypt.gensalt()).decode(),
+        "role": "staff",
+        "name": "Staff Coordinator",
+        "therapist_id": None
+    }
+    USERS_DB["therapist_user"] = {
+        "password_hash": bcrypt.hashpw(b"therapistpass123", bcrypt.gensalt()).decode(),
+        "role": "therapist",
+        "name": "Therapist User",
+        "therapist_id": "readiness-therapist-virtual"
+    }
+    USERS_DB["super_admin"] = {
+        "password_hash": bcrypt.hashpw(b"supersecret2026", bcrypt.gensalt()).decode(),
+        "role": "super_admin",
+        "name": "System Administrator",
+        "therapist_id": None
+    }
     return app, mock_db
 
 # ==================== 1. Security & RBAC Matrix Audit ====================
@@ -70,7 +128,7 @@ async def test_rbac_role_isolation(readiness_app):
         await ac.post("/api/logout")
 
         # 2. Therapist Login
-        therapist_login = await ac.post("/api/login", json={"username": "therapist_kagiso", "password": "kagisopass123"})
+        therapist_login = await ac.post("/api/login", json={"username": "therapist_user", "password": "therapistpass123"})
         assert therapist_login.status_code == 200
 
         # Therapist cannot access admin audit logs
@@ -120,10 +178,11 @@ async def test_crm_matching_edge_cases(readiness_app):
     assert is_new2_match is False
     assert c2_match.id == c2.id
 
-    # Test 3: Same name, different email and phone -> Separate clients
+    # Test 3: Same name + same DOB, different email and phone -> Separate clients
     c3, is_new3 = await CRMService.find_or_create_client(mock_db, {
         "first_name": "Tebogo",
         "last_name": "Tau",
+        "dob": "1990-01-01",
         "email": "different.tebogo@example.com",
         "phone": "+267 73 999 000"
     })
@@ -133,16 +192,16 @@ async def test_crm_matching_edge_cases(readiness_app):
 
     # Test 4: Multiple intake submissions for same client
     intake1 = await IntakeService.process_intake_submission(mock_db, {
-        "full_name": "Kagiso Sebele",
-        "email": "kagiso.sebele@example.com",
+        "full_name": "Test User Sebele",
+        "email": "testuser.sebele@example.com",
         "phone": "+267 74 111 222",
         "reason": "Intake 1"
     })
     assert intake1["is_new_client"] is True
 
     intake2 = await IntakeService.process_intake_submission(mock_db, {
-        "full_name": "Kagiso Sebele",
-        "email": "kagiso.sebele@example.com",
+        "full_name": "Test User Sebele",
+        "email": "testuser.sebele@example.com",
         "phone": "+267 74 111 222",
         "reason": "Intake 2"
     })
@@ -182,7 +241,7 @@ async def test_booking_overlap_scenarios(readiness_app):
     # Base Booking: 10:00 - 11:00 UTC
     base_req = BookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-caroline-sithole",
+        therapist_id="readiness-therapist-inperson",
         session_type="individual",
         session_mode="in_person",
         starts_at="2026-11-10T10:00:00Z",
@@ -196,7 +255,7 @@ async def test_booking_overlap_scenarios(readiness_app):
     # Case A: Partial overlap before (09:30 - 10:30) -> REJECT
     req_a = BookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-caroline-sithole",
+        therapist_id="readiness-therapist-inperson",
         session_type="individual",
         session_mode="in_person",
         starts_at="2026-11-10T09:30:00Z",
@@ -210,7 +269,7 @@ async def test_booking_overlap_scenarios(readiness_app):
     # Case B: Partial overlap after (10:30 - 11:30) -> REJECT
     req_b = BookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-caroline-sithole",
+        therapist_id="readiness-therapist-inperson",
         session_type="individual",
         session_mode="in_person",
         starts_at="2026-11-10T10:30:00Z",
@@ -224,7 +283,7 @@ async def test_booking_overlap_scenarios(readiness_app):
     # Case C: Complete engulfment (09:00 - 12:00) -> REJECT
     req_c = BookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-caroline-sithole",
+        therapist_id="readiness-therapist-inperson",
         session_type="individual",
         session_mode="in_person",
         starts_at="2026-11-10T09:00:00Z",
@@ -238,7 +297,7 @@ async def test_booking_overlap_scenarios(readiness_app):
     # Case D: Adjacent back-to-back before (09:00 - 10:00) -> ALLOW
     req_d = BookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-caroline-sithole",
+        therapist_id="readiness-therapist-inperson",
         session_type="individual",
         session_mode="in_person",
         starts_at="2026-11-10T09:00:00Z",
@@ -252,7 +311,7 @@ async def test_booking_overlap_scenarios(readiness_app):
     # Case E: Adjacent back-to-back after (11:00 - 12:00) -> ALLOW
     req_e = BookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-caroline-sithole",
+        therapist_id="readiness-therapist-inperson",
         session_type="individual",
         session_mode="in_person",
         starts_at="2026-11-10T11:00:00Z",
@@ -269,7 +328,7 @@ async def test_booking_overlap_scenarios(readiness_app):
     )
     req_retry = BookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-caroline-sithole",
+        therapist_id="readiness-therapist-inperson",
         session_type="couple",
         session_mode="in_person",
         starts_at="2026-11-10T10:00:00Z",
@@ -296,7 +355,7 @@ async def test_multi_booking_atomicity_and_concurrency(readiness_app):
     # Pre-occupy November 18 10:00 UTC
     blocker_req = BookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-dr-thabo-kgosi",
+        therapist_id="readiness-therapist-virtual",
         session_type="individual",
         session_mode="virtual",
         starts_at="2026-11-18T10:00:00Z",
@@ -311,7 +370,7 @@ async def test_multi_booking_atomicity_and_concurrency(readiness_app):
     # Request batch of 4 sessions where slot 3 (Nov 18) conflicts
     batch_req = MultiBookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-dr-thabo-kgosi",
+        therapist_id="readiness-therapist-virtual",
         session_type="individual",
         session_mode="virtual",
         slots=[
@@ -349,13 +408,13 @@ async def test_couple_and_family_participants(readiness_app):
     # Family Booking with 3 participants
     family_req = BookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-caroline-sithole",
+        therapist_id="readiness-therapist-inperson",
         session_type="family",
         session_mode="in_person",
         starts_at="2026-12-01T14:00:00Z",
         participants=[
-            {"name": "Masego Kgosi", "participant_role": "partner"},
-            {"name": "Lorato Kgosi (Child)", "participant_role": "child"}
+            {"name": "Partner Test", "participant_role": "partner"},
+            {"name": "Child Test", "participant_role": "child"}
         ],
         send_notifications=False
     )
@@ -392,7 +451,7 @@ async def test_notification_failure_non_blocking(readiness_app):
 
     req = BookingCreateRequest(
         client_id=client.id,
-        therapist_id="therapist-caroline-sithole",
+        therapist_id="readiness-therapist-inperson",
         session_type="individual",
         session_mode="in_person",
         starts_at="2026-12-15T10:00:00Z",
@@ -408,3 +467,38 @@ async def test_notification_failure_non_blocking(readiness_app):
     # Notification log should record the failure status
     notif_logs = await NotificationService.list_notifications(mock_db, client_id=client.id)
     assert len(notif_logs) >= 1
+
+# ==================== 8. Zero Production Therapist Fixtures Seeding ====================
+@pytest.mark.asyncio
+async def test_no_production_therapist_fixtures_seeded():
+    client = AsyncMongoMockClient()
+    fresh_db = client["clean_fresh_production_db"]
+    # Verify DEFAULT_THERAPISTS is empty
+    assert len(DEFAULT_THERAPISTS) == 0
+    # Calling list_therapists on fresh database returns 0 records
+    therapists = await TherapistService.list_therapists(fresh_db)
+    assert len(therapists) == 0
+
+# ==================== 9. Admin Bootstrap Security Verification ====================
+@pytest.mark.asyncio
+async def test_admin_bootstrap_security():
+    # 1. Without credentials, no admin is created
+    os.environ.pop("FCA_BOOTSTRAP_ADMIN_EMAIL", None)
+    os.environ.pop("FCA_BOOTSTRAP_ADMIN_PASSWORD", None)
+    USERS_DB.clear()
+    bootstrap_super_admin()
+    assert len(USERS_DB) == 0
+
+    # 2. With valid credentials, super_admin is created
+    os.environ["FCA_BOOTSTRAP_ADMIN_EMAIL"] = "admin@academyfoundations.com"
+    os.environ["FCA_BOOTSTRAP_ADMIN_PASSWORD"] = "StrongSecurePassword2026!"
+    bootstrap_super_admin()
+    assert "admin@academyfoundations.com" in USERS_DB
+    admin_entry = USERS_DB["admin@academyfoundations.com"]
+    assert admin_entry["role"] == "super_admin"
+    assert bcrypt.checkpw(b"StrongSecurePassword2026!", admin_entry["password_hash"].encode())
+
+    # Cleanup
+    os.environ.pop("FCA_BOOTSTRAP_ADMIN_EMAIL", None)
+    os.environ.pop("FCA_BOOTSTRAP_ADMIN_PASSWORD", None)
+    USERS_DB.clear()

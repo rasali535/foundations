@@ -135,7 +135,7 @@ class Therapist(BaseModel):
     working_hours_start: str = "08:00"
     working_hours_end: str = "17:00"
     slot_duration_minutes: int = 60
-    default_location: str = "FCA Central Clinic, Gaborone"
+    default_location: Optional[str] = None
     virtual_meeting_link_template: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
@@ -152,7 +152,7 @@ class TherapistCreate(BaseModel):
     working_hours_start: str = "08:00"
     working_hours_end: str = "17:00"
     slot_duration_minutes: int = 60
-    default_location: Optional[str] = "FCA Central Clinic, Gaborone"
+    default_location: Optional[str] = None
     virtual_meeting_link_template: Optional[str] = None
 
 class TherapistUpdate(BaseModel):

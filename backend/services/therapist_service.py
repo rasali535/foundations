@@ -8,69 +8,26 @@ from models import (
 )
 from services.audit_service import AuditService
 
-DEFAULT_THERAPISTS = [
-    {
-        "id": "therapist-caroline-sithole",
-        "name": "Caroline Sithole (Lead Clinician)",
-        "email": "caroline@academyfoundations.com",
-        "phone": "+267 71 000 001",
-        "active": True,
-        "supports_in_person": True,
-        "supports_virtual": False,  # Dedicated In-Person Therapist
-        "specializations": ["In-Person Individual Therapy", "Couple Therapy", "Family Systems", "Trauma & EAP"],
-        "working_days": [0, 1, 2, 3, 4],  # Mon-Fri
-        "working_hours_start": "08:00",
-        "working_hours_end": "17:00",
-        "slot_duration_minutes": 60,
-        "default_location": "FCA Central Clinic, Gaborone (Plot 54368)",
-        "virtual_meeting_link_template": None
-    },
-    {
-        "id": "therapist-kagiso-moeti",
-        "name": "Kagiso Moeti (Virtual Specialist)",
-        "email": "kagiso@academyfoundations.com",
-        "phone": "+267 71 000 002",
-        "active": True,
-        "supports_in_person": False,  # Dedicated Virtual Therapist
-        "supports_virtual": True,
-        "specializations": ["Virtual 1-on-1 Counselling", "Virtual Couple Consultations", "Youth & Workplace Resilience"],
-        "working_days": [0, 1, 2, 3, 4, 5],  # Mon-Sat
-        "working_hours_start": "08:00",
-        "working_hours_end": "18:00",
-        "slot_duration_minutes": 60,
-        "default_location": "Virtual Telehealth Room",
-        "virtual_meeting_link_template": "https://meet.academyfoundations.com/room/fca-virtual"
-    },
-    {
-        "id": "therapist-dr-thabo-kgosi",
-        "name": "Dr. Thabo Kgosi (Senior Consultant)",
-        "email": "thabo@academyfoundations.com",
-        "phone": "+267 71 000 003",
-        "active": True,
-        "supports_in_person": True,
-        "supports_virtual": True,
-        "specializations": ["Executive Coaching", "Couple Therapy", "Stress & Burnout", "Organisational Health"],
-        "working_days": [0, 1, 2, 3, 4],
-        "working_hours_start": "09:00",
-        "working_hours_end": "18:00",
-        "slot_duration_minutes": 60,
-        "default_location": "FCA Central Clinic, Gaborone (Plot 54368)",
-        "virtual_meeting_link_template": "https://meet.academyfoundations.com/room/dr-thabo"
-    }
-]
+# Production contains no pre-seeded synthetic therapists.
+# Real therapists are configured dynamically by FCA Admin with capability flags.
+DEFAULT_THERAPISTS: List[Dict[str, Any]] = []
 
 class TherapistService:
     @staticmethod
-    async def seed_defaults_if_empty(db: AsyncIOMotorDatabase):
+    async def seed_defaults_if_empty(db: AsyncIOMotorDatabase, therapists_list: Optional[List[Dict[str, Any]]] = None):
+        """Optional helper for test suites or manual bootstrap only."""
+        to_seed = therapists_list or DEFAULT_THERAPISTS
+        if not to_seed:
+            return
         try:
             count = await db.therapists.count_documents({})
             if count == 0:
-                for t in DEFAULT_THERAPISTS:
+                for t in to_seed:
                     t_doc = Therapist(**t).model_dump()
                     await db.therapists.insert_one(t_doc)
-                logging.info(f"Seeded {len(DEFAULT_THERAPISTS)} default therapists into database.")
+                logging.info(f"Seeded {len(to_seed)} therapists into database.")
         except Exception as e:
-            logging.warning(f"Could not seed default therapists: {e}")
+            logging.warning(f"Could not seed therapists: {e}")
 
     @staticmethod
     async def list_therapists(
@@ -78,7 +35,6 @@ class TherapistService:
         active_only: bool = False,
         session_mode: Optional[str] = None
     ) -> List[Therapist]:
-        await TherapistService.seed_defaults_if_empty(db)
         filter_dict: Dict[str, Any] = {}
         if active_only:
             filter_dict["active"] = True
@@ -93,7 +49,6 @@ class TherapistService:
 
     @staticmethod
     async def get_therapist_by_id(db: AsyncIOMotorDatabase, therapist_id: str) -> Optional[Therapist]:
-        await TherapistService.seed_defaults_if_empty(db)
         doc = await db.therapists.find_one({"id": therapist_id}, {"_id": 0})
         return Therapist(**doc) if doc else None
 
@@ -116,8 +71,8 @@ class TherapistService:
             working_hours_start=data.working_hours_start,
             working_hours_end=data.working_hours_end,
             slot_duration_minutes=data.slot_duration_minutes,
-            default_location=data.default_location or "FCA Central Clinic, Gaborone",
-            virtual_meeting_link_template=data.virtual_meeting_link_template or f"https://meet.academyfoundations.com/room/{data.name.lower().replace(' ', '-')}",
+            default_location=data.default_location,
+            virtual_meeting_link_template=data.virtual_meeting_link_template,
             created_at=now_iso(),
             updated_at=now_iso()
         )
@@ -171,7 +126,6 @@ class TherapistService:
         If therapist_id is omitted, auto-routes to the first active matching therapist.
         Returns (Therapist, error_message)
         """
-        await TherapistService.seed_defaults_if_empty(db)
         if therapist_id:
             therapist = await TherapistService.get_therapist_by_id(db, therapist_id)
             if not therapist:

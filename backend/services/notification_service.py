@@ -15,9 +15,10 @@ SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
 SMTP_FROM = os.environ.get("SMTP_FROM", "Foundations Counselling & Advisory <noreply@academyfoundations.com>")
 
+META_GRAPH_API_VERSION = os.environ.get("META_GRAPH_API_VERSION", "v19.0")
 WHATSAPP_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_ACCESS_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN")
-WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", "https://graph.facebook.com/v19.0")
+WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", f"https://graph.facebook.com/{META_GRAPH_API_VERSION}")
 
 def mask_recipient(val: Optional[str]) -> str:
     if not val:

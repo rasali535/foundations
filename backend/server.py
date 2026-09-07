@@ -118,38 +118,32 @@ app.add_middleware(
 )
 
 # ----------------- User Management & RBAC -----------------
-USERS_DB = {
-    "staff_user": {
-        "password_hash": bcrypt.hashpw(b"staffpass123", bcrypt.gensalt()).decode(),
-        "role": "staff",
-        "name": "Staff Coordinator",
-        "therapist_id": None
-    },
-    "admin": {
-        "password_hash": bcrypt.hashpw(b"adminpass123", bcrypt.gensalt()).decode(),
-        "role": "admin",
-        "name": "Operations Admin",
-        "therapist_id": None
-    },
-    "clinical_lead": {
-        "password_hash": bcrypt.hashpw(b"clinicalsecure2026", bcrypt.gensalt()).decode(),
-        "role": "clinical_admin",
-        "name": "Caroline Sithole (Lead Clinician)",
-        "therapist_id": "therapist-caroline-sithole"
-    },
-    "therapist_kagiso": {
-        "password_hash": bcrypt.hashpw(b"kagisopass123", bcrypt.gensalt()).decode(),
-        "role": "therapist",
-        "name": "Kagiso Moeti (Therapist)",
-        "therapist_id": "therapist-kagiso-moeti"
-    },
-    "super_admin": {
-        "password_hash": bcrypt.hashpw(b"supersecret2026", bcrypt.gensalt()).decode(),
-        "role": "super_admin",
-        "name": "System Administrator",
-        "therapist_id": None
-    }
-}
+# Production user store starts empty and is populated strictly via explicit environment bootstrap or database.
+USERS_DB: Dict[str, Dict[str, Any]] = {}
+
+def bootstrap_super_admin():
+    """
+    Initializes the super_admin user ONLY if explicit environment credentials
+    (FCA_BOOTSTRAP_ADMIN_EMAIL and FCA_BOOTSTRAP_ADMIN_PASSWORD) are configured.
+    No hardcoded, default, fallback, or domain-derived passwords are ever accepted.
+    """
+    admin_email = os.environ.get("FCA_BOOTSTRAP_ADMIN_EMAIL")
+    admin_password = os.environ.get("FCA_BOOTSTRAP_ADMIN_PASSWORD")
+
+    if admin_email and admin_password and len(admin_password.strip()) >= 8:
+        email_clean = admin_email.strip().lower()
+        USERS_DB[email_clean] = {
+            "password_hash": bcrypt.hashpw(admin_password.strip().encode(), bcrypt.gensalt()).decode(),
+            "role": "super_admin",
+            "name": "FCA System Administrator",
+            "therapist_id": None
+        }
+        logging.info(f"Initialized super_admin account for {email_clean}")
+    else:
+        logging.info("No bootstrap admin credentials provided in environment. User store initialized empty.")
+
+# Initialize on module load
+bootstrap_super_admin()
 
 def get_current_user_session(request: Request) -> Dict:
     user_id = request.session.get('user_id')
@@ -313,8 +307,8 @@ class LoginRequest(BaseModel):
 
 @api_router.post("/login")
 async def login(request: Request, payload: Optional[LoginRequest] = None, username: str = "", password: str = ""):
-    # Support both JSON body and Query params
-    user_key = payload.username if payload else username
+    raw_key = payload.username if payload else username
+    user_key = raw_key.strip().lower() if raw_key else ""
     user_pass = payload.password if payload else password
 
     if not user_key or user_key not in USERS_DB:
