@@ -11,25 +11,41 @@ from services.audit_service import AuditService
 DEFAULT_THERAPISTS = [
     {
         "id": "therapist-caroline-sithole",
-        "name": "Caroline Sithole",
+        "name": "Caroline Sithole (Lead Clinician)",
         "email": "caroline@academyfoundations.com",
         "phone": "+267 71 000 001",
         "active": True,
         "supports_in_person": True,
-        "supports_virtual": True,
-        "specializations": ["Individual Counselling", "Couple Therapy", "Family Systems", "Trauma & EAP"],
+        "supports_virtual": False,  # Dedicated In-Person Therapist
+        "specializations": ["In-Person Individual Therapy", "Couple Therapy", "Family Systems", "Trauma & EAP"],
         "working_days": [0, 1, 2, 3, 4],  # Mon-Fri
         "working_hours_start": "08:00",
         "working_hours_end": "17:00",
         "slot_duration_minutes": 60,
         "default_location": "FCA Central Clinic, Gaborone (Plot 54368)",
-        "virtual_meeting_link_template": "https://meet.academyfoundations.com/room/caroline-sithole"
+        "virtual_meeting_link_template": None
+    },
+    {
+        "id": "therapist-kagiso-moeti",
+        "name": "Kagiso Moeti (Virtual Specialist)",
+        "email": "kagiso@academyfoundations.com",
+        "phone": "+267 71 000 002",
+        "active": True,
+        "supports_in_person": False,  # Dedicated Virtual Therapist
+        "supports_virtual": True,
+        "specializations": ["Virtual 1-on-1 Counselling", "Virtual Couple Consultations", "Youth & Workplace Resilience"],
+        "working_days": [0, 1, 2, 3, 4, 5],  # Mon-Sat
+        "working_hours_start": "08:00",
+        "working_hours_end": "18:00",
+        "slot_duration_minutes": 60,
+        "default_location": "Virtual Telehealth Room",
+        "virtual_meeting_link_template": "https://meet.academyfoundations.com/room/fca-virtual"
     },
     {
         "id": "therapist-dr-thabo-kgosi",
-        "name": "Dr. Thabo Kgosi",
+        "name": "Dr. Thabo Kgosi (Senior Consultant)",
         "email": "thabo@academyfoundations.com",
-        "phone": "+267 71 000 002",
+        "phone": "+267 71 000 003",
         "active": True,
         "supports_in_person": True,
         "supports_virtual": True,
@@ -40,22 +56,6 @@ DEFAULT_THERAPISTS = [
         "slot_duration_minutes": 60,
         "default_location": "FCA Central Clinic, Gaborone (Plot 54368)",
         "virtual_meeting_link_template": "https://meet.academyfoundations.com/room/dr-thabo"
-    },
-    {
-        "id": "therapist-kagiso-moeti",
-        "name": "Kagiso Moeti",
-        "email": "kagiso@academyfoundations.com",
-        "phone": "+267 71 000 003",
-        "active": True,
-        "supports_in_person": False,  # Virtual Specialist
-        "supports_virtual": True,
-        "specializations": ["Virtual Individual Counselling", "Adolescent & Young Adult", "Anxiety & Mood"],
-        "working_days": [0, 1, 2, 3, 4, 5],  # Mon-Sat
-        "working_hours_start": "10:00",
-        "working_hours_end": "19:00",
-        "slot_duration_minutes": 60,
-        "default_location": "Virtual Office",
-        "virtual_meeting_link_template": "https://meet.academyfoundations.com/room/kagiso-moeti"
     }
 ]
 
