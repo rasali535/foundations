@@ -30,19 +30,28 @@ def get_current_hr_user(request: Request) -> Dict[str, Any]:
 def require_hr_scoped_org(request: Request, user: Dict = Depends(get_current_hr_user)) -> str:
     role = user.get("role")
     session_org_id = user.get("organisation_id")
-    query_org_id = request.query_params.get("organisation_id")
+    query_org_id = request.query_params.get("organisation_id") or request.query_params.get("org_id")
+    header_org_id = (
+        request.headers.get("organisation_id") or
+        request.headers.get("organisation") or
+        request.headers.get("x-organisation-id")
+    )
 
     if role in ["hr_admin", "hr_viewer"]:
         if not session_org_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No corporate organisation associated with this HR account.")
-        # Strict cross-tenant protection: if param is passed and doesn't match session, block with 403
+        # Strict cross-tenant protection: if param or header is passed and doesn't match session, block with 403
         if query_org_id and query_org_id != session_org_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-tenant access forbidden.")
+        if header_org_id and header_org_id != session_org_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-tenant access forbidden.")
         return session_org_id
     
     # Admins can inspect specific organisation if query param provided
     if query_org_id:
         return query_org_id
+    if header_org_id:
+        return header_org_id
     if session_org_id:
         return session_org_id
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="organisation_id required for admin inspection.")

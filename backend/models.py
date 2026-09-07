@@ -378,6 +378,7 @@ class OrganisationUserCreate(BaseModel):
 class AggregateMetric(BaseModel):
     count: Optional[int] = None
     display: str  # e.g. "42", "<5", "0"
+    percentage: Optional[float] = None
     suppressed: bool = False
 
 class HRContractStatus(BaseModel):
@@ -403,4 +404,5 @@ class HRDashboardResponse(BaseModel):
     session_types: Dict[str, AggregateMetric]
     session_modes: Dict[str, AggregateMetric]
     contract: HRContractStatus
+    detailed_breakdown_available: bool = True
     privacy_notice: str = "All counts below the privacy threshold (5) are masked to safeguard employee anonymity."

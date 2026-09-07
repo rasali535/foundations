@@ -109,6 +109,7 @@ async def get_organisation_detail(org_id: str, request: Request, user: Dict = De
     return org
 
 @admin_router.put("/organisations/{org_id}", response_model=Organisation)
+@admin_router.patch("/organisations/{org_id}", response_model=Organisation)
 async def update_organisation(org_id: str, payload: OrganisationUpdate, request: Request, user: Dict = Depends(require_admin)):
     db = get_db(request)
     if payload.code:

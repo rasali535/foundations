@@ -233,19 +233,34 @@ async def test_aggregate_metrics_and_contract_calculations(hr_test_app):
         assert data["total_sessions"]["display"] == "8"
         assert data["total_sessions"]["suppressed"] is False
 
-        # Completed sessions = 5 (>= 5, displayed exactly)
-        assert data["completed"]["count"] == 5
-        assert data["completed"]["display"] == "5"
-
-        # Cancelled sessions = 1 (< 5, MUST BE SUPPRESSED)
+        # Attendance: Cancelled = 1 (< 5), Completed = 5
+        # Complementary suppression protects Cancelled from being derived via 8 - 5 - 2 (confirmed) = 1
         assert data["cancelled"]["count"] is None
         assert data["cancelled"]["display"] == "<5"
         assert data["cancelled"]["suppressed"] is True
+        assert data["completed"]["count"] is None
+        assert data["completed"]["display"] == "<5"
+        assert data["completed"]["suppressed"] is True
 
-        # Session Types: Individual = 6 (>= 5), Couple = 2 (< 5, suppressed)
-        assert data["session_types"]["individual"]["count"] == 6
+        # Session Types: Individual = 6, Couple = 2 (< 5).
+        # Complementary suppression protects Couple from being derived via 8 - 6 - 0 = 2
         assert data["session_types"]["couple"]["display"] == "<5"
+        assert data["session_types"]["couple"]["count"] is None
+        assert data["session_types"]["couple"]["percentage"] is None
         assert data["session_types"]["couple"]["suppressed"] is True
+        assert data["session_types"]["individual"]["display"] == "<5"
+        assert data["session_types"]["individual"]["count"] is None
+        assert data["session_types"]["individual"]["percentage"] is None
+        assert data["session_types"]["individual"]["suppressed"] is True
+
+        # Session Modes: 5 In-Person, 3 Virtual (< 5).
+        # Two-category rule: Both are suppressed to prevent derivation
+        assert data["session_modes"]["virtual"]["display"] == "<5"
+        assert data["session_modes"]["virtual"]["count"] is None
+        assert data["session_modes"]["virtual"]["percentage"] is None
+        assert data["session_modes"]["in_person"]["display"] == "<5"
+        assert data["session_modes"]["in_person"]["count"] is None
+        assert data["session_modes"]["in_person"]["percentage"] is None
 
         # Contract: Allocated 200, Used 7 (5 completed + 2 confirmed), Remaining 193, Utilisation = 3.5%
         assert data["contract"]["allocated_sessions"] == 200
@@ -449,3 +464,451 @@ async def test_safe_aggregate_csv_export_and_audit_logging(hr_test_app):
             assert l["metadata"].get("organisation_id") == org_id
             assert "client_id" not in l["metadata"]
             assert "first_name" not in str(l)
+
+
+@pytest.mark.asyncio
+async def test_privacy_case_a_session_type_complementary_suppression(hr_test_app):
+    """
+    Case A: Total = 7, Individual = 5, Couple = 2, Family = 0.
+    Expected: Couple = 2 must not be derivable via Total - Individual - Family.
+    Individual and Couple must both be suppressed (<5, count=None, percentage=None).
+    """
+    test_app, mock_db = hr_test_app
+    transport = ASGITransport(app=test_app)
+
+    org_id = "org-case-a"
+    await mock_db.organisations.insert_one(Organisation(id=org_id, name="Case A Corp", code="CS-A").model_dump())
+    USERS_DB["user_case_a"] = {
+        "password_hash": bcrypt.hashpw(b"passA", bcrypt.gensalt()).decode(),
+        "role": "hr_admin",
+        "name": "HR Case A",
+        "organisation_id": org_id,
+        "therapist_id": None
+    }
+
+    client = CRMClient(id="client-case-a", first_name="Synthetic", last_name="A", email="a@casea.com", phone="+26771000001", client_number="FCA-A", organisation_id=org_id)
+    await mock_db.crm_clients.insert_one(client.model_dump())
+
+    # 5 Individual, 2 Couple, 0 Family
+    for i in range(5):
+        b = Booking(client_id="client-case-a", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-09-0{i+1}T08:00:00Z", ends_at=f"2026-09-0{i+1}T09:00:00Z")
+        await mock_db.bookings.insert_one(b.model_dump())
+    for i in range(2):
+        b = Booking(client_id="client-case-a", therapist_id="therapist-caroline-sithole", session_type="couple", session_mode="in_person", status="completed", starts_at=f"2026-09-1{i+1}T08:00:00Z", ends_at=f"2026-09-1{i+1}T09:00:00Z")
+        await mock_db.bookings.insert_one(b.model_dump())
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.post("/api/login", json={"username": "user_case_a", "password": "passA"})
+
+        dash_res = await ac.get("/api/hr/dashboard?period=current_month")
+        assert dash_res.status_code == 200
+        dash = dash_res.json()
+
+        assert dash["total_sessions"]["count"] == 7
+        assert dash["total_sessions"]["display"] == "7"
+
+        # Complementary suppression: Couple (<5) must NOT be derivable from Total (7) - Individual (5)
+        # Therefore, Individual MUST ALSO be suppressed
+        st = dash["session_types"]
+        assert st["couple"]["display"] == "<5"
+        assert st["couple"]["count"] is None
+        assert st["couple"]["percentage"] is None
+        assert st["couple"]["suppressed"] is True
+
+        assert st["individual"]["display"] == "<5"
+        assert st["individual"]["count"] is None
+        assert st["individual"]["percentage"] is None
+        assert st["individual"]["suppressed"] is True
+
+        assert st["family"]["display"] == "0"
+        assert st["family"]["count"] == 0
+        assert st["family"]["suppressed"] is False
+
+        # Endpoint /api/hr/session-types must return identical protection
+        types_res = await ac.get("/api/hr/session-types")
+        assert types_res.status_code == 200
+        t_data = types_res.json()["types"]
+        assert t_data["couple"]["metric"]["display"] == "<5"
+        assert t_data["couple"]["metric"]["count"] is None
+        assert t_data["couple"]["percentage"] is None
+        assert t_data["individual"]["metric"]["display"] == "<5"
+        assert t_data["individual"]["metric"]["count"] is None
+        assert t_data["individual"]["percentage"] is None
+
+
+@pytest.mark.asyncio
+async def test_privacy_case_b_session_mode_two_category_suppression(hr_test_app):
+    """
+    Case B: Total = 10, In-Person = 8, Virtual = 2.
+    Expected: In a 2-category breakdown, exposing one side exposes the other side (10 - 8 = 2).
+    Both sides must be suppressed (<5, count=None, percentage=None).
+    """
+    test_app, mock_db = hr_test_app
+    transport = ASGITransport(app=test_app)
+
+    org_id = "org-case-b"
+    await mock_db.organisations.insert_one(Organisation(id=org_id, name="Case B Corp", code="CS-B").model_dump())
+    USERS_DB["user_case_b"] = {
+        "password_hash": bcrypt.hashpw(b"passB", bcrypt.gensalt()).decode(),
+        "role": "hr_admin",
+        "name": "HR Case B",
+        "organisation_id": org_id,
+        "therapist_id": None
+    }
+
+    client = CRMClient(id="client-case-b", first_name="Synthetic", last_name="B", email="b@caseb.com", phone="+26771000002", client_number="FCA-B", organisation_id=org_id)
+    await mock_db.crm_clients.insert_one(client.model_dump())
+
+    # 8 In-Person, 2 Virtual
+    for i in range(8):
+        b = Booking(client_id="client-case-b", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-09-0{i+1}T08:00:00Z" if i < 9 else "2026-09-10T08:00:00Z", ends_at="2026-09-10T09:00:00Z")
+        await mock_db.bookings.insert_one(b.model_dump())
+    for i in range(2):
+        b = Booking(client_id="client-case-b", therapist_id="therapist-alpheaus-chiwaze", session_type="individual", session_mode="virtual", status="completed", starts_at=f"2026-09-2{i+1}T08:00:00Z", ends_at="2026-09-21T09:00:00Z")
+        await mock_db.bookings.insert_one(b.model_dump())
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.post("/api/login", json={"username": "user_case_b", "password": "passB"})
+
+        dash_res = await ac.get("/api/hr/dashboard?period=current_month")
+        assert dash_res.status_code == 200
+        dash = dash_res.json()
+
+        assert dash["total_sessions"]["count"] == 10
+        sm = dash["session_modes"]
+
+        # Neither mode may be exposed to reveal the other
+        assert sm["virtual"]["display"] == "<5"
+        assert sm["virtual"]["count"] is None
+        assert sm["virtual"]["percentage"] is None
+        assert sm["virtual"]["suppressed"] is True
+
+        assert sm["in_person"]["display"] == "<5"
+        assert sm["in_person"]["count"] is None
+        assert sm["in_person"]["percentage"] is None
+        assert sm["in_person"]["suppressed"] is True
+
+        modes_res = await ac.get("/api/hr/session-modes")
+        assert modes_res.status_code == 200
+        m_data = modes_res.json()["modes"]
+        assert m_data["virtual"]["metric"]["display"] == "<5"
+        assert m_data["virtual"]["percentage"] is None
+        assert m_data["in_person"]["metric"]["display"] == "<5"
+        assert m_data["in_person"]["percentage"] is None
+
+
+@pytest.mark.asyncio
+async def test_privacy_case_c_attendance_breakdown_inference_protection(hr_test_app):
+    """
+    Case C: Total = 12, Completed = 9, Cancelled = 2, No Show = 1.
+    Expected: Small attendance buckets (<5) are protected against inference.
+    Completed must be complementarily suppressed to protect Cancelled + No Show from tight bounding.
+    """
+    test_app, mock_db = hr_test_app
+    transport = ASGITransport(app=test_app)
+
+    org_id = "org-case-c"
+    await mock_db.organisations.insert_one(Organisation(id=org_id, name="Case C Corp", code="CS-C").model_dump())
+    USERS_DB["user_case_c"] = {
+        "password_hash": bcrypt.hashpw(b"passC", bcrypt.gensalt()).decode(),
+        "role": "hr_admin",
+        "name": "HR Case C",
+        "organisation_id": org_id,
+        "therapist_id": None
+    }
+
+    client = CRMClient(id="client-case-c", first_name="Synthetic", last_name="C", email="c@casec.com", phone="+26771000003", client_number="FCA-C", organisation_id=org_id)
+    await mock_db.crm_clients.insert_one(client.model_dump())
+
+    # 9 Completed, 2 Cancelled, 1 No-Show
+    for i in range(9):
+        b = Booking(client_id="client-case-c", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-09-0{i+1}T08:00:00Z" if i < 9 else "2026-09-10T08:00:00Z", ends_at="2026-09-10T09:00:00Z")
+        await mock_db.bookings.insert_one(b.model_dump())
+    for i in range(2):
+        b = Booking(client_id="client-case-c", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="cancelled", starts_at=f"2026-09-1{i+1}T08:00:00Z", ends_at="2026-09-11T09:00:00Z")
+        await mock_db.bookings.insert_one(b.model_dump())
+    b = Booking(client_id="client-case-c", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="no_show", starts_at="2026-09-25T08:00:00Z", ends_at="2026-09-25T09:00:00Z")
+    await mock_db.bookings.insert_one(b.model_dump())
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.post("/api/login", json={"username": "user_case_c", "password": "passC"})
+
+        dash_res = await ac.get("/api/hr/dashboard?period=current_month")
+        assert dash_res.status_code == 200
+        dash = dash_res.json()
+
+        assert dash["total_sessions"]["count"] == 12
+
+        # Cancelled and No-Show are < 5, their sum is 3 (< 5).
+        # Completed must be complementarily suppressed to protect them.
+        assert dash["completed"]["display"] == "<5"
+        assert dash["completed"]["count"] is None
+        assert dash["completed"]["percentage"] is None
+        assert dash["completed"]["suppressed"] is True
+
+        assert dash["cancelled"]["display"] == "<5"
+        assert dash["cancelled"]["count"] is None
+        assert dash["cancelled"]["percentage"] is None
+        assert dash["cancelled"]["suppressed"] is True
+
+        assert dash["no_show"]["display"] == "<5"
+        assert dash["no_show"]["count"] is None
+        assert dash["no_show"]["percentage"] is None
+        assert dash["no_show"]["suppressed"] is True
+
+
+@pytest.mark.asyncio
+async def test_privacy_case_d_time_series_longitudinal_privacy(hr_test_app):
+    """
+    Case D: January = 8, February = 2, Quarter Total = 10.
+    Expected: February exact value must not be derivable from Quarter Total - January.
+    In the monthly utilisation trends, both January and February must be suppressed (<5, count=None).
+    """
+    test_app, mock_db = hr_test_app
+    transport = ASGITransport(app=test_app)
+
+    org_id = "org-case-d"
+    await mock_db.organisations.insert_one(Organisation(id=org_id, name="Case D Corp", code="CS-D").model_dump())
+    USERS_DB["user_case_d"] = {
+        "password_hash": bcrypt.hashpw(b"passD", bcrypt.gensalt()).decode(),
+        "role": "hr_admin",
+        "name": "HR Case D",
+        "organisation_id": org_id,
+        "therapist_id": None
+    }
+
+    client = CRMClient(id="client-case-d", first_name="Synthetic", last_name="D", email="d@cased.com", phone="+26771000004", client_number="FCA-D", organisation_id=org_id)
+    await mock_db.crm_clients.insert_one(client.model_dump())
+
+    # 8 sessions in 2026-01
+    for i in range(8):
+        b = Booking(client_id="client-case-d", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-01-0{i+1}T08:00:00Z", ends_at=f"2026-01-0{i+1}T09:00:00Z")
+        await mock_db.bookings.insert_one(b.model_dump())
+    # 2 sessions in 2026-02
+    for i in range(2):
+        b = Booking(client_id="client-case-d", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-02-0{i+1}T08:00:00Z", ends_at=f"2026-02-0{i+1}T09:00:00Z")
+        await mock_db.bookings.insert_one(b.model_dump())
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.post("/api/login", json={"username": "user_case_d", "password": "passD"})
+
+        trends_res = await ac.get("/api/hr/utilisation?granularity=monthly")
+        assert trends_res.status_code == 200
+        trends = trends_res.json()["trends"]
+
+        assert len(trends) == 2
+        jan = next(t for t in trends if t["period"] == "2026-01")
+        feb = next(t for t in trends if t["period"] == "2026-02")
+
+        # February (2) is < 5; January (8) must be complementarily suppressed so Feb is not derivable
+        assert feb["total_sessions"]["display"] == "<5"
+        assert feb["total_sessions"]["count"] is None
+        assert feb["total_sessions"]["suppressed"] is True
+
+        assert jan["total_sessions"]["display"] == "<5"
+        assert jan["total_sessions"]["count"] is None
+        assert jan["total_sessions"]["suppressed"] is True
+
+
+@pytest.mark.asyncio
+async def test_privacy_case_e_api_payload_inspection_zero_hidden_raw_counts(hr_test_app):
+    """
+    Case E: Inspect browser API JSON.
+    Expected: Suppressed field strictly contains count: null, percentage: null, suppressed: true.
+    Exact hidden count must NOT exist anywhere in the JSON response under any alias.
+    """
+    test_app, mock_db = hr_test_app
+    transport = ASGITransport(app=test_app)
+
+    org_id = "org-case-e"
+    await mock_db.organisations.insert_one(Organisation(id=org_id, name="Case E Corp", code="CS-E").model_dump())
+    USERS_DB["user_case_e"] = {
+        "password_hash": bcrypt.hashpw(b"passE", bcrypt.gensalt()).decode(),
+        "role": "hr_admin",
+        "name": "HR Case E",
+        "organisation_id": org_id,
+        "therapist_id": None
+    }
+
+    client = CRMClient(id="client-case-e", first_name="E", last_name="E", email="e@casee.com", phone="+26771000005", client_number="FCA-E", organisation_id=org_id)
+    await mock_db.crm_clients.insert_one(client.model_dump())
+
+    # Create 3 sessions (all suppressed)
+    for i in range(3):
+        b = Booking(client_id="client-case-e", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-09-0{i+1}T08:00:00Z", ends_at=f"2026-09-0{i+1}T09:00:00Z")
+        await mock_db.bookings.insert_one(b.model_dump())
+
+    def verify_no_hidden_raw_counts(obj):
+        if isinstance(obj, dict):
+            # Check prohibited keys
+            prohibited_keys = {"raw_count", "actual_count", "actual", "hidden_count", "real_count", "unmasked"}
+            for k in obj.keys():
+                assert k.lower() not in prohibited_keys, f"Found leaked raw key: {k}"
+            # If suppressed, count and percentage MUST be None
+            if obj.get("suppressed") is True:
+                assert obj.get("count") is None, f"Suppressed object contains non-null count: {obj}"
+                assert obj.get("percentage") is None, f"Suppressed object contains non-null percentage: {obj}"
+                assert obj.get("display") == "<5"
+            for v in obj.values():
+                verify_no_hidden_raw_counts(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                verify_no_hidden_raw_counts(item)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.post("/api/login", json={"username": "user_case_e", "password": "passE"})
+
+        for ep in ["/api/hr/dashboard", "/api/hr/utilisation", "/api/hr/session-types", "/api/hr/session-modes"]:
+            res = await ac.get(ep)
+            assert res.status_code == 200
+            json_payload = res.json()
+            verify_no_hidden_raw_counts(json_payload)
+
+
+@pytest.mark.asyncio
+async def test_privacy_case_f_csv_export_strict_privacy_policy(hr_test_app):
+    """
+    Case F: CSV export.
+    Expected: No suppressed raw values. Output contains '<5' for all suppressed metrics.
+    """
+    test_app, mock_db = hr_test_app
+    transport = ASGITransport(app=test_app)
+
+    org_id = "org-case-f"
+    await mock_db.organisations.insert_one(Organisation(id=org_id, name="Case F Corp", code="CS-F").model_dump())
+    USERS_DB["user_case_f"] = {
+        "password_hash": bcrypt.hashpw(b"passF", bcrypt.gensalt()).decode(),
+        "role": "hr_admin",
+        "name": "HR Case F",
+        "organisation_id": org_id,
+        "therapist_id": None
+    }
+
+    client = CRMClient(id="client-case-f", first_name="F", last_name="F", email="f@casef.com", phone="+26771000006", client_number="FCA-F", organisation_id=org_id)
+    await mock_db.crm_clients.insert_one(client.model_dump())
+
+    # 3 sessions in 2026-09 (< 5 total)
+    for i in range(3):
+        b = Booking(client_id="client-case-f", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-09-0{i+1}T08:00:00Z", ends_at=f"2026-09-0{i+1}T09:00:00Z")
+        await mock_db.bookings.insert_one(b.model_dump())
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.post("/api/login", json={"username": "user_case_f", "password": "passF"})
+
+        csv_res = await ac.get("/api/hr/export/csv")
+        assert csv_res.status_code == 200
+        csv_text = csv_res.text
+        lines = csv_text.strip().split("\n")
+        assert len(lines) == 2
+        header = lines[0]
+        row = lines[1]
+        assert header == "Period,Total Sessions,Completed,Cancelled,No Show"
+        # All columns must be suppressed as <5, NEVER returning 3 or 0
+        assert row == "2026-09,<5,<5,<5,<5"
+
+
+@pytest.mark.asyncio
+async def test_direct_identifier_attack_and_tenant_isolation(hr_test_app):
+    """
+    Tenant isolation & direct identifier attack test.
+    HR User A attempts:
+      - ?organisation_id=org-b -> 403
+      - ?org_id=org-b -> 403
+      - header organisation_id: org-b -> 403
+      - header x-organisation-id: org-b -> 403
+      - header organisation: org-b -> 403
+      - self-registration -> 404 / 405 (endpoint does not exist)
+      - modifying own organisation_id or role -> 403
+    """
+    test_app, mock_db = hr_test_app
+    transport = ASGITransport(app=test_app)
+
+    await mock_db.organisations.insert_one(Organisation(id="org-alpha", name="Corp Alpha", code="ALPHA").model_dump())
+    await mock_db.organisations.insert_one(Organisation(id="org-beta", name="Corp Beta", code="BETA").model_dump())
+
+    USERS_DB["user_alpha"] = {
+        "password_hash": bcrypt.hashpw(b"passAlpha", bcrypt.gensalt()).decode(),
+        "role": "hr_admin",
+        "name": "HR Alpha",
+        "organisation_id": "org-alpha",
+        "therapist_id": None
+    }
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.post("/api/login", json={"username": "user_alpha", "password": "passAlpha"})
+
+        # Attack 1: Query param ?organisation_id=org-beta -> 403
+        r1 = await ac.get("/api/hr/dashboard?organisation_id=org-beta")
+        assert r1.status_code == 403
+        assert "Cross-tenant access forbidden" in r1.json()["detail"]
+
+        # Attack 2: Query param ?org_id=org-beta -> 403
+        r2 = await ac.get("/api/hr/dashboard?org_id=org-beta")
+        assert r2.status_code == 403
+
+        # Attack 3: Header organisation_id: org-beta -> 403
+        r3 = await ac.get("/api/hr/dashboard", headers={"organisation_id": "org-beta"})
+        assert r3.status_code == 403
+
+        # Attack 4: Header x-organisation-id: org-beta -> 403
+        r4 = await ac.get("/api/hr/dashboard", headers={"x-organisation-id": "org-beta"})
+        assert r4.status_code == 403
+
+        # Attack 5: Header organisation: org-beta -> 403
+        r5 = await ac.get("/api/hr/dashboard", headers={"organisation": "org-beta"})
+        assert r5.status_code == 403
+
+        # Attack 6: Attempt public HR registration -> endpoint does not exist (404/405)
+        r6 = await ac.post("/api/hr/register", json={"username": "hacker", "password": "pwd"})
+        assert r6.status_code in [404, 405]
+
+        # Attack 7: Attempt modifying organisation through admin-ops -> 403 Forbidden
+        r7 = await ac.patch("/api/admin-ops/organisations/org-alpha", json={"name": "Hacked Org"})
+        assert r7.status_code == 403
+
+        r8 = await ac.post("/api/admin-ops/organisations/org-beta/users", json={"username": "hacker", "password": "pwd", "email": "h@b.com", "name": "H", "role": "hr_admin"})
+        assert r8.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_organisation_contact_data_privacy(hr_test_app):
+    """
+    Verify /api/hr/me and /api/hr/contract do not leak FCA internal contacts or other corporate contacts.
+    """
+    test_app, mock_db = hr_test_app
+    transport = ASGITransport(app=test_app)
+
+    org_id = "org-contact-check"
+    await mock_db.organisations.insert_one(Organisation(
+        id=org_id,
+        name="Private Holdings",
+        code="PRIV",
+        contact_person="Internal FCA Handler",
+        contact_email="fca.internal.staff@academyfoundations.com",
+        allocated_sessions=50
+    ).model_dump())
+
+    USERS_DB["hr_contact_test"] = {
+        "password_hash": bcrypt.hashpw(b"pass", bcrypt.gensalt()).decode(),
+        "role": "hr_admin",
+        "name": "HR Private",
+        "organisation_id": org_id,
+        "therapist_id": None
+    }
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.post("/api/login", json={"username": "hr_contact_test", "password": "pass"})
+
+        me_res = await ac.get("/api/hr/me")
+        assert me_res.status_code == 200
+        me_json = me_res.json()
+        assert "contact_person" not in me_json
+        assert "contact_email" not in me_json
+        assert "fca.internal.staff" not in me_res.text
+
+        contract_res = await ac.get("/api/hr/contract")
+        assert contract_res.status_code == 200
+        contract_json = contract_res.json()
+        assert "contact_person" not in contract_json
+        assert "contact_email" not in contract_json
+        assert "fca.internal.staff" not in contract_res.text

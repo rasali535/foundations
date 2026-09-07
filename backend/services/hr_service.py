@@ -9,17 +9,124 @@ from models import (
     HR_MIN_REPORTING_COUNT, now_iso
 )
 
-def mask_metric(count: int, threshold: int = HR_MIN_REPORTING_COUNT) -> AggregateMetric:
+class HRPrivacyService:
     """
-    Applies privacy-preserving threshold suppression.
-    If 0 < count < threshold, the exact count is masked with '<{threshold}'.
-    Zero counts and counts >= threshold are safe to display.
+    Centralized Statistical Disclosure Control (SDC) and privacy enforcement engine.
+    Guarantees:
+      1. Minimum threshold suppression (count < HR_MIN_REPORTING_COUNT).
+      2. Complementary suppression (secondary suppression) to prevent derivation via Total - visible.
+      3. Zero leakage of exact percentages for suppressed buckets (percentage = None).
+      4. Small total suppression (< threshold total withholds detailed breakdowns).
+      5. Time-series suppression across period totals and within-period attendance.
+      6. Absolute ban on hidden exact counts in output DTOs.
     """
-    if count == 0:
-        return AggregateMetric(count=0, display="0", suppressed=False)
-    if 0 < count < threshold:
-        return AggregateMetric(count=None, display=f"<{threshold}", suppressed=True)
-    return AggregateMetric(count=count, display=str(count), suppressed=False)
+    @staticmethod
+    def mask_single_metric(
+        count: int,
+        threshold: int = HR_MIN_REPORTING_COUNT,
+        total: Optional[int] = None
+    ) -> AggregateMetric:
+        """
+        Primary threshold suppression for a standalone metric.
+        """
+        if count == 0:
+            pct = 0.0 if (total and total > 0) else None
+            return AggregateMetric(count=0, display="0", percentage=pct, suppressed=False)
+        if 0 < count < threshold:
+            return AggregateMetric(count=None, display=f"<{threshold}", percentage=None, suppressed=True)
+        
+        pct = round((count / total) * 100, 1) if (total and total > 0) else None
+        return AggregateMetric(count=count, display=str(count), percentage=pct, suppressed=False)
+
+    @staticmethod
+    def apply_breakdown_suppression(
+        raw_counts: Dict[str, int],
+        total: int,
+        threshold: int = HR_MIN_REPORTING_COUNT,
+        category_type: str = "general"
+    ) -> Tuple[Dict[str, AggregateMetric], bool]:
+        """
+        Applies Primary + Complementary Suppression across an additive set of buckets.
+        Returns:
+            (metrics_dict, detailed_breakdown_available)
+        """
+        # Step 1: Small Total Suppression (Requirement 3)
+        if total == 0:
+            return {
+                k: AggregateMetric(count=0, display="0", percentage=None, suppressed=False)
+                for k in raw_counts
+            }, True
+
+        if 0 < total < threshold:
+            # Entire detailed breakdown suppressed to protect individual utilization
+            return {
+                k: AggregateMetric(count=None, display=f"<{threshold}", percentage=None, suppressed=True)
+                for k in raw_counts
+            }, False
+
+        # Step 2: Primary Suppression (0 < count < threshold)
+        primary_suppressed = {k for k, v in raw_counts.items() if 0 < v < threshold}
+        suppressed_keys = set(primary_suppressed)
+
+        # Step 3: Complementary Suppression
+        if len(raw_counts) == 2 or category_type == "modes":
+            # 2-category case (e.g. In-Person vs Virtual):
+            # If either is suppressed, the other trivially discloses it: suppressed = total - visible.
+            # Both must be suppressed.
+            if len(suppressed_keys) > 0:
+                suppressed_keys = set(raw_counts.keys())
+        else:
+            # 3 or more categories (Session Types, Attendance, Time-Series):
+            if len(suppressed_keys) > 0:
+                unsuppressed_nonzero = {
+                    k for k, v in raw_counts.items()
+                    if k not in suppressed_keys and v > 0
+                }
+                
+                # While disclosure risk remains:
+                # 1. Exactly 1 bucket suppressed -> derived via (total - visible)
+                # 2. Sum of suppressed buckets < threshold -> bounds all suppressed buckets tightly
+                while unsuppressed_nonzero and (
+                    len(suppressed_keys) < 2 or
+                    sum(raw_counts[k] for k in suppressed_keys) < threshold
+                ):
+                    smallest_key = min(unsuppressed_nonzero, key=lambda k: raw_counts[k])
+                    suppressed_keys.add(smallest_key)
+                    unsuppressed_nonzero.remove(smallest_key)
+
+        # Step 4: Construct safe AggregateMetric representations
+        result: Dict[str, AggregateMetric] = {}
+        for k, v in raw_counts.items():
+            if k in suppressed_keys:
+                result[k] = AggregateMetric(
+                    count=None,
+                    display=f"<{threshold}",
+                    percentage=None,
+                    suppressed=True
+                )
+            elif v == 0:
+                result[k] = AggregateMetric(
+                    count=0,
+                    display="0",
+                    percentage=0.0 if total > 0 else None,
+                    suppressed=False
+                )
+            else:
+                pct = round((v / total) * 100, 1) if total > 0 else None
+                result[k] = AggregateMetric(
+                    count=v,
+                    display=str(v),
+                    percentage=pct,
+                    suppressed=False
+                )
+
+        non_zero_keys = {k for k, v in raw_counts.items() if v > 0}
+        breakdown_available = not (len(non_zero_keys) > 0 and non_zero_keys.issubset(suppressed_keys))
+        return result, breakdown_available
+
+
+# Backwards compatibility alias
+mask_metric = HRPrivacyService.mask_single_metric
 
 
 class HRReportingService:
@@ -79,7 +186,6 @@ class HRReportingService:
         now = datetime.now(timezone.utc)
         if period == "current_month":
             start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-            # end of month
             next_month = (now.replace(day=28) + timedelta(days=4)).replace(day=1)
             end = next_month.replace(hour=23, minute=59, second=59, microsecond=999999).isoformat()
             return start, end, now.strftime("%B %Y")
@@ -139,28 +245,48 @@ class HRReportingService:
         in_person_count = sum(1 for b in bookings if b.get("session_mode") == "in_person")
         virtual_count = sum(1 for b in bookings if b.get("session_mode") == "virtual")
 
+        # Apply Centralized Privacy Engine
+        total_sessions_metric = HRPrivacyService.mask_single_metric(total_sessions, threshold)
+
+        attendance_metrics, att_avail = HRPrivacyService.apply_breakdown_suppression(
+            {"completed": completed, "cancelled": cancelled, "no_show": no_show},
+            total=total_sessions,
+            threshold=threshold,
+            category_type="attendance"
+        )
+
+        type_metrics, types_avail = HRPrivacyService.apply_breakdown_suppression(
+            {"individual": individual_count, "couple": couple_count, "family": family_count},
+            total=total_sessions,
+            threshold=threshold,
+            category_type="types"
+        )
+
+        mode_metrics, modes_avail = HRPrivacyService.apply_breakdown_suppression(
+            {"in_person": in_person_count, "virtual": virtual_count},
+            total=total_sessions,
+            threshold=threshold,
+            category_type="modes"
+        )
+
         # Contract overview
         contract = await HRReportingService.get_contract_status(db, org_id)
+
+        detailed_avail = total_sessions >= threshold and (att_avail or types_avail or modes_avail)
 
         return HRDashboardResponse(
             organisation_id=org_id,
             organisation_name=org_name,
             period=period_label,
-            total_sessions=mask_metric(total_sessions, threshold),
-            completed=mask_metric(completed, threshold),
-            cancelled=mask_metric(cancelled, threshold),
-            no_show=mask_metric(no_show, threshold),
-            session_types={
-                "individual": mask_metric(individual_count, threshold),
-                "couple": mask_metric(couple_count, threshold),
-                "family": mask_metric(family_count, threshold),
-            },
-            session_modes={
-                "in_person": mask_metric(in_person_count, threshold),
-                "virtual": mask_metric(virtual_count, threshold),
-            },
+            total_sessions=total_sessions_metric,
+            completed=attendance_metrics["completed"],
+            cancelled=attendance_metrics["cancelled"],
+            no_show=attendance_metrics["no_show"],
+            session_types=type_metrics,
+            session_modes=mode_metrics,
             contract=contract,
-            privacy_notice=f"All counts below the privacy threshold ({threshold}) are masked to safeguard employee anonymity."
+            detailed_breakdown_available=detailed_avail,
+            privacy_notice=f"All counts below the privacy threshold ({threshold}) and related complementary values are suppressed to safeguard employee anonymity."
         )
 
     # ==================== Contract Overview ====================
@@ -177,7 +303,6 @@ class HRReportingService:
             )
 
         client_ids = await HRReportingService._get_org_client_ids(db, org_id)
-        # Contract session utilisation counts completed or confirmed sessions
         query: Dict[str, Any] = {
             "client_id": {"$in": client_ids},
             "status": {"$in": ["completed", "confirmed"]}
@@ -221,7 +346,7 @@ class HRReportingService:
         for b in bookings:
             dt_str = b.get("starts_at", "")
             if len(dt_str) >= 7:
-                period_key = dt_str[:7]  # "2026-09"
+                period_key = dt_str[:7]
             else:
                 period_key = "Other"
             
@@ -233,15 +358,49 @@ class HRReportingService:
             if st in ["completed", "cancelled", "no_show"]:
                 trend_buckets[period_key][st] += 1
 
+        sorted_periods = sorted(trend_buckets.keys())
+        period_totals = {p: trend_buckets[p]["total"] for p in sorted_periods}
+        overall_total = sum(period_totals.values())
+
+        # Longitudinal time-series suppression (Requirement 4 & Case D)
+        period_metrics, _ = HRPrivacyService.apply_breakdown_suppression(
+            period_totals,
+            total=overall_total,
+            threshold=threshold,
+            category_type="time_series"
+        )
+
         points = []
-        for period_key in sorted(trend_buckets.keys()):
+        for period_key in sorted_periods:
             data = trend_buckets[period_key]
+            p_total = data["total"]
+            p_total_metric = period_metrics.get(period_key)
+
+            # If period total is suppressed, detailed attendance breakdown within that month is also suppressed
+            if p_total_metric and p_total_metric.suppressed:
+                att_metrics, _ = HRPrivacyService.apply_breakdown_suppression(
+                    {"completed": data["completed"], "cancelled": data["cancelled"], "no_show": data["no_show"]},
+                    total=p_total,
+                    threshold=threshold,
+                    category_type="attendance"
+                )
+                # Ensure all attendance metrics for this period are suppressed
+                for k in att_metrics:
+                    att_metrics[k] = AggregateMetric(count=None, display=f"<{threshold}", percentage=None, suppressed=True)
+            else:
+                att_metrics, _ = HRPrivacyService.apply_breakdown_suppression(
+                    {"completed": data["completed"], "cancelled": data["cancelled"], "no_show": data["no_show"]},
+                    total=p_total,
+                    threshold=threshold,
+                    category_type="attendance"
+                )
+
             points.append({
                 "period": period_key,
-                "total_sessions": mask_metric(data["total"], threshold).model_dump(),
-                "completed": mask_metric(data["completed"], threshold).model_dump(),
-                "cancelled": mask_metric(data["cancelled"], threshold).model_dump(),
-                "no_show": mask_metric(data["no_show"], threshold).model_dump()
+                "total_sessions": p_total_metric.model_dump() if p_total_metric else HRPrivacyService.mask_single_metric(p_total, threshold).model_dump(),
+                "completed": att_metrics["completed"].model_dump(),
+                "cancelled": att_metrics["cancelled"].model_dump(),
+                "no_show": att_metrics["no_show"].model_dump()
             })
 
         return {
@@ -249,7 +408,7 @@ class HRReportingService:
             "organisation_name": org.name if org else "Corporate Client",
             "granularity": granularity,
             "trends": points,
-            "privacy_notice": f"Individual monthly buckets with fewer than {threshold} sessions are masked for privacy."
+            "privacy_notice": f"Individual monthly buckets and attendance breakdowns with fewer than {threshold} sessions are suppressed with complementary protection for anonymity."
         }
 
     # ==================== Session Type & Mode Aggregates ====================
@@ -267,26 +426,23 @@ class HRReportingService:
         cpl_count = sum(1 for b in bookings if b.get("session_type") == "couple")
         fam_count = sum(1 for b in bookings if b.get("session_type") == "family")
 
-        ind_metric = mask_metric(ind_count, threshold)
-        cpl_metric = mask_metric(cpl_count, threshold)
-        fam_metric = mask_metric(fam_count, threshold)
+        type_metrics, breakdown_avail = HRPrivacyService.apply_breakdown_suppression(
+            {"individual": ind_count, "couple": cpl_count, "family": fam_count},
+            total=total,
+            threshold=threshold,
+            category_type="types"
+        )
 
         return {
             "organisation_id": org_id,
-            "total_sessions": mask_metric(total, threshold).model_dump(),
+            "total_sessions": HRPrivacyService.mask_single_metric(total, threshold).model_dump(),
+            "detailed_breakdown_available": breakdown_avail,
             "types": {
-                "individual": {
-                    "metric": ind_metric.model_dump(),
-                    "percentage": round((ind_count / total) * 100, 1) if total > 0 and not ind_metric.suppressed else None
-                },
-                "couple": {
-                    "metric": cpl_metric.model_dump(),
-                    "percentage": round((cpl_count / total) * 100, 1) if total > 0 and not cpl_metric.suppressed else None
-                },
-                "family": {
-                    "metric": fam_metric.model_dump(),
-                    "percentage": round((fam_count / total) * 100, 1) if total > 0 and not fam_metric.suppressed else None
+                k: {
+                    "metric": m.model_dump(),
+                    "percentage": m.percentage
                 }
+                for k, m in type_metrics.items()
             }
         }
 
@@ -303,21 +459,23 @@ class HRReportingService:
         in_person_count = sum(1 for b in bookings if b.get("session_mode") == "in_person")
         virtual_count = sum(1 for b in bookings if b.get("session_mode") == "virtual")
 
-        ip_metric = mask_metric(in_person_count, threshold)
-        v_metric = mask_metric(virtual_count, threshold)
+        mode_metrics, breakdown_avail = HRPrivacyService.apply_breakdown_suppression(
+            {"in_person": in_person_count, "virtual": virtual_count},
+            total=total,
+            threshold=threshold,
+            category_type="modes"
+        )
 
         return {
             "organisation_id": org_id,
-            "total_sessions": mask_metric(total, threshold).model_dump(),
+            "total_sessions": HRPrivacyService.mask_single_metric(total, threshold).model_dump(),
+            "detailed_breakdown_available": breakdown_avail,
             "modes": {
-                "in_person": {
-                    "metric": ip_metric.model_dump(),
-                    "percentage": round((in_person_count / total) * 100, 1) if total > 0 and not ip_metric.suppressed else None
-                },
-                "virtual": {
-                    "metric": v_metric.model_dump(),
-                    "percentage": round((virtual_count / total) * 100, 1) if total > 0 and not v_metric.suppressed else None
+                k: {
+                    "metric": m.model_dump(),
+                    "percentage": m.percentage
                 }
+                for k, m in mode_metrics.items()
             }
         }
 
@@ -329,8 +487,8 @@ class HRReportingService:
         threshold: int = HR_MIN_REPORTING_COUNT
     ) -> str:
         """
-        Generates aggregate-only CSV export.
-        NEVER contains client names, emails, phones, or individual appointments.
+        Generates aggregate-only CSV export strictly bound to the central privacy policy.
+        Never discloses suppressed values or individual records.
         """
         trends_data = await HRReportingService.get_utilisation_trends(db, org_id, threshold=threshold)
         lines = ["Period,Total Sessions,Completed,Cancelled,No Show"]
