@@ -70,6 +70,65 @@ class BookingService:
 
         return False, None
 
+    @staticmethod
+    async def _dispatch_booking_notifications(
+        db: AsyncIOMotorDatabase,
+        client: CRMClient,
+        therapist: Any,
+        bookings: List[Booking],
+        booking_batch_id: Optional[str] = None
+    ) -> None:
+        """
+        Dispatch each notification channel independently.
+
+        A failure in email or client WhatsApp must never prevent the assigned therapist
+        notification from being attempted. Therapist settings are refreshed immediately
+        before dispatch so recently saved WhatsApp settings are used.
+        """
+        if not bookings:
+            return
+
+        try:
+            await NotificationService.send_booking_email(
+                db, client, bookings, booking_batch_id=booking_batch_id
+            )
+        except Exception as exc:
+            logging.warning("Client booking email dispatch failed: %s", exc.__class__.__name__)
+
+        try:
+            await NotificationService.send_booking_whatsapp(
+                db, client, bookings, booking_batch_id=booking_batch_id
+            )
+        except Exception as exc:
+            logging.warning("Client booking WhatsApp dispatch failed: %s", exc.__class__.__name__)
+
+        notification_therapist = therapist
+        try:
+            refreshed = await TherapistService.get_therapist_by_id(db, therapist.id)
+            if refreshed:
+                notification_therapist = refreshed
+        except Exception as exc:
+            logging.warning(
+                "Could not refresh therapist notification settings for %s: %s",
+                getattr(therapist, "id", "unknown"),
+                exc.__class__.__name__
+            )
+
+        try:
+            await TherapistNotificationService.send_booking_whatsapp(
+                db,
+                notification_therapist,
+                client,
+                bookings,
+                booking_batch_id=booking_batch_id
+            )
+        except Exception as exc:
+            logging.warning(
+                "Therapist booking WhatsApp dispatch failed for %s: %s",
+                getattr(notification_therapist, "id", "unknown"),
+                exc.__class__.__name__
+            )
+
     # ==================== Single Booking Creation ====================
     @staticmethod
     async def create_booking(
@@ -142,7 +201,6 @@ class BookingService:
 
         # 7. Build Participants
         participants_list: List[BookingParticipant] = []
-        # Primary client participant
         primary_part = BookingParticipant(
             client_id=client.id,
             name=f"{client.first_name} {client.last_name}".strip(),
@@ -153,7 +211,6 @@ class BookingService:
         )
         participants_list.append(primary_part)
 
-        # Additional participants for Couple or Family
         for p in request.participants:
             part_obj = BookingParticipant(
                 name=p.get("name", "Participant"),
@@ -211,12 +268,9 @@ class BookingService:
 
         # 10. Notifications
         if request.send_notifications:
-            try:
-                await NotificationService.send_booking_email(db, client, [booking])
-                await NotificationService.send_booking_whatsapp(db, client, [booking])
-                await TherapistNotificationService.send_booking_whatsapp(db, therapist, client, [booking])
-            except Exception as e:
-                logging.warning(f"Failed to dispatch booking notification: {e}")
+            await BookingService._dispatch_booking_notifications(
+                db, client, therapist, [booking]
+            )
 
         return booking, None
 
@@ -367,18 +421,13 @@ class BookingService:
 
         # 6. Dispatch Consolidated Notification
         if request.send_notifications:
-            try:
-                await NotificationService.send_booking_email(db, client, created_bookings, booking_batch_id=batch.id)
-                await NotificationService.send_booking_whatsapp(db, client, created_bookings, booking_batch_id=batch.id)
-                await TherapistNotificationService.send_booking_whatsapp(
-                    db,
-                    therapist,
-                    client,
-                    created_bookings,
-                    booking_batch_id=batch.id
-                )
-            except Exception as e:
-                logging.warning(f"Failed to dispatch multi-booking notification: {e}")
+            await BookingService._dispatch_booking_notifications(
+                db,
+                client,
+                therapist,
+                created_bookings,
+                booking_batch_id=batch.id
+            )
 
         return {
             "batch_id": batch.id,
@@ -420,14 +469,12 @@ class BookingService:
         new_starts_at_iso = new_start_dt.isoformat()
         new_ends_at_iso = new_end_dt.isoformat()
 
-        # Check Conflict
         has_conflict, conflict_msg = await BookingService.check_therapist_conflict(
             db, therapist.id, new_starts_at_iso, new_ends_at_iso, exclude_booking_id=booking_id
         )
         if has_conflict:
             return None, f"Cannot reschedule to requested time: {conflict_msg}"
 
-        # Update Booking
         update_fields = {
             "starts_at": new_starts_at_iso,
             "ends_at": new_ends_at_iso,
@@ -443,7 +490,6 @@ class BookingService:
         updated_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
         updated_booking = Booking(**updated_doc)
 
-        # Audit Log
         await AuditService.log_activity(
             db,
             action="booking_rescheduled",
@@ -458,21 +504,12 @@ class BookingService:
             }
         )
 
-        # Dispatch Reschedule Notification
         if request.send_notifications:
             client = await CRMService.get_client_by_id(db, updated_booking.client_id)
             if client:
-                try:
-                    await NotificationService.send_booking_email(db, client, [updated_booking])
-                    await NotificationService.send_booking_whatsapp(db, client, [updated_booking])
-                    await TherapistNotificationService.send_booking_whatsapp(
-                        db,
-                        therapist,
-                        client,
-                        [updated_booking]
-                    )
-                except Exception as e:
-                    logging.warning(f"Notification error on reschedule: {e}")
+                await BookingService._dispatch_booking_notifications(
+                    db, client, therapist, [updated_booking]
+                )
 
         return updated_booking, None
 
@@ -483,7 +520,7 @@ class BookingService:
         request: BookingStatusUpdateRequest,
         actor_id: Optional[str] = None,
         actor_name: Optional[str] = None,
-        _now_override: Optional[datetime] = None  # INTERNAL USE ONLY — for test clock injection. Never read from client input.
+        _now_override: Optional[datetime] = None
     ) -> Tuple[Optional[Booking], Optional[str]]:
         booking_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
         if not booking_doc:
@@ -493,7 +530,6 @@ class BookingService:
         if request.status not in valid_statuses:
             return None, f"Invalid status '{request.status}'. Must be one of {valid_statuses}."
 
-        # Financial integrity check: Prevent altering status if booking is locked in an issued or paid invoice
         active_inv_id = booking_doc.get("active_invoice_id")
         if active_inv_id and request.status != booking_doc.get("status"):
             inv = await db.invoices.find_one({"id": active_inv_id})
@@ -505,14 +541,8 @@ class BookingService:
             "updated_at": now_iso()
         }
 
-        # Server-side Six-Hour Cancellation Classification
-        # SECURITY: The cancellation time is ALWAYS the server's authenticated UTC clock.
-        # No client-supplied timestamp is ever accepted for billing determination.
         if request.status in ["cancelled", "late_cancelled_billable"]:
             starts_at_str = booking_doc.get("starts_at", "")
-
-            # Use injected test clock if provided; otherwise always use server time.
-            # _now_override is an internal parameter never reachable from the HTTP layer.
             cancel_dt: datetime = _now_override if _now_override is not None else datetime.now(timezone.utc)
             if cancel_dt.tzinfo is None:
                 cancel_dt = cancel_dt.replace(tzinfo=timezone.utc)
@@ -529,8 +559,6 @@ class BookingService:
             total_seconds = time_diff.total_seconds()
             hours_before = round(total_seconds / 3600.0, 2)
 
-            # Rule: Cancellation less than 6 hours before appointment -> late_cancelled_billable (billable)
-            # Exactly 6:00:00 (21600s) or more -> cancelled (non_billable)
             if total_seconds < 6 * 3600:
                 final_status = "late_cancelled_billable"
                 billing_status = "billable"
