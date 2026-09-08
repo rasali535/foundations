@@ -10,6 +10,7 @@ from services.therapist_service import TherapistService
 
 CAT_TZ = ZoneInfo("Africa/Gaborone")
 MAX_SLOT_OPTIONS = 6
+AVAILABILITY_DAYS = 7
 ENTITLEMENT_STATUSES = ["pending", "confirmed", "completed", "late_cancelled_billable", "no_show"]
 
 
@@ -60,13 +61,10 @@ async def fast_slot_options(
     client_doc: Dict[str, Any],
     session_mode: str,
 ) -> List[Dict[str, Any]]:
-    """Return the earliest bookable slots without a DB count query per slot.
+    """Return the earliest bookable slots from the next 7 days only.
 
-    The first bot implementation checked the client's monthly entitlement once for
-    every generated therapist slot. A 30-day calendar can contain hundreds of
-    slots, which made WhatsApp requests exceed the adapter's request timeout.
-    This version fetches therapist availability concurrently and calculates the
-    entitlement only once per calendar month represented in the candidate set.
+    Availability is intentionally searched week-by-week for WhatsApp responsiveness.
+    The separate FCA entitlement policy remains monthly (default 4 sessions/month).
     """
     therapists = await TherapistService.list_therapists(
         db, active_only=True, session_mode=session_mode
@@ -80,7 +78,7 @@ async def fast_slot_options(
     availability_results = await asyncio.gather(
         *(
             TherapistService.get_available_slots(
-                db, therapist.id, today, days_ahead=30
+                db, therapist.id, today, days_ahead=AVAILABILITY_DAYS
             )
             for therapist in therapists
         ),
