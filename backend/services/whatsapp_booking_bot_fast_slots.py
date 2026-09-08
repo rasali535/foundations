@@ -9,7 +9,8 @@ from services.therapist_service import TherapistService
 
 
 CAT_TZ = ZoneInfo("Africa/Gaborone")
-MAX_SLOT_OPTIONS = 6
+MAX_SLOT_OPTIONS = 10
+MAX_SLOTS_PER_DAY = 2
 AVAILABILITY_DAYS = 7
 ENTITLEMENT_STATUSES = ["pending", "confirmed", "completed", "late_cancelled_billable", "no_show"]
 
@@ -24,6 +25,10 @@ def _parse_iso(value: str) -> datetime:
 def _month_key(reference: datetime) -> Tuple[int, int]:
     local = reference.astimezone(CAT_TZ)
     return local.year, local.month
+
+
+def _day_key(reference: datetime) -> str:
+    return reference.astimezone(CAT_TZ).date().isoformat()
 
 
 def _month_bounds_utc(year: int, month: int) -> Tuple[str, str]:
@@ -61,10 +66,13 @@ async def fast_slot_options(
     client_doc: Dict[str, Any],
     session_mode: str,
 ) -> List[Dict[str, Any]]:
-    """Return the earliest bookable slots from the next 7 days only.
+    """Return bookable slots spread across the next 7 days.
 
     Availability is intentionally searched week-by-week for WhatsApp responsiveness.
-    The separate FCA entitlement policy remains monthly (default 4 sessions/month).
+    Results are distributed across available calendar dates instead of returning only
+    the earliest hours from the first available day. Up to two times are shown per
+    date, with a maximum of ten options. The separate FCA entitlement policy remains
+    monthly (default 4 sessions/month).
     """
     therapists = await TherapistService.list_therapists(
         db, active_only=True, session_mode=session_mode
@@ -105,6 +113,7 @@ async def fast_slot_options(
                     "starts_at": slot["starts_at"],
                     "ends_at": slot["ends_at"],
                     "_month_key": _month_key(start_dt),
+                    "_day_key": _day_key(start_dt),
                 }
             )
 
@@ -118,13 +127,27 @@ async def fast_slot_options(
     )
     remaining_by_month = dict(remaining_results)
 
-    filtered: List[Dict[str, Any]] = []
+    eligible: List[Dict[str, Any]] = []
     for item in candidates:
-        month_key = item.pop("_month_key")
-        if remaining_by_month.get(month_key, 0) <= 0:
+        if remaining_by_month.get(item["_month_key"], 0) <= 0:
             continue
-        filtered.append(item)
-        if len(filtered) >= MAX_SLOT_OPTIONS:
-            break
+        eligible.append(item)
 
-    return filtered
+    if not eligible:
+        return []
+
+    # Spread choices across dates so a full Wednesday schedule cannot consume every
+    # visible option while Thursday/Friday/Monday availability remains hidden.
+    by_day: Dict[str, List[Dict[str, Any]]] = {}
+    for item in eligible:
+        by_day.setdefault(item["_day_key"], []).append(item)
+
+    selected: List[Dict[str, Any]] = []
+    for day_key in sorted(by_day.keys()):
+        for item in by_day[day_key][:MAX_SLOTS_PER_DAY]:
+            clean = {k: v for k, v in item.items() if not k.startswith("_")}
+            selected.append(clean)
+            if len(selected) >= MAX_SLOT_OPTIONS:
+                return selected
+
+    return selected
