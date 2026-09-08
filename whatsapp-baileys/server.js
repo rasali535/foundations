@@ -42,6 +42,7 @@ let reconnectTimer = null;
 let authClose = null;
 let shuttingDown = false;
 let currentWaVersion = null;
+let lastDisconnectInfo = null;
 const recentIdempotencyKeys = new Map();
 
 function redactPhone(value) {
@@ -55,6 +56,14 @@ function normalizeInternationalPhone(value) {
   const digits = raw.replace(/\D/g, '');
   if (digits.length < 8 || digits.length > 15) return null;
   return digits;
+}
+
+function disconnectReasonName(statusCode) {
+  if (statusCode === null || typeof statusCode === 'undefined') return null;
+  const match = Object.entries(DisconnectReason).find(
+    ([key, value]) => typeof value === 'number' && value === statusCode && Number.isNaN(Number(key)),
+  );
+  return match?.[0] || null;
 }
 
 function requireToken(req, res, next) {
@@ -140,12 +149,24 @@ async function connectWhatsApp() {
     if (connection === 'open') {
       currentQr = null;
       connectionState = 'connected';
+      lastDisconnectInfo = null;
       logger.info({ authBackend: AUTH_BACKEND }, 'Baileys WhatsApp session connected');
     }
 
     if (connection === 'close') {
-      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const statusCode =
+        lastDisconnect?.error?.output?.statusCode ??
+        lastDisconnect?.error?.statusCode ??
+        null;
+      const reason = disconnectReasonName(statusCode);
       const loggedOut = statusCode === DisconnectReason.loggedOut;
+
+      lastDisconnectInfo = {
+        status_code: statusCode,
+        reason,
+        error_name: lastDisconnect?.error?.name || null,
+      };
+
       socket = null;
       currentQr = null;
       connectionState = loggedOut ? 'logged_out' : 'disconnected';
@@ -153,9 +174,9 @@ async function connectWhatsApp() {
       if (shuttingDown) return;
 
       if (loggedOut) {
-        logger.warn('Baileys session logged out; manual re-pairing is required');
+        logger.warn({ statusCode, reason }, 'Baileys session logged out; manual re-pairing is required');
       } else {
-        logger.warn({ statusCode }, 'Baileys connection closed; scheduling reconnect');
+        logger.warn({ statusCode, reason }, 'Baileys connection closed; scheduling reconnect');
         reconnectTimer = setTimeout(() => {
           connectWhatsApp().catch((err) => {
             connectionState = 'error';
@@ -174,6 +195,7 @@ app.get('/health', (req, res) => {
     connected: connectionState === 'connected',
     auth_backend: AUTH_BACKEND,
     wa_version: currentWaVersion ? currentWaVersion.join('.') : null,
+    last_disconnect: lastDisconnectInfo,
   });
 });
 
