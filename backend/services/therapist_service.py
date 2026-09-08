@@ -145,7 +145,9 @@ class TherapistService:
         session_mode: Optional[str] = None
     ) -> List[TherapistRecord]:
         await TherapistService.seed_defaults_if_empty(db)
-        filter_dict: Dict[str, Any] = {}
+        # Archived therapists stay in Mongo for historical booking integrity but are
+        # hidden from the active admin/routing registry.
+        filter_dict: Dict[str, Any] = {"archived_at": {"$exists": False}}
         if active_only:
             filter_dict["active"] = True
         if session_mode == "in_person":
