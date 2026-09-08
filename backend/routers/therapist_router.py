@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, status, Query
 from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
 from models import (
     TherapistCreate, TherapistUpdate,
     TherapistBlock, TherapistBlockCreate
@@ -8,8 +9,15 @@ from services.therapist_service import TherapistService, TherapistRecord
 
 therapist_router = APIRouter(prefix="/therapists", tags=["Therapists"])
 
+
+class TherapistNotificationSettingsUpdate(BaseModel):
+    whatsapp_phone: Optional[str] = None
+    whatsapp_notifications_enabled: Optional[bool] = None
+
+
 def get_db(request: Request):
     return request.app.state.db
+
 
 def get_current_user(request: Request) -> Dict[str, Any]:
     user_id = request.session.get("user_id")
@@ -18,17 +26,20 @@ def get_current_user(request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     return {"user_id": user_id, "role": role, "name": request.session.get("name", user_id)}
 
+
 def require_admin(request: Request):
     user = get_current_user(request)
     if user.get("role") not in ["super_admin", "admin", "clinical_admin"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin permissions required")
     return user
 
+
 def require_staff_or_above(request: Request):
     user = get_current_user(request)
     if user.get("role") not in ["super_admin", "admin", "staff", "therapist", "clinical_admin"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     return user
+
 
 @therapist_router.get("", response_model=List[TherapistRecord])
 async def list_therapists(
@@ -39,6 +50,7 @@ async def list_therapists(
 ):
     db = get_db(request)
     return await TherapistService.list_therapists(db, active_only=active_only, session_mode=session_mode)
+
 
 @therapist_router.get("/{therapist_id}", response_model=TherapistRecord)
 async def get_therapist_details(
@@ -52,6 +64,7 @@ async def get_therapist_details(
         raise HTTPException(status_code=404, detail="Therapist not found")
     return t
 
+
 @therapist_router.post("", response_model=TherapistRecord)
 async def create_therapist(
     payload: TherapistCreate,
@@ -62,6 +75,7 @@ async def create_therapist(
     return await TherapistService.create_therapist(
         db, payload, actor_id=user.get("user_id"), actor_name=user.get("name")
     )
+
 
 @therapist_router.put("/{therapist_id}", response_model=TherapistRecord)
 async def update_therapist(
@@ -78,6 +92,30 @@ async def update_therapist(
         raise HTTPException(status_code=404, detail="Therapist not found")
     return updated
 
+
+@therapist_router.patch("/{therapist_id}/notifications", response_model=TherapistRecord)
+async def update_therapist_notification_settings(
+    therapist_id: str,
+    payload: TherapistNotificationSettingsUpdate,
+    request: Request,
+    user: Dict = Depends(require_admin)
+):
+    db = get_db(request)
+    settings = payload.model_dump(exclude_unset=True)
+    updated, err = await TherapistService.update_notification_settings(
+        db,
+        therapist_id,
+        settings,
+        actor_id=user.get("user_id"),
+        actor_name=user.get("name")
+    )
+    if err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Therapist not found")
+    return updated
+
+
 @therapist_router.get("/{therapist_id}/availability")
 async def get_therapist_availability(
     therapist_id: str,
@@ -92,6 +130,7 @@ async def get_therapist_availability(
     )
     return {"therapist_id": therapist_id, "slots": slots}
 
+
 # ==================== Blocks / Leave Management ====================
 @therapist_router.post("/blocks", response_model=TherapistBlock)
 async def create_therapist_block(
@@ -102,6 +141,7 @@ async def create_therapist_block(
     db = get_db(request)
     return await TherapistService.create_block(db, payload, actor_id=user.get("user_id"))
 
+
 @therapist_router.get("/blocks", response_model=List[TherapistBlock])
 async def list_therapist_blocks(
     request: Request,
@@ -110,6 +150,7 @@ async def list_therapist_blocks(
 ):
     db = get_db(request)
     return await TherapistService.list_blocks(db, therapist_id=therapist_id)
+
 
 @therapist_router.delete("/blocks/{block_id}")
 async def delete_therapist_block(
