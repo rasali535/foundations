@@ -39,7 +39,6 @@ EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', 'dummy_key')
 
 # ----------------- In-Memory Rate Limiting Engine -----------------
 RATE_LIMIT_STORE: Dict[str, List[float]] = {}
-
 def check_rate_limit(request: Request, limit: int = 15, window_seconds: int = 60):
     client_ip = request.client.host if request.client else "127.0.0.1"
     now = time.time()
@@ -145,7 +144,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
     allow_origins=ALLOWED_ORIGINS,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -321,7 +320,7 @@ class AlianaEngine:
             return "If you are experiencing an immediate crisis or feeling unsafe, please reach out right away to emergency services (Dial 999 in Botswana) or contact our 24/7 crisis response line."
         if "eap" in lower or "counselling" in lower or "counseling" in lower or "therapy" in lower:
             return "Foundations Counselling Academy provides confidential 1-on-1, couples, and family counselling, as well as comprehensive Employee Assistance Programmes (EAP)."
-        return "Thank you for reaching out to Foundations Counselling Academy. We specialise in clinical counselling, corporate wellness, and accredited training. How may we assist you?"
+        return "Thank you for reaching out to Foundations Counselling Academy. We specialise in clinical counselling, corporate wellness, and accredited training. How may I assist you?"
 
 aliana = AlianaEngine(api_key=EMERGENT_LLM_KEY, system_prompt=SYSTEM_PROMPT)
 
@@ -429,7 +428,9 @@ async def capture_chat_lead(payload: ChatLeadCreate, request: Request):
     check_rate_limit(request, limit=10, window_seconds=60)
     lead = ChatLead(**payload.model_dump())
     try:
-        await db.chatbot_leads.insert_one(lead.model_dump())
+        await db.chatbot_leads.insert_one({
+            **lead.model_dump()
+        })
     except Exception as e:
         logging.warning(f"MongoDB offline/timeout in /chat/lead: {e}")
     return lead
