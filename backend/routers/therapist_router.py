@@ -5,7 +5,8 @@ from models import (
     TherapistCreate, TherapistUpdate,
     TherapistBlock, TherapistBlockCreate
 )
-from services.therapist_service import TherapistService, TherapistRecord
+from services.therapist_service import TherapistService, TherapistRecord, DEFAULT_THERAPISTS
+from services.audit_service import AuditService
 
 therapist_router = APIRouter(prefix="/therapists", tags=["Therapists"])
 
@@ -165,3 +166,50 @@ async def get_therapist_availability(
         db, therapist_id=therapist_id, start_date_str=start_date, days_ahead=days_ahead
     )
     return {"therapist_id": therapist_id, "slots": slots}
+
+
+@therapist_router.delete("/{therapist_id}")
+async def delete_therapist(
+    therapist_id: str,
+    request: Request,
+    user: Dict = Depends(require_admin)
+):
+    db = get_db(request)
+    therapist = await db.therapists.find_one({"id": therapist_id}, {"_id": 0})
+    if not therapist:
+        raise HTTPException(status_code=404, detail="Therapist not found")
+
+    protected_ids = {item.get("id") for item in DEFAULT_THERAPISTS}
+    if therapist_id in protected_ids:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This is a required FCA therapist record and cannot be deleted. Configure or deactivate it instead."
+        )
+
+    booking_count = await db.bookings.count_documents({"therapist_id": therapist_id})
+    if booking_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"This therapist has {booking_count} booking record(s) and cannot be deleted because historical booking data must be preserved. "
+                "Set the therapist inactive instead."
+            )
+        )
+
+    await db.therapist_blocks.delete_many({"therapist_id": therapist_id})
+    result = await db.therapists.delete_one({"id": therapist_id})
+    if result.deleted_count != 1:
+        raise HTTPException(status_code=404, detail="Therapist not found")
+
+    await AuditService.log_activity(
+        db,
+        action="therapist_deleted",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "therapist_id": therapist_id,
+            "name": therapist.get("name")
+        }
+    )
+
+    return {"status": "deleted", "therapist_id": therapist_id}
