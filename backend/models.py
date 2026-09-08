@@ -223,10 +223,14 @@ class Booking(BaseModel):
     session_mode: str  # in_person, virtual
     starts_at: str  # UTC ISO timestamp
     ends_at: str    # UTC ISO timestamp
-    status: str = "confirmed"  # pending, confirmed, completed, cancelled, rescheduled, no_show
+    status: str = "confirmed"  # pending, confirmed, completed, cancelled, late_cancelled_billable, rescheduled, no_show
     location: Optional[str] = None
     virtual_meeting_link: Optional[str] = None
     cancellation_reason: Optional[str] = None
+    cancelled_at: Optional[str] = None
+    cancelled_by: Optional[str] = None
+    hours_before_session: Optional[float] = None
+    cancellation_billing_status: Optional[str] = None  # billable, non_billable
     rescheduled_from_id: Optional[str] = None
     participants: List[BookingParticipant] = Field(default_factory=list)
     notes: Optional[str] = None
@@ -282,8 +286,11 @@ class BookingRescheduleRequest(BaseModel):
     send_notifications: bool = True
 
 class BookingStatusUpdateRequest(BaseModel):
-    status: str  # completed, cancelled, no_show, confirmed
+    status: str  # completed, cancelled, late_cancelled_billable, no_show, confirmed
     cancellation_reason: Optional[str] = None
+    cancellation_billing_status: Optional[str] = None
+    # NOTE: cancellation_timestamp is intentionally NOT accepted from clients.
+    # The server always uses its own UTC clock for billing classification.
     notes: Optional[str] = None
     send_notifications: bool = True
 

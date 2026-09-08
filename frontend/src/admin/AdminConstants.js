@@ -47,6 +47,7 @@ export const STATUS_CONFIG = {
   pending: { label: 'Pending', badge: 'bg-amber-100 text-amber-800 border-amber-300' },
   completed: { label: 'Completed', badge: 'bg-blue-100 text-blue-800 border-blue-300' },
   cancelled: { label: 'Cancelled', badge: 'bg-rose-100 text-rose-800 border-rose-300' },
+  late_cancelled_billable: { label: 'Late Cancel (Billed)', badge: 'bg-orange-100 text-orange-800 border-orange-300' },
   rescheduled: { label: 'Rescheduled', badge: 'bg-purple-100 text-purple-800 border-purple-300' },
   no_show: { label: 'No Show', badge: 'bg-slate-100 text-slate-700 border-slate-300' }
 };

@@ -117,7 +117,7 @@ const AdminInvoiceCreate = () => {
             Generate Corporate Invoice
           </h1>
           <p className="text-sm text-slate-600">
-            Preview and generate an aggregate invoice from completed uninvoiced sessions.
+            Preview and generate an aggregate invoice from completed sessions and billable late cancellations.
           </p>
         </div>
       </div>
@@ -237,7 +237,7 @@ const AdminInvoiceCreate = () => {
                 2. Billable Sessions Preview
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Eligible uninvoiced completed counselling sessions for <span className="font-semibold text-slate-800">{previewData.organisation_name}</span>.
+                Eligible uninvoiced billable sessions (completed &amp; late-cancelled) for <span className="font-semibold text-slate-800">{previewData.organisation_name}</span>.
               </p>
             </div>
             <div className="text-right">
@@ -251,9 +251,9 @@ const AdminInvoiceCreate = () => {
           {previewData.total_sessions === 0 ? (
             <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300 text-slate-600">
               <AlertCircle className="w-8 h-8 mx-auto mb-2 text-amber-500" />
-              <p className="font-semibold text-slate-800">No Uninvoiced Completed Sessions Found</p>
+              <p className="font-semibold text-slate-800">No Uninvoiced Billable Sessions Found</p>
               <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                There are no completed bookings for this organisation within the selected date range that have not already been billed.
+                There are no completed or late-cancelled bookings for this organisation within the selected date range that have not already been billed.
               </p>
             </div>
           ) : (

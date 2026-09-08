@@ -465,13 +465,14 @@ class BookingService:
         booking_id: str,
         request: BookingStatusUpdateRequest,
         actor_id: Optional[str] = None,
-        actor_name: Optional[str] = None
+        actor_name: Optional[str] = None,
+        _now_override: Optional[datetime] = None  # INTERNAL USE ONLY — for test clock injection. Never read from client input.
     ) -> Tuple[Optional[Booking], Optional[str]]:
         booking_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
         if not booking_doc:
             return None, "Booking not found."
 
-        valid_statuses = ["pending", "confirmed", "completed", "cancelled", "no_show"]
+        valid_statuses = ["pending", "confirmed", "completed", "cancelled", "late_cancelled_billable", "no_show"]
         if request.status not in valid_statuses:
             return None, f"Invalid status '{request.status}'. Must be one of {valid_statuses}."
 
@@ -486,6 +487,46 @@ class BookingService:
             "status": request.status,
             "updated_at": now_iso()
         }
+
+        # Server-side Six-Hour Cancellation Classification
+        # SECURITY: The cancellation time is ALWAYS the server's authenticated UTC clock.
+        # No client-supplied timestamp is ever accepted for billing determination.
+        if request.status in ["cancelled", "late_cancelled_billable"]:
+            starts_at_str = booking_doc.get("starts_at", "")
+
+            # Use injected test clock if provided; otherwise always use server time.
+            # _now_override is an internal parameter never reachable from the HTTP layer.
+            cancel_dt: datetime = _now_override if _now_override is not None else datetime.now(timezone.utc)
+            if cancel_dt.tzinfo is None:
+                cancel_dt = cancel_dt.replace(tzinfo=timezone.utc)
+
+            try:
+                st_str = starts_at_str.replace("Z", "+00:00")
+                start_dt = datetime.fromisoformat(st_str)
+                if start_dt.tzinfo is None:
+                    start_dt = start_dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                start_dt = cancel_dt
+
+            time_diff = start_dt - cancel_dt
+            total_seconds = time_diff.total_seconds()
+            hours_before = round(total_seconds / 3600.0, 2)
+
+            # Rule: Cancellation less than 6 hours before appointment -> late_cancelled_billable (billable)
+            # Exactly 6:00:00 (21600s) or more -> cancelled (non_billable)
+            if total_seconds < 6 * 3600:
+                final_status = "late_cancelled_billable"
+                billing_status = "billable"
+            else:
+                final_status = "cancelled"
+                billing_status = "non_billable"
+
+            update_fields["status"] = final_status
+            update_fields["cancellation_billing_status"] = billing_status
+            update_fields["hours_before_session"] = hours_before
+            update_fields["cancelled_at"] = cancel_dt.isoformat()
+            update_fields["cancelled_by"] = actor_id
+
         if request.cancellation_reason:
             update_fields["cancellation_reason"] = request.cancellation_reason
         if request.notes:

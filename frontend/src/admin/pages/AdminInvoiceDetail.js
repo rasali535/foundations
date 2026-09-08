@@ -320,7 +320,7 @@ const AdminInvoiceDetail = () => {
                 <tr>
                   <th className="px-5 py-3">Description</th>
                   <th className="px-5 py-3 text-center">Session Type</th>
-                  <th className="px-5 py-3 text-center">Completed Sessions</th>
+                  <th className="px-5 py-3 text-center">Billable Sessions</th>
                   <th className="px-5 py-3 text-right">Unit Rate ({invoice.currency})</th>
                   <th className="px-5 py-3 text-right">Line Total ({invoice.currency})</th>
                 </tr>
@@ -349,7 +349,7 @@ const AdminInvoiceDetail = () => {
               <tfoot className="bg-slate-50 font-bold border-t border-slate-200 text-slate-900">
                 <tr>
                   <td colSpan="2" className="px-5 py-3.5 text-right uppercase text-xs tracking-wider">
-                    Total Completed Sessions & Final Amount
+                    Total Billable Sessions & Final Amount
                   </td>
                   <td className="px-5 py-3.5 text-center font-black text-emerald-700">
                     {invoice.total_sessions}
@@ -362,6 +362,15 @@ const AdminInvoiceDetail = () => {
               </tfoot>
             </table>
           </div>
+        </div>
+
+        {/* Late-Cancellation Billing Note */}
+        <div className="p-3.5 bg-orange-50 border border-orange-200 rounded-lg text-xs text-orange-800 flex items-start gap-2 mb-2">
+          <AlertCircle className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
+          <p>
+            <b>Cancellation Policy:</b> Sessions cancelled within 6 hours of their scheduled start are classified as{' '}
+            <span className="font-semibold">Late Cancellation (Billable)</span> and are included in the billable count at the full session rate. Cancellations made 6 or more hours in advance are not billed.
+          </p>
         </div>
 
         {/* Privacy Box */}

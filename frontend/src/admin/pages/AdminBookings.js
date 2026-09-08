@@ -273,6 +273,7 @@ const AdminBookings = () => {
             <option value="confirmed">Confirmed</option>
             <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
+            <option value="late_cancelled_billable">Late Cancel (Billed)</option>
             <option value="no_show">No Show</option>
             <option value="pending">Pending</option>
           </select>
@@ -384,6 +385,11 @@ const AdminBookings = () => {
                         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${statusConf.badge}`}>
                           {statusConf.label}
                         </span>
+                        {booking.status === 'late_cancelled_billable' && booking.hours_before_session != null && (
+                          <div className="mt-0.5 text-[9px] text-orange-600 font-semibold">
+                            {booking.hours_before_session.toFixed(1)}h before session
+                          </div>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
@@ -834,10 +840,14 @@ const AdminBookings = () => {
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs"
                 >
                   <option value="completed">Completed</option>
-                  <option value="cancelled">Cancelled</option>
+                  <option value="cancelled">Cancelled (≥ 6 hrs notice — not billed)</option>
                   <option value="no_show">No Show</option>
                   <option value="confirmed">Confirmed</option>
                 </select>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Selecting <strong>Cancelled</strong> will apply the FCA 6-hour policy automatically.
+                  If the cancellation timestamp is less than 6 hours before the session, the backend will classify it as <span className="text-orange-700 font-semibold">Late Cancellation (Billable)</span>.
+                </p>
               </div>
 
               {statusForm.status === 'cancelled' && (

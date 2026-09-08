@@ -59,10 +59,10 @@ class BillingService:
         end_date: str
     ) -> List[Dict[str, Any]]:
         """
-        Find completed, uninvoiced sessions for an organisation within a date range.
+        Find billable, uninvoiced sessions for an organisation within a date range.
         Mandatory rules:
         1. Client must belong to organisation_id
-        2. status == 'completed' ONLY
+        2. status in ['completed', 'late_cancelled_billable']
         3. starts_at falls within [start_date, end_date]
         4. Exclude any booking already linked to an active (non-cancelled) invoice
         """
@@ -91,10 +91,10 @@ class BillingService:
             ).to_list(50000)
         already_invoiced_booking_ids = set(l["booking_id"] for l in linked_booking_docs if "booking_id" in l)
 
-        # Query completed bookings for these clients
+        # Query completed or late_cancelled_billable bookings for these clients
         booking_cursor = db.bookings.find({
             "client_id": {"$in": client_ids},
-            "status": "completed"
+            "status": {"$in": ["completed", "late_cancelled_billable"]}
         })
         all_completed = await booking_cursor.to_list(20000)
 
