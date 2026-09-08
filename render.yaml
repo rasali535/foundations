@@ -15,7 +15,7 @@ services:
       - key: SESSION_SECRET
         generateValue: true
       - key: CORS_ORIGINS
-        value: https://academyfoundations.com,https://www.academyfoundations.com,http://localhost:3000
+        value: https://academyfoundations.com,https://www.academyfoundations.com
       - key: FCA_BOOTSTRAP_ADMIN_EMAIL
         sync: false
       - key: FCA_BOOTSTRAP_ADMIN_PASSWORD

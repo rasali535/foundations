@@ -92,25 +92,49 @@ app = FastAPI(title="Foundations Counselling Academy API & CRM", version="2.1.0"
 app.state.db = db
 
 # Strict Production Session Middleware
-SESSION_SECRET = os.environ.get('SESSION_SECRET_KEY', 'fca-production-secure-session-key-2026')
+# Reads SESSION_SECRET (Render env var name) with SESSION_SECRET_KEY as alias.
+_SESSION_SECRET_RAW = (
+    os.environ.get('SESSION_SECRET')
+    or os.environ.get('SESSION_SECRET_KEY')
+    or 'fca-local-dev-session-key-change-in-production'
+)
+if _SESSION_SECRET_RAW == 'fca-local-dev-session-key-change-in-production':
+    logging.warning(
+        "SESSION_SECRET is not set in the environment. "
+        "Using insecure local fallback — NOT suitable for production."
+    )
+
+# CORS allow-list: read from env at runtime so Render env vars override the defaults.
+_CORS_ENV = os.environ.get(
+    'CORS_ORIGINS',
+    'https://academyfoundations.com,https://www.academyfoundations.com,http://localhost:3000,http://127.0.0.1:3000'
+)
+ALLOWED_ORIGINS = [o.strip() for o in _CORS_ENV.split(',') if o.strip()]
+# Always include localhost for local development if not already present
+for _local in ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:8000', 'http://127.0.0.1:8000']:
+    if _local not in ALLOWED_ORIGINS:
+        ALLOWED_ORIGINS.append(_local)
+
+# Enable Secure cookie flag only when serving over HTTPS in production.
+# HTTPS_ONLY env var is explicitly set to "true" in production (Render).
+# Local dev and test environments leave it unset (defaults to False).
+# We also infer production mode if CORS_ORIGINS contains only https:// origins
+# (no localhost), which is the case in the Render production environment.
+_cors_has_localhost = any('localhost' in o or '127.0.0.1' in o for o in ALLOWED_ORIGINS)
+_IS_HTTPS = (
+    os.environ.get('HTTPS_ONLY', '').lower() == 'true'
+    or (not _cors_has_localhost and any(o.startswith('https://') for o in ALLOWED_ORIGINS))
+)
+
 app.add_middleware(
     SessionMiddleware,
-    secret_key=SESSION_SECRET,
+    secret_key=_SESSION_SECRET_RAW,
     session_cookie='fca_session_id',
     max_age=86400,  # 24 hours
     same_site='lax',
-    https_only=False,  # Set True in prod HTTPS
+    https_only=_IS_HTTPS,  # True in production HTTPS, False in local dev
 )
 
-# Strict CORS Allowlist
-ALLOWED_ORIGINS = [
-    "https://academyfoundations.com",
-    "https://www.academyfoundations.com",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000"
-]
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

@@ -106,7 +106,7 @@ credentials.json
 *.pem
 *.key
 .credentials
--e 
+
 # Environment and credential files
 .env
 .env.*
@@ -115,3 +115,9 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# Scratch / local test data and synthetic seed scripts
+scratch/
+test_reports/
+*.pdf
+seed_*.py
