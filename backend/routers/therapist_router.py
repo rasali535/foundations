@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from models import (
     TherapistCreate, TherapistUpdate,
-    TherapistBlock, TherapistBlockCreate
+    TherapistBlock, TherapistBlockCreate, now_iso
 )
 from services.therapist_service import TherapistService, TherapistRecord, DEFAULT_THERAPISTS
 from services.audit_service import AuditService
@@ -187,16 +187,43 @@ async def delete_therapist(
         )
 
     booking_count = await db.bookings.count_documents({"therapist_id": therapist_id})
+    await db.therapist_blocks.delete_many({"therapist_id": therapist_id})
+
     if booking_count > 0:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"This therapist has {booking_count} booking record(s) and cannot be deleted because historical booking data must be preserved. "
-                "Set the therapist inactive instead."
-            )
+        # Preserve historical booking references while removing the therapist from
+        # the operational registry. This is a soft delete/archive, not a cascade.
+        archived_at = now_iso()
+        result = await db.therapists.update_one(
+            {"id": therapist_id},
+            {"$set": {
+                "active": False,
+                "whatsapp_notifications_enabled": False,
+                "archived_at": archived_at,
+                "archived_by": user.get("user_id"),
+                "updated_at": archived_at
+            }}
+        )
+        if result.matched_count != 1:
+            raise HTTPException(status_code=404, detail="Therapist not found")
+
+        await AuditService.log_activity(
+            db,
+            action="therapist_archived",
+            actor_user_id=user.get("user_id"),
+            actor_name=user.get("name"),
+            metadata={
+                "therapist_id": therapist_id,
+                "name": therapist.get("name"),
+                "booking_records_preserved": booking_count
+            }
         )
 
-    await db.therapist_blocks.delete_many({"therapist_id": therapist_id})
+        return {
+            "status": "archived",
+            "therapist_id": therapist_id,
+            "booking_records_preserved": booking_count
+        }
+
     result = await db.therapists.delete_one({"id": therapist_id})
     if result.deleted_count != 1:
         raise HTTPException(status_code=404, detail="Therapist not found")
