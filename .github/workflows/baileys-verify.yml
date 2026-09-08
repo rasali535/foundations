@@ -1,0 +1,39 @@
+name: Baileys Verify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'whatsapp-baileys/**'
+      - '.github/workflows/baileys-verify.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: whatsapp-baileys
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: whatsapp-baileys/package.json
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Syntax check
+        run: |
+          node --check server.js
+          node --check mongoAuthState.js
+          node --check verify.mjs
+
+      - name: Verify Baileys exports
+        run: node verify.mjs
