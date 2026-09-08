@@ -12,6 +12,12 @@ from models import (
 )
 from services.booking_service import BookingService
 from services.whatsapp_booking_bot_service import WhatsAppBookingBotService
+from services.whatsapp_booking_bot_fast_slots import fast_slot_options
+
+# The booking bot state machine remains in whatsapp_booking_bot_service; only the
+# expensive slot-discovery implementation is replaced here with the optimized
+# provider so inbound WhatsApp requests stay inside the adapter timeout window.
+WhatsAppBookingBotService._slot_options = staticmethod(fast_slot_options)
 
 booking_router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
