@@ -4,6 +4,7 @@ import pino from 'pino';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
   useMultiFileAuthState,
 } from '@whiskeysockets/baileys';
@@ -40,6 +41,7 @@ let connectionState = 'starting';
 let reconnectTimer = null;
 let authClose = null;
 let shuttingDown = false;
+let currentWaVersion = null;
 const recentIdempotencyKeys = new Map();
 
 function redactPhone(value) {
@@ -105,7 +107,12 @@ async function connectWhatsApp() {
   currentQr = null;
 
   const { state, saveCreds } = await loadAuthState();
+  const { version, isLatest } = await fetchLatestBaileysVersion();
+  currentWaVersion = version;
+  logger.info({ version: version.join('.'), isLatest }, 'Using WhatsApp Web version');
+
   const sock = makeWASocket({
+    version,
     auth: {
       creds: state.creds,
       keys: makeCacheableSignalKeyStore(state.keys, logger),
@@ -166,6 +173,7 @@ app.get('/health', (req, res) => {
     status: connectionState,
     connected: connectionState === 'connected',
     auth_backend: AUTH_BACKEND,
+    wa_version: currentWaVersion ? currentWaVersion.join('.') : null,
   });
 });
 
@@ -179,6 +187,28 @@ app.get('/pairing/qr', requireToken, (req, res) => {
     });
   }
   return res.json({ qr: currentQr, status: connectionState });
+});
+
+app.post('/pairing/code', requireToken, async (req, res) => {
+  const digits = normalizeInternationalPhone(req.body?.phone);
+  if (!digits) {
+    return res.status(400).json({ detail: 'Phone must include country code and contain 8-15 digits' });
+  }
+  if (!socket) {
+    return res.status(503).json({ detail: 'WhatsApp socket is not ready', status: connectionState });
+  }
+  if (socket.authState?.creds?.registered) {
+    return res.status(409).json({ detail: 'WhatsApp session is already paired', status: connectionState });
+  }
+
+  try {
+    const code = await socket.requestPairingCode(digits);
+    logger.info({ recipient: redactPhone(digits) }, 'Baileys pairing code generated');
+    return res.json({ code, status: connectionState });
+  } catch (err) {
+    logger.error({ error: err?.name }, 'Baileys pairing code generation failed');
+    return res.status(502).json({ detail: 'Could not generate WhatsApp pairing code' });
+  }
 });
 
 app.post('/send', requireToken, async (req, res) => {
