@@ -121,3 +121,9 @@ scratch/
 test_reports/
 *.pdf
 seed_*.py
+
+# Baileys linked-device credentials / Signal key material
+whatsapp-baileys/auth/
+whatsapp-baileys/auth_info/
+whatsapp-baileys/.baileys/
+baileys-auth/
