@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime, date, time, timedelta, timezone
 from typing import Optional, List, Dict, Any, Tuple
+from pydantic import BaseModel, EmailStr, Field
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from models import (
     Therapist, TherapistCreate, TherapistUpdate,
@@ -8,66 +9,125 @@ from models import (
 )
 from services.audit_service import AuditService
 
-# Two FCA Test Clinicians configured for booking tests and initial routing.
-# (Temporary test availability: Mon-Fri 08:00-17:00, editable via Admin portal).
+
+class TherapistRecord(BaseModel):
+    """Read/routing model. Therapist contact details are optional unless verified."""
+    id: str
+    name: str
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    active: bool = True
+    supports_in_person: bool = True
+    supports_virtual: bool = True
+    specializations: List[str] = Field(default_factory=list)
+    working_days: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+    working_hours_start: str = "08:00"
+    working_hours_end: str = "17:00"
+    slot_duration_minutes: int = 60
+    default_location: Optional[str] = None
+    virtual_meeting_link_template: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+# Required FCA clinicians for initial capability routing.
+# Temporary test availability: Mon-Fri 08:00-17:00, editable via Admin portal.
+# Contact details, clinic address and meeting URLs are intentionally omitted until verified.
 DEFAULT_THERAPISTS: List[Dict[str, Any]] = [
     {
         "id": "therapist-caroline-sithole",
         "name": "Caroline Sithole",
-        "email": "caroline@academyfoundations.com",
-        "phone": "+267 71 000 001",
         "active": True,
         "supports_in_person": True,
-        "supports_virtual": False,  # Dedicated In-Person Therapist
+        "supports_virtual": False,
         "specializations": ["In-Person Individual Counselling", "Couple Therapy", "Family Systems"],
-        "working_days": [0, 1, 2, 3, 4],  # Mon-Fri
+        "working_days": [0, 1, 2, 3, 4],
         "working_hours_start": "08:00",
         "working_hours_end": "17:00",
         "slot_duration_minutes": 60,
-        "default_location": "FCA Central Clinic, Gaborone",
+        "default_location": None,
         "virtual_meeting_link_template": None
     },
     {
         "id": "therapist-alpheaus-chiwaze",
         "name": "Alpheaus Chiwaze",
-        "email": "alpheaus@academyfoundations.com",
-        "phone": "+267 71 000 002",
         "active": True,
-        "supports_in_person": False,  # Dedicated Virtual Therapist
+        "supports_in_person": False,
         "supports_virtual": True,
         "specializations": ["Virtual Individual Counselling", "Corporate Wellness", "Digital Resilience"],
-        "working_days": [0, 1, 2, 3, 4],  # Mon-Fri
+        "working_days": [0, 1, 2, 3, 4],
         "working_hours_start": "08:00",
         "working_hours_end": "17:00",
         "slot_duration_minutes": 60,
         "default_location": None,
-        "virtual_meeting_link_template": "https://meet.academyfoundations.com/room/alpheaus-chiwaze"
+        "virtual_meeting_link_template": None
     }
 ]
+
 
 class TherapistService:
     @staticmethod
     async def seed_defaults_if_empty(db: AsyncIOMotorDatabase, therapists_list: Optional[List[Dict[str, Any]]] = None):
-        """Seeds default test clinicians if database is empty."""
+        """
+        Ensure each required FCA clinician exists.
+
+        Historical behavior only seeded when the collection was completely empty,
+        which meant a production database containing Caroline could never receive
+        the missing Alpheaus record. Existing records are matched by stable ID or
+        exact clinician name, preserving verified contact details and admin-managed
+        scheduling fields. Only required routing capability flags are reconciled.
+        """
         to_seed = therapists_list or DEFAULT_THERAPISTS
         if not to_seed:
             return
+
         try:
-            count = await db.therapists.count_documents({})
-            if count == 0:
-                for t in to_seed:
-                    t_doc = Therapist(**t).model_dump()
-                    await db.therapists.insert_one(t_doc)
-                logging.info(f"Seeded {len(to_seed)} test therapists into database.")
+            inserted = 0
+            reconciled = 0
+            for template in to_seed:
+                existing = await db.therapists.find_one({
+                    "$or": [
+                        {"id": template["id"]},
+                        {"name": {"$regex": f"^{template['name']}$", "$options": "i"}}
+                    ]
+                })
+
+                if existing:
+                    # Preserve existing ID, contacts, schedule, location and meeting links.
+                    await db.therapists.update_one(
+                        {"_id": existing["_id"]},
+                        {"$set": {
+                            "name": template["name"],
+                            "active": template["active"],
+                            "supports_in_person": template["supports_in_person"],
+                            "supports_virtual": template["supports_virtual"],
+                            "updated_at": now_iso()
+                        }}
+                    )
+                    reconciled += 1
+                    continue
+
+                t_doc = dict(template)
+                t_doc["created_at"] = now_iso()
+                t_doc["updated_at"] = now_iso()
+                await db.therapists.insert_one(t_doc)
+                inserted += 1
+
+            if inserted or reconciled:
+                logging.info(
+                    "Therapist registry reconciled: %s inserted, %s existing verified.",
+                    inserted,
+                    reconciled
+                )
         except Exception as e:
-            logging.warning(f"Could not seed therapists: {e}")
+            logging.warning(f"Could not reconcile required therapists: {e}")
 
     @staticmethod
     async def list_therapists(
         db: AsyncIOMotorDatabase,
         active_only: bool = False,
         session_mode: Optional[str] = None
-    ) -> List[Therapist]:
+    ) -> List[TherapistRecord]:
         await TherapistService.seed_defaults_if_empty(db)
         filter_dict: Dict[str, Any] = {}
         if active_only:
@@ -79,13 +139,13 @@ class TherapistService:
 
         cursor = db.therapists.find(filter_dict, {"_id": 0}).sort("name", 1)
         docs = await cursor.to_list(100)
-        return [Therapist(**d) for d in docs]
+        return [TherapistRecord(**d) for d in docs]
 
     @staticmethod
-    async def get_therapist_by_id(db: AsyncIOMotorDatabase, therapist_id: str) -> Optional[Therapist]:
+    async def get_therapist_by_id(db: AsyncIOMotorDatabase, therapist_id: str) -> Optional[TherapistRecord]:
         await TherapistService.seed_defaults_if_empty(db)
         doc = await db.therapists.find_one({"id": therapist_id}, {"_id": 0})
-        return Therapist(**doc) if doc else None
+        return TherapistRecord(**doc) if doc else None
 
     @staticmethod
     async def create_therapist(
@@ -93,7 +153,7 @@ class TherapistService:
         data: TherapistCreate,
         actor_id: Optional[str] = None,
         actor_name: Optional[str] = None
-    ) -> Therapist:
+    ) -> TherapistRecord:
         therapist = Therapist(
             name=data.name,
             email=str(data.email),
@@ -119,7 +179,7 @@ class TherapistService:
             actor_name=actor_name,
             metadata={"therapist_id": therapist.id, "name": therapist.name}
         )
-        return therapist
+        return TherapistRecord(**therapist.model_dump())
 
     @staticmethod
     async def update_therapist(
@@ -128,16 +188,16 @@ class TherapistService:
         update_data: TherapistUpdate,
         actor_id: Optional[str] = None,
         actor_name: Optional[str] = None
-    ) -> Optional[Therapist]:
+    ) -> Optional[TherapistRecord]:
         data = {k: v for k, v in update_data.model_dump(exclude_unset=True).items() if v is not None}
         if "email" in data:
             data["email"] = str(data["email"])
         data["updated_at"] = now_iso()
-        
+
         res = await db.therapists.update_one({"id": therapist_id}, {"$set": data})
         if res.matched_count == 0:
             return None
-            
+
         updated = await TherapistService.get_therapist_by_id(db, therapist_id)
         if updated:
             await AuditService.log_activity(
@@ -155,11 +215,11 @@ class TherapistService:
         db: AsyncIOMotorDatabase,
         session_mode: str,
         therapist_id: Optional[str] = None
-    ) -> Tuple[Therapist, Optional[str]]:
+    ) -> Tuple[Optional[TherapistRecord], Optional[str]]:
         """
         Validates whether requested therapist supports session_mode.
         If therapist_id is omitted, auto-routes to the first active matching therapist.
-        Returns (Therapist, error_message)
+        Returns (TherapistRecord, error_message)
         """
         if therapist_id:
             therapist = await TherapistService.get_therapist_by_id(db, therapist_id)
@@ -173,7 +233,6 @@ class TherapistService:
                 return None, f"Therapist '{therapist.name}' does not support Virtual appointments."
             return therapist, None
 
-        # Auto-routing fallback
         matching_therapists = await TherapistService.list_therapists(db, active_only=True, session_mode=session_mode)
         if not matching_therapists:
             return None, f"No active therapists available for {session_mode} sessions."
@@ -220,16 +279,12 @@ class TherapistService:
     async def get_available_slots(
         db: AsyncIOMotorDatabase,
         therapist_id: str,
-        start_date_str: str,  # YYYY-MM-DD
+        start_date_str: str,
         days_ahead: int = 14
     ) -> List[Dict[str, Any]]:
         """
         Calculates available booking slots for a therapist starting from start_date.
-        Takes into account:
-        1. Working days of week
-        2. Daily working hours
-        3. Leave / blocked slots
-        4. Existing active bookings (confirmed, pending)
+        Takes into account working days/hours, leave/blocks and active bookings.
         """
         therapist = await TherapistService.get_therapist_by_id(db, therapist_id)
         if not therapist or not therapist.active:
@@ -244,7 +299,6 @@ class TherapistService:
         start_iso = datetime.combine(start_d, time.min, tzinfo=timezone.utc).isoformat()
         end_iso = datetime.combine(end_d, time.max, tzinfo=timezone.utc).isoformat()
 
-        # Fetch active bookings in range
         booking_cursor = db.bookings.find({
             "therapist_id": therapist_id,
             "status": {"$in": ["confirmed", "pending"]},
@@ -253,7 +307,6 @@ class TherapistService:
         }, {"_id": 0})
         existing_bookings = await booking_cursor.to_list(500)
 
-        # Fetch blocks in range
         block_cursor = db.therapist_blocks.find({
             "therapist_id": therapist_id,
             "starts_at": {"$lte": end_iso},
@@ -261,7 +314,6 @@ class TherapistService:
         }, {"_id": 0})
         existing_blocks = await block_cursor.to_list(500)
 
-        # Parse busy intervals
         busy_intervals: List[Tuple[datetime, datetime]] = []
         for b in existing_bookings:
             try:
@@ -279,7 +331,6 @@ class TherapistService:
             except Exception:
                 pass
 
-        # Parse working hours
         try:
             w_start_h, w_start_m = map(int, therapist.working_hours_start.split(":"))
             w_end_h, w_end_m = map(int, therapist.working_hours_end.split(":"))
@@ -292,7 +343,7 @@ class TherapistService:
 
         curr_date = start_d
         while curr_date <= end_d:
-            weekday = curr_date.weekday()  # 0=Monday, 6=Sunday
+            weekday = curr_date.weekday()
             if weekday in therapist.working_days:
                 day_start = datetime.combine(curr_date, time(w_start_h, w_start_m), tzinfo=timezone.utc)
                 day_end = datetime.combine(curr_date, time(w_end_h, w_end_m), tzinfo=timezone.utc)
@@ -302,7 +353,6 @@ class TherapistService:
                     slot_start = slot_cursor
                     slot_end = slot_cursor + timedelta(minutes=slot_mins)
 
-                    # Check collision with busy intervals
                     is_available = True
                     for (b_start, b_end) in busy_intervals:
                         if max(slot_start, b_start) < min(slot_end, b_end):
