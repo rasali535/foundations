@@ -13,11 +13,13 @@ from models import (
 from services.booking_service import BookingService
 from services.whatsapp_booking_bot_service import WhatsAppBookingBotService
 from services.whatsapp_booking_bot_fast_slots import fast_slot_options
+from services.whatsapp_booking_bot_day_flow import install_day_first_flow
 
-# The booking bot state machine remains in whatsapp_booking_bot_service; only the
-# expensive slot-discovery implementation is replaced here with the optimized
-# provider so inbound WhatsApp requests stay inside the adapter timeout window.
+# Keep slot discovery optimized and present WhatsApp availability as day -> time.
+# The existing booking service remains authoritative for conflict checks, CRM writes,
+# entitlement validation and notifications.
 WhatsAppBookingBotService._slot_options = staticmethod(fast_slot_options)
+install_day_first_flow(WhatsAppBookingBotService)
 
 booking_router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
