@@ -158,6 +158,24 @@ const AdminTherapists = () => {
     }
   };
 
+  const handleDeleteTherapist = async (therapist) => {
+    const confirmed = window.confirm(
+      `Delete ${therapist.name}?\n\nThis permanently removes the therapist if they have no booking history. This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    try {
+      await api.delete(`/therapists/${therapist.id}`);
+      if (editingTherapist?.id === therapist.id) {
+        setTherapistModalOpen(false);
+        setEditingTherapist(null);
+      }
+      await fetchTherapistsAndBlocks();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to delete therapist.');
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
@@ -287,7 +305,15 @@ const AdminTherapists = () => {
                 </div>
               )}
 
-              <div className="pt-2 border-t border-slate-100 flex justify-end">
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-3">
+                <button
+                  onClick={() => handleDeleteTherapist(t)}
+                  className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:text-rose-700"
+                  title="Delete therapist"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Delete</span>
+                </button>
                 <button
                   onClick={() => {
                     setEditingTherapist(t);
