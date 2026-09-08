@@ -126,12 +126,18 @@ _IS_HTTPS = (
     or (not _cors_has_localhost and any(o.startswith('https://') for o in ALLOWED_ORIGINS))
 )
 
+# The production frontend and API are on different sites
+# (academyfoundations.com -> onrender.com). Cross-site XHR session cookies
+# therefore require SameSite=None together with Secure. Local HTTP dev/test
+# keeps SameSite=Lax so cookies continue to work without HTTPS.
+_SESSION_SAME_SITE = 'none' if _IS_HTTPS else 'lax'
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=_SESSION_SECRET_RAW,
     session_cookie='fca_session_id',
     max_age=86400,  # 24 hours
-    same_site='lax',
+    same_site=_SESSION_SAME_SITE,
     https_only=_IS_HTTPS,  # True in production HTTPS, False in local dev
 )
 
