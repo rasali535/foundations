@@ -3,7 +3,7 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import requests
@@ -11,7 +11,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from models import Booking, CRMClient, NotificationLog, now_iso
 from services.audit_service import AuditService
-from services.therapist_service import normalize_e164
+from services.therapist_service import DEFAULT_THERAPISTS, normalize_e164
 
 
 WHATSAPP_PROVIDER = os.environ.get("WHATSAPP_PROVIDER", "meta").strip().lower()
@@ -53,6 +53,66 @@ def _safe_provider_error(response: Optional[requests.Response] = None, exc: Opti
 
 
 class TherapistNotificationService:
+    @staticmethod
+    async def _resolve_notification_target(
+        db: AsyncIOMotorDatabase,
+        therapist: Any
+    ) -> Dict[str, Any]:
+        """
+        Resolve notification settings from the latest therapist document.
+
+        Historical production data can contain duplicate records for the two seeded FCA
+        clinicians. If a booking references a legacy duplicate without notification
+        settings, use the canonical seeded record only when the exact clinician name
+        matches and that canonical record has explicitly enabled, valid WhatsApp settings.
+        This avoids guessing or routing by fuzzy name while preserving old booking IDs.
+        """
+        therapist_id = getattr(therapist, "id", None)
+        therapist_name = str(getattr(therapist, "name", "") or "").strip()
+
+        current: Optional[Dict[str, Any]] = None
+        if therapist_id:
+            current = await db.therapists.find_one({"id": therapist_id}, {"_id": 0})
+
+        if current:
+            current_phone = normalize_e164(current.get("whatsapp_phone"))
+            if current.get("whatsapp_notifications_enabled") and current_phone:
+                return current
+
+        canonical_template = next(
+            (
+                item for item in DEFAULT_THERAPISTS
+                if str(item.get("name", "")).strip().casefold() == therapist_name.casefold()
+            ),
+            None
+        )
+        if canonical_template and canonical_template.get("id") != therapist_id:
+            canonical = await db.therapists.find_one(
+                {
+                    "id": canonical_template.get("id"),
+                    "archived_at": {"$exists": False}
+                },
+                {"_id": 0}
+            )
+            if canonical:
+                canonical_phone = normalize_e164(canonical.get("whatsapp_phone"))
+                if canonical.get("whatsapp_notifications_enabled") and canonical_phone:
+                    logging.info(
+                        "Using canonical therapist notification settings for legacy therapist id %s -> %s",
+                        therapist_id,
+                        canonical.get("id")
+                    )
+                    return canonical
+
+        return current or {
+            "id": therapist_id,
+            "name": therapist_name,
+            "whatsapp_phone": getattr(therapist, "whatsapp_phone", None),
+            "whatsapp_notifications_enabled": bool(
+                getattr(therapist, "whatsapp_notifications_enabled", False)
+            )
+        }
+
     @staticmethod
     def build_booking_whatsapp_content(
         therapist: Any,
@@ -116,15 +176,25 @@ class TherapistNotificationService:
     ) -> Optional[NotificationLog]:
         if not bookings:
             return None
-        if not getattr(therapist, "whatsapp_notifications_enabled", False):
+
+        target = await TherapistNotificationService._resolve_notification_target(db, therapist)
+        therapist_id = str(target.get("id") or getattr(therapist, "id", "unknown"))
+        enabled = bool(target.get("whatsapp_notifications_enabled"))
+        raw_recipient = target.get("whatsapp_phone")
+        recipient = normalize_e164(raw_recipient)
+
+        if not enabled:
+            logging.info(
+                "Therapist WhatsApp notification skipped: therapist_id=%s enabled=false has_phone=%s",
+                therapist_id,
+                bool(raw_recipient)
+            )
             return None
 
-        primary_booking_id = bookings[0].id
-        raw_recipient = getattr(therapist, "whatsapp_phone", None)
-        recipient = normalize_e164(raw_recipient)
         summary_text = TherapistNotificationService.build_booking_whatsapp_content(
             therapist, client, bookings
         )
+        primary_booking_id = bookings[0].id
 
         log_entry = NotificationLog(
             client_id=client.id,
@@ -142,22 +212,22 @@ class TherapistNotificationService:
         if not recipient:
             log_entry.status = "failed"
             log_entry.error_message = "Therapist WhatsApp number must be stored in international E.164 format"
-            return await TherapistNotificationService._persist_log(db, log_entry, therapist.id)
+            return await TherapistNotificationService._persist_log(db, log_entry, therapist_id)
 
         if WHATSAPP_PROVIDER != "baileys":
             log_entry.status = "failed"
             log_entry.error_message = "Therapist WhatsApp notifications currently require the configured Baileys provider"
-            return await TherapistNotificationService._persist_log(db, log_entry, therapist.id)
+            return await TherapistNotificationService._persist_log(db, log_entry, therapist_id)
 
         if not BAILEYS_SERVICE_URL or not BAILEYS_SERVICE_TOKEN:
             log_entry.status = "failed"
             log_entry.error_message = "Baileys therapist notification provider is not configured"
-            return await TherapistNotificationService._persist_log(db, log_entry, therapist.id)
+            return await TherapistNotificationService._persist_log(db, log_entry, therapist_id)
 
         url = f"{BAILEYS_SERVICE_URL.rstrip('/')}/send"
-        event_key = f"therapist:{therapist.id}:{primary_booking_id}:{bookings[0].starts_at}"
+        event_key = f"therapist:{therapist_id}:{primary_booking_id}:{bookings[0].starts_at}"
         if booking_batch_id:
-            event_key = f"therapist:{therapist.id}:batch:{booking_batch_id}:{bookings[0].starts_at}"
+            event_key = f"therapist:{therapist_id}:batch:{booking_batch_id}:{bookings[0].starts_at}"
 
         try:
             def _send_baileys():
@@ -183,9 +253,19 @@ class TherapistNotificationService:
                 log_entry.provider_reference = str(
                     body.get("message_id") or body.get("id") or "baileys-accepted"
                 )
+                logging.info(
+                    "Therapist WhatsApp notification accepted: therapist_id=%s recipient=%s",
+                    therapist_id,
+                    _mask_recipient(raw_recipient)
+                )
             else:
                 log_entry.status = "failed"
                 log_entry.error_message = f"Baileys therapist notification rejected: {_safe_provider_error(response=response)}"
+                logging.warning(
+                    "Therapist WhatsApp notification rejected: therapist_id=%s detail=%s",
+                    therapist_id,
+                    _safe_provider_error(response=response)
+                )
         except Exception as exc:
             log_entry.status = "failed"
             log_entry.error_message = f"Therapist WhatsApp delivery error: {_safe_provider_error(exc=exc)}"
@@ -194,4 +274,4 @@ class TherapistNotificationService:
                 _mask_recipient(raw_recipient)
             )
 
-        return await TherapistNotificationService._persist_log(db, log_entry, therapist.id)
+        return await TherapistNotificationService._persist_log(db, log_entry, therapist_id)
