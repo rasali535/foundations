@@ -298,6 +298,6 @@ connectWhatsApp().catch((err) => {
   logger.error({ error: err?.name }, 'Initial Baileys connection failed');
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   logger.info({ port: PORT, authBackend: AUTH_BACKEND }, 'FCA Baileys adapter listening');
 });
