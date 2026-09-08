@@ -1,22 +1,34 @@
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import express from 'express';
 import pino from 'pino';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  makeCacheableSignalKeyStore,
   useMultiFileAuthState,
 } from '@whiskeysockets/baileys';
+import { useMongoAuthState } from './mongoAuthState.js';
 
 const PORT = Number(process.env.PORT || 3001);
 const API_TOKEN = process.env.BAILEYS_API_TOKEN;
-const AUTH_DIR = process.env.BAILEYS_AUTH_DIR || '/data/baileys-auth';
+const AUTH_BACKEND = (process.env.BAILEYS_AUTH_BACKEND || 'mongo').toLowerCase();
+const AUTH_DIR = process.env.BAILEYS_AUTH_DIR || './auth';
+const MONGO_URL = process.env.MONGO_URL;
+const MONGO_DB_NAME = process.env.BAILEYS_DB_NAME || 'foundations_baileys';
+const SESSION_ID = process.env.BAILEYS_SESSION_ID || 'fca-primary';
 
 if (!API_TOKEN) {
   throw new Error('BAILEYS_API_TOKEN is required');
 }
-
-await fs.mkdir(AUTH_DIR, { recursive: true });
+if (!['mongo', 'file'].includes(AUTH_BACKEND)) {
+  throw new Error("BAILEYS_AUTH_BACKEND must be 'mongo' or 'file'");
+}
+if (AUTH_BACKEND === 'mongo' && !MONGO_URL) {
+  throw new Error('MONGO_URL is required when BAILEYS_AUTH_BACKEND=mongo');
+}
+if (AUTH_BACKEND === 'file') {
+  await fs.mkdir(AUTH_DIR, { recursive: true });
+}
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 const app = express();
@@ -26,6 +38,8 @@ let socket = null;
 let currentQr = null;
 let connectionState = 'starting';
 let reconnectTimer = null;
+let authClose = null;
+let shuttingDown = false;
 const recentIdempotencyKeys = new Map();
 
 function redactPhone(value) {
@@ -59,18 +73,43 @@ function rememberIdempotency(key, messageId) {
   }
 }
 
+async function loadAuthState() {
+  if (authClose) {
+    await authClose().catch(() => {});
+    authClose = null;
+  }
+
+  if (AUTH_BACKEND === 'mongo') {
+    const store = await useMongoAuthState({
+      mongoUrl: MONGO_URL,
+      dbName: MONGO_DB_NAME,
+      sessionId: SESSION_ID,
+    });
+    authClose = store.close;
+    return store;
+  }
+
+  // File auth is kept only for local/pilot use. Baileys recommends a DB-backed
+  // AuthenticationState for production-grade systems.
+  return useMultiFileAuthState(AUTH_DIR);
+}
+
 async function connectWhatsApp() {
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  if (shuttingDown) return;
 
   connectionState = 'connecting';
   currentQr = null;
 
-  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  const { state, saveCreds } = await loadAuthState();
   const sock = makeWASocket({
-    auth: state,
+    auth: {
+      creds: state.creds,
+      keys: makeCacheableSignalKeyStore(state.keys, logger),
+    },
     browser: Browsers.ubuntu('FCA Notifications'),
     printQRInTerminal: false,
     markOnlineOnConnect: false,
@@ -84,6 +123,7 @@ async function connectWhatsApp() {
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
+
     if (qr) {
       currentQr = qr;
       connectionState = 'pairing_required';
@@ -93,7 +133,7 @@ async function connectWhatsApp() {
     if (connection === 'open') {
       currentQr = null;
       connectionState = 'connected';
-      logger.info('Baileys WhatsApp session connected');
+      logger.info({ authBackend: AUTH_BACKEND }, 'Baileys WhatsApp session connected');
     }
 
     if (connection === 'close') {
@@ -103,12 +143,17 @@ async function connectWhatsApp() {
       currentQr = null;
       connectionState = loggedOut ? 'logged_out' : 'disconnected';
 
+      if (shuttingDown) return;
+
       if (loggedOut) {
         logger.warn('Baileys session logged out; manual re-pairing is required');
       } else {
         logger.warn({ statusCode }, 'Baileys connection closed; scheduling reconnect');
         reconnectTimer = setTimeout(() => {
-          connectWhatsApp().catch((err) => logger.error({ err: err?.message }, 'Baileys reconnect failed'));
+          connectWhatsApp().catch((err) => {
+            connectionState = 'error';
+            logger.error({ error: err?.name }, 'Baileys reconnect failed');
+          });
         }, 5000);
       }
     }
@@ -120,6 +165,7 @@ app.get('/health', (req, res) => {
     service: 'fca-whatsapp-baileys-adapter',
     status: connectionState,
     connected: connectionState === 'connected',
+    auth_backend: AUTH_BACKEND,
   });
 });
 
@@ -132,7 +178,7 @@ app.get('/pairing/qr', requireToken, (req, res) => {
       status: connectionState,
     });
   }
-  res.json({ qr: currentQr, status: connectionState });
+  return res.json({ qr: currentQr, status: connectionState });
 });
 
 app.post('/send', requireToken, async (req, res) => {
@@ -181,11 +227,25 @@ app.use((err, req, res, next) => {
   res.status(500).json({ detail: 'Internal service error' });
 });
 
+async function shutdown() {
+  shuttingDown = true;
+  connectionState = 'shutting_down';
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  try {
+    socket?.end(new Error('Service shutting down'));
+  } catch (_) {}
+  if (authClose) await authClose().catch(() => {});
+  process.exit(0);
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
 connectWhatsApp().catch((err) => {
   connectionState = 'error';
   logger.error({ error: err?.name }, 'Initial Baileys connection failed');
 });
 
 app.listen(PORT, () => {
-  logger.info({ port: PORT, authDir: path.resolve(AUTH_DIR) }, 'FCA Baileys adapter listening');
+  logger.info({ port: PORT, authBackend: AUTH_BACKEND }, 'FCA Baileys adapter listening');
 });
