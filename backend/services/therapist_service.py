@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, date, time, timedelta, timezone
 from typing import Optional, List, Dict, Any, Tuple
 from pydantic import BaseModel, EmailStr, Field
@@ -10,12 +11,27 @@ from models import (
 from services.audit_service import AuditService
 
 
+def normalize_e164(value: Optional[str]) -> Optional[str]:
+    """Normalize an explicitly supplied E.164 number without guessing a country code."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    digits = re.sub(r"\D", "", raw)
+    if not raw.startswith("+") or not (8 <= len(digits) <= 15):
+        return None
+    return f"+{digits}"
+
+
 class TherapistRecord(BaseModel):
     """Read/routing model. Therapist contact details are optional unless verified."""
     id: str
     name: str
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
+    whatsapp_phone: Optional[str] = None
+    whatsapp_notifications_enabled: bool = False
     active: bool = True
     supports_in_person: bool = True
     supports_virtual: bool = True
@@ -208,6 +224,60 @@ class TherapistService:
                 metadata={"therapist_id": therapist_id, "updated_fields": list(data.keys())}
             )
         return updated
+
+    @staticmethod
+    async def update_notification_settings(
+        db: AsyncIOMotorDatabase,
+        therapist_id: str,
+        settings: Dict[str, Any],
+        actor_id: Optional[str] = None,
+        actor_name: Optional[str] = None
+    ) -> Tuple[Optional[TherapistRecord], Optional[str]]:
+        """Update internal therapist notification settings without exposing them publicly."""
+        existing = await db.therapists.find_one({"id": therapist_id}, {"_id": 0})
+        if not existing:
+            return None, None
+
+        update_fields: Dict[str, Any] = {}
+        if "whatsapp_phone" in settings:
+            raw_phone = settings.get("whatsapp_phone")
+            if raw_phone in (None, ""):
+                update_fields["whatsapp_phone"] = None
+            else:
+                normalized = normalize_e164(raw_phone)
+                if not normalized:
+                    return None, "Therapist WhatsApp number must be in international E.164 format, for example +267XXXXXXXX."
+                update_fields["whatsapp_phone"] = normalized
+
+        if "whatsapp_notifications_enabled" in settings:
+            update_fields["whatsapp_notifications_enabled"] = bool(settings.get("whatsapp_notifications_enabled"))
+
+        effective_phone = update_fields.get("whatsapp_phone", existing.get("whatsapp_phone"))
+        effective_enabled = update_fields.get(
+            "whatsapp_notifications_enabled",
+            existing.get("whatsapp_notifications_enabled", False)
+        )
+        if effective_enabled and not normalize_e164(effective_phone):
+            return None, "A valid therapist WhatsApp number is required before WhatsApp notifications can be enabled."
+
+        if not update_fields:
+            return TherapistRecord(**existing), None
+
+        update_fields["updated_at"] = now_iso()
+        await db.therapists.update_one({"id": therapist_id}, {"$set": update_fields})
+        updated = await db.therapists.find_one({"id": therapist_id}, {"_id": 0})
+
+        await AuditService.log_activity(
+            db,
+            action="therapist_notification_settings_updated",
+            actor_user_id=actor_id,
+            actor_name=actor_name,
+            metadata={
+                "therapist_id": therapist_id,
+                "updated_fields": [k for k in update_fields.keys() if k != "updated_at"]
+            }
+        )
+        return TherapistRecord(**updated), None
 
     # ==================== Therapist Routing ====================
     @staticmethod
