@@ -11,11 +11,14 @@ from models import (
 from services.crm_service import CRMService
 from services.therapist_service import TherapistService
 from services.notification_service import NotificationService
+from services.therapist_notification_service import TherapistNotificationService
 from services.audit_service import AuditService
+
 
 def parse_iso(dt_str: str) -> datetime:
     clean = dt_str.replace("Z", "+00:00")
     return datetime.fromisoformat(clean)
+
 
 class BookingService:
     # ==================== Conflict / Double-Booking Validator ====================
@@ -211,6 +214,7 @@ class BookingService:
             try:
                 await NotificationService.send_booking_email(db, client, [booking])
                 await NotificationService.send_booking_whatsapp(db, client, [booking])
+                await TherapistNotificationService.send_booking_whatsapp(db, therapist, client, [booking])
             except Exception as e:
                 logging.warning(f"Failed to dispatch booking notification: {e}")
 
@@ -366,6 +370,13 @@ class BookingService:
             try:
                 await NotificationService.send_booking_email(db, client, created_bookings, booking_batch_id=batch.id)
                 await NotificationService.send_booking_whatsapp(db, client, created_bookings, booking_batch_id=batch.id)
+                await TherapistNotificationService.send_booking_whatsapp(
+                    db,
+                    therapist,
+                    client,
+                    created_bookings,
+                    booking_batch_id=batch.id
+                )
             except Exception as e:
                 logging.warning(f"Failed to dispatch multi-booking notification: {e}")
 
@@ -454,6 +465,12 @@ class BookingService:
                 try:
                     await NotificationService.send_booking_email(db, client, [updated_booking])
                     await NotificationService.send_booking_whatsapp(db, client, [updated_booking])
+                    await TherapistNotificationService.send_booking_whatsapp(
+                        db,
+                        therapist,
+                        client,
+                        [updated_booking]
+                    )
                 except Exception as e:
                     logging.warning(f"Notification error on reschedule: {e}")
 
