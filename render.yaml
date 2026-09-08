@@ -22,6 +22,18 @@ services:
         sync: false
       - key: FCA_BOOTSTRAP_ADMIN_PASSWORD
         sync: false
+
+      # Booking confirmation email. HTTPS provider is recommended on Render Free.
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: EMAIL_FROM
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_API_URL
+        value: https://api.resend.com/emails
+
+      # Optional SMTP path for paid/local deployments.
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
@@ -31,10 +43,24 @@ services:
       - key: SMTP_PASSWORD
         sync: false
       - key: SMTP_FROM
-        value: Foundations Counselling & Advisory <noreply@academyfoundations.com>
+        sync: false
+
+      # WhatsApp provider: meta (official Cloud API) or baileys (separate adapter).
+      - key: WHATSAPP_PROVIDER
+        value: meta
       - key: WHATSAPP_PHONE_NUMBER_ID
         sync: false
       - key: WHATSAPP_ACCESS_TOKEN
         sync: false
+      - key: WHATSAPP_BOOKING_TEMPLATE_NAME
+        sync: false
+      - key: WHATSAPP_TEMPLATE_LANGUAGE
+        value: en
       - key: META_GRAPH_API_VERSION
         value: v19.0
+
+      # Only required when WHATSAPP_PROVIDER=baileys.
+      - key: BAILEYS_SERVICE_URL
+        sync: false
+      - key: BAILEYS_SERVICE_TOKEN
+        sync: false
