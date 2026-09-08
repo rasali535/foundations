@@ -3,7 +3,7 @@ import logging
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from models import NotificationLog, Booking, BookingBatch, CRMClient, now_iso
 from services.audit_service import AuditService
@@ -59,7 +59,7 @@ class NotificationService:
         client: CRMClient,
         bookings: List[Booking],
         is_batch: bool = False
-    ) -> Tuple_Content:
+    ) -> Tuple[str, str]:
         first_b = bookings[0]
         session_type_display = first_b.session_type.capitalize()
         session_mode_display = "In-Person (FCA Clinic)" if first_b.session_mode == "in_person" else "Virtual (Online Video)"
@@ -285,6 +285,3 @@ class NotificationService:
         cursor = db.notification_log.find(filter_dict, {"_id": 0}).sort("created_at", -1).limit(limit)
         docs = await cursor.to_list(limit)
         return [NotificationLog(**d) for d in docs]
-
-# Type helper
-Tuple_Content = Any
