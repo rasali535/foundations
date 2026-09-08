@@ -8,6 +8,8 @@ services:
     plan: free
     region: frankfurt
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.16"
       - key: MONGO_URL
         sync: false
       - key: DB_NAME
