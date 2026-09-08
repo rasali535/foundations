@@ -117,7 +117,7 @@ async function connectWhatsApp() {
       creds: state.creds,
       keys: makeCacheableSignalKeyStore(state.keys, logger),
     },
-    browser: Browsers.ubuntu('FCA Notifications'),
+    browser: Browsers.ubuntu('Chrome'),
     printQRInTerminal: false,
     markOnlineOnConnect: false,
     syncFullHistory: false,
