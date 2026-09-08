@@ -1,0 +1,19 @@
+{
+  "name": "fca-whatsapp-baileys-adapter",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Optional FCA WhatsApp booking-confirmation adapter using the unofficial Baileys WhatsApp Web client.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^7.0.0",
+    "express": "^5.1.0",
+    "pino": "^9.0.0"
+  }
+}
