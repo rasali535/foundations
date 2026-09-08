@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, status, Query
 from typing import List, Dict, Any, Optional
 from models import (
-    Therapist, TherapistCreate, TherapistUpdate,
+    TherapistCreate, TherapistUpdate,
     TherapistBlock, TherapistBlockCreate
 )
-from services.therapist_service import TherapistService
+from services.therapist_service import TherapistService, TherapistRecord
 
 therapist_router = APIRouter(prefix="/therapists", tags=["Therapists"])
 
@@ -30,7 +30,7 @@ def require_staff_or_above(request: Request):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     return user
 
-@therapist_router.get("", response_model=List[Therapist])
+@therapist_router.get("", response_model=List[TherapistRecord])
 async def list_therapists(
     request: Request,
     active_only: bool = Query(False),
@@ -40,7 +40,7 @@ async def list_therapists(
     db = get_db(request)
     return await TherapistService.list_therapists(db, active_only=active_only, session_mode=session_mode)
 
-@therapist_router.get("/{therapist_id}", response_model=Therapist)
+@therapist_router.get("/{therapist_id}", response_model=TherapistRecord)
 async def get_therapist_details(
     therapist_id: str,
     request: Request,
@@ -52,7 +52,7 @@ async def get_therapist_details(
         raise HTTPException(status_code=404, detail="Therapist not found")
     return t
 
-@therapist_router.post("", response_model=Therapist)
+@therapist_router.post("", response_model=TherapistRecord)
 async def create_therapist(
     payload: TherapistCreate,
     request: Request,
@@ -63,7 +63,7 @@ async def create_therapist(
         db, payload, actor_id=user.get("user_id"), actor_name=user.get("name")
     )
 
-@therapist_router.put("/{therapist_id}", response_model=Therapist)
+@therapist_router.put("/{therapist_id}", response_model=TherapistRecord)
 async def update_therapist(
     therapist_id: str,
     payload: TherapistUpdate,
@@ -106,7 +106,7 @@ async def create_therapist_block(
 async def list_therapist_blocks(
     request: Request,
     therapist_id: Optional[str] = Query(None),
-    user: Dict = Depends(require_staff_or_above)
+    user: Dict = Depends(require_admin)
 ):
     db = get_db(request)
     return await TherapistService.list_blocks(db, therapist_id=therapist_id)
