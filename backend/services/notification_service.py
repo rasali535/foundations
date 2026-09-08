@@ -70,15 +70,12 @@ def mask_recipient(val: Optional[str]) -> str:
 
 
 def whatsapp_recipient(val: Optional[str]) -> Optional[str]:
-    """Normalize an E.164-style phone number for provider APIs without guessing a country code."""
+    """Normalize an explicit E.164 phone number without guessing or appending a country code."""
     if not val:
         return None
     raw = str(val).strip()
     digits = re.sub(r"\D", "", raw)
     if raw.startswith("+") and 8 <= len(digits) <= 15:
-        return digits
-    # Accept already-normalized international digits, but never guess/append country codes.
-    if 8 <= len(digits) <= 15 and raw == digits:
         return digits
     return None
 
