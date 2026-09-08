@@ -52,6 +52,42 @@ async def list_therapists(
     return await TherapistService.list_therapists(db, active_only=active_only, session_mode=session_mode)
 
 
+# ==================== Blocks / Leave Management ====================
+# Static /blocks routes MUST be registered before /{therapist_id}; otherwise FastAPI
+# can resolve the literal word "blocks" as a therapist_id and return a false 404.
+@therapist_router.post("/blocks", response_model=TherapistBlock)
+async def create_therapist_block(
+    payload: TherapistBlockCreate,
+    request: Request,
+    user: Dict = Depends(require_admin)
+):
+    db = get_db(request)
+    return await TherapistService.create_block(db, payload, actor_id=user.get("user_id"))
+
+
+@therapist_router.get("/blocks", response_model=List[TherapistBlock])
+async def list_therapist_blocks(
+    request: Request,
+    therapist_id: Optional[str] = Query(None),
+    user: Dict = Depends(require_admin)
+):
+    db = get_db(request)
+    return await TherapistService.list_blocks(db, therapist_id=therapist_id)
+
+
+@therapist_router.delete("/blocks/{block_id}")
+async def delete_therapist_block(
+    block_id: str,
+    request: Request,
+    user: Dict = Depends(require_admin)
+):
+    db = get_db(request)
+    success = await TherapistService.delete_block(db, block_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Block not found")
+    return {"status": "deleted", "block_id": block_id}
+
+
 @therapist_router.get("/{therapist_id}", response_model=TherapistRecord)
 async def get_therapist_details(
     therapist_id: str,
@@ -129,37 +165,3 @@ async def get_therapist_availability(
         db, therapist_id=therapist_id, start_date_str=start_date, days_ahead=days_ahead
     )
     return {"therapist_id": therapist_id, "slots": slots}
-
-
-# ==================== Blocks / Leave Management ====================
-@therapist_router.post("/blocks", response_model=TherapistBlock)
-async def create_therapist_block(
-    payload: TherapistBlockCreate,
-    request: Request,
-    user: Dict = Depends(require_admin)
-):
-    db = get_db(request)
-    return await TherapistService.create_block(db, payload, actor_id=user.get("user_id"))
-
-
-@therapist_router.get("/blocks", response_model=List[TherapistBlock])
-async def list_therapist_blocks(
-    request: Request,
-    therapist_id: Optional[str] = Query(None),
-    user: Dict = Depends(require_admin)
-):
-    db = get_db(request)
-    return await TherapistService.list_blocks(db, therapist_id=therapist_id)
-
-
-@therapist_router.delete("/blocks/{block_id}")
-async def delete_therapist_block(
-    block_id: str,
-    request: Request,
-    user: Dict = Depends(require_admin)
-):
-    db = get_db(request)
-    success = await TherapistService.delete_block(db, block_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Block not found")
-    return {"status": "deleted", "block_id": block_id}
