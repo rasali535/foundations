@@ -17,6 +17,9 @@ const AUTH_DIR = process.env.BAILEYS_AUTH_DIR || './auth';
 const MONGO_URL = process.env.MONGO_URL;
 const MONGO_DB_NAME = process.env.BAILEYS_DB_NAME || 'foundations_baileys';
 const SESSION_ID = process.env.BAILEYS_SESSION_ID || 'fca-primary';
+const FOUNDATIONS_API_URL = (process.env.FOUNDATIONS_API_URL || 'https://api.academyfoundations.com').replace(/\/+$/, '');
+const INBOUND_BOT_ENABLED = (process.env.BAILEYS_INBOUND_BOT || 'true').toLowerCase() !== 'false';
+const INBOUND_BOT_URL = `${FOUNDATIONS_API_URL}/api/bookings/whatsapp/inbound`;
 
 if (!API_TOKEN) {
   throw new Error('BAILEYS_API_TOKEN is required');
@@ -84,6 +87,103 @@ function rememberIdempotency(key, messageId) {
   }
 }
 
+function unwrapMessage(message) {
+  let current = message || {};
+  for (let i = 0; i < 4; i += 1) {
+    const nested =
+      current?.ephemeralMessage?.message ||
+      current?.viewOnceMessage?.message ||
+      current?.viewOnceMessageV2?.message ||
+      current?.viewOnceMessageV2Extension?.message;
+    if (!nested) break;
+    current = nested;
+  }
+  return current;
+}
+
+function extractMessageText(message) {
+  const content = unwrapMessage(message?.message);
+  const text =
+    content?.conversation ||
+    content?.extendedTextMessage?.text ||
+    content?.imageMessage?.caption ||
+    content?.videoMessage?.caption ||
+    content?.buttonsResponseMessage?.selectedButtonId ||
+    content?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    content?.templateButtonReplyMessage?.selectedId ||
+    '';
+  return String(text || '').trim();
+}
+
+function extractSenderDigits(message) {
+  const key = message?.key || {};
+  const candidates = [
+    key.remoteJidAlt,
+    key.participantAlt,
+    key.remoteJid,
+    key.participant,
+  ].filter(Boolean);
+
+  for (const jid of candidates) {
+    if (!String(jid).endsWith('@s.whatsapp.net')) continue;
+    const digits = normalizeInternationalPhone(String(jid).split('@')[0]);
+    if (digits) return digits;
+  }
+  return null;
+}
+
+async function forwardInboundToBookingBot(sock, message) {
+  if (!INBOUND_BOT_ENABLED || !message?.message || message?.key?.fromMe) return;
+
+  const remoteJid = message?.key?.remoteJid;
+  if (!remoteJid || remoteJid === 'status@broadcast' || String(remoteJid).endsWith('@g.us')) return;
+
+  const text = extractMessageText(message);
+  if (!text) return;
+
+  const sender = extractSenderDigits(message);
+  if (!sender) {
+    logger.warn('Inbound WhatsApp text ignored because a phone-number JID could not be resolved');
+    return;
+  }
+
+  try {
+    const response = await fetch(INBOUND_BOT_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender: `+${sender}`,
+        text,
+        message_id: message?.key?.id || null,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!response.ok) {
+      logger.warn(
+        { statusCode: response.status, sender: redactPhone(sender) },
+        'FCA booking bot inbound request rejected',
+      );
+      return;
+    }
+
+    const body = await response.json();
+    const reply = typeof body?.reply === 'string' ? body.reply.trim() : '';
+    if (!reply) return;
+
+    await sock.sendMessage(remoteJid, { text: reply });
+    logger.info({ sender: redactPhone(sender) }, 'FCA booking bot replied to inbound WhatsApp message');
+  } catch (err) {
+    logger.error(
+      { sender: redactPhone(sender), error: err?.name },
+      'FCA booking bot inbound forwarding failed',
+    );
+  }
+}
+
 async function loadAuthState() {
   if (authClose) {
     await authClose().catch(() => {});
@@ -136,6 +236,17 @@ async function connectWhatsApp() {
 
   socket = sock;
   sock.ev.on('creds.update', saveCreds);
+
+  sock.ev.on('messages.upsert', ({ messages, type }) => {
+    // Only process new notifications. Historical/appended sync messages are ignored so
+    // a Render restart cannot replay an old client command into the booking engine.
+    if (type !== 'notify') return;
+    for (const message of messages || []) {
+      forwardInboundToBookingBot(sock, message).catch((err) => {
+        logger.error({ error: err?.name }, 'Unhandled FCA booking bot inbound message error');
+      });
+    }
+  });
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
@@ -196,6 +307,7 @@ app.get('/health', (req, res) => {
     auth_backend: AUTH_BACKEND,
     wa_version: currentWaVersion ? currentWaVersion.join('.') : null,
     last_disconnect: lastDisconnectInfo,
+    inbound_bot: INBOUND_BOT_ENABLED,
   });
 });
 
