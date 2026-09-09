@@ -26,6 +26,7 @@ from routers.therapist_router import therapist_router
 from routers.admin_router import admin_router
 from routers.hr_router import hr_router
 from routers.invoice_router import invoice_router
+from routers.meta_whatsapp_router import meta_whatsapp_router
 
 # ----------------- Environment & Configuration -----------------
 ROOT_DIR = Path(__file__).parent
@@ -495,6 +496,7 @@ api_router.include_router(therapist_router)
 api_router.include_router(admin_router)
 api_router.include_router(hr_router)
 api_router.include_router(invoice_router)
+api_router.include_router(meta_whatsapp_router)
 
 app.include_router(api_router)
 
