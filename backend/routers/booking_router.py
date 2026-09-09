@@ -14,12 +14,14 @@ from services.booking_service import BookingService
 from services.whatsapp_booking_bot_service import WhatsAppBookingBotService
 from services.whatsapp_booking_bot_fast_slots import fast_slot_options
 from services.whatsapp_booking_bot_day_flow import install_day_first_flow
+from services.whatsapp_notification_resilience import install_whatsapp_retry_wrappers
 
 # Keep slot discovery optimized and present WhatsApp availability as day -> time.
 # The existing booking service remains authoritative for conflict checks, CRM writes,
 # entitlement validation and notifications.
 WhatsAppBookingBotService._slot_options = staticmethod(fast_slot_options)
 install_day_first_flow(WhatsAppBookingBotService)
+install_whatsapp_retry_wrappers()
 
 booking_router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
