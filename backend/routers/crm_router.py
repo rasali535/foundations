@@ -391,5 +391,8 @@ async def submit_intake(payload: Dict[str, Any], request: Request):
     Atomically links submission to CRM client and logs intake event.
     """
     db = get_db(request)
-    result = await IntakeService.process_intake_submission(db, payload, source="website_intake")
-    return result
+    try:
+        result = await IntakeService.process_intake_submission(db, payload, source="website_intake")
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
