@@ -38,6 +38,21 @@ class IntakeService:
 
         triage_level = "HIGH_PRIORITY_ESCALATION" if is_high_risk else "ROUTINE_COUNSELLING"
 
+        # Resolve corporate/EAP source on the server. The public URL only supplies a
+        # code; organisation identity is always looked up from the database so a
+        # caller cannot forge an organisation name/id.
+        requested_org_code = str(payload.get("organisation_code") or "").strip().upper()
+        organisation = None
+        if requested_org_code:
+            organisation = await db.organisations.find_one(
+                {"code": {"$regex": f"^{__import__('re').escape(requested_org_code)}$", "$options": "i"}, "status": "active"},
+                {"_id": 0}
+            )
+            if not organisation:
+                raise ValueError("Invalid or inactive corporate intake link")
+
+        source_type = "corporate" if organisation else "private"
+
         # Client profile fields extraction
         client_data = {
             "full_name": payload.get("full_name") or payload.get("name"),
@@ -51,11 +66,32 @@ class IntakeService:
             "preferred_contact_method": payload.get("preferred_contact_method") or payload.get("contact_method") or "Phone call",
             "emergency_contact_name": payload.get("emergency_contact_name") or payload.get("emergency_name"),
             "emergency_contact_relationship": payload.get("emergency_contact_relationship") or payload.get("emergency_relationship"),
-            "emergency_contact_phone": payload.get("emergency_contact_phone") or payload.get("emergency_phone")
+            "emergency_contact_phone": payload.get("emergency_contact_phone") or payload.get("emergency_phone"),
+            "organisation_id": organisation.get("id") if organisation else None,
+            "organisation_name": organisation.get("name") if organisation else None,
+            "tags": [f"corporate:{organisation.get('code')}"] if organisation else ["private"]
         }
 
         # Find or create CRM client
         crm_client, is_new = await CRMService.find_or_create_client(db, client_data)
+
+        # Existing private clients may later arrive through a corporate/EAP link.
+        # Attach an organisation only when no organisation is already assigned.
+        # Never silently move a client between two corporate accounts.
+        if organisation and not crm_client.organisation_id:
+            await db.crm_clients.update_one(
+                {"id": crm_client.id, "$or": [{"organisation_id": None}, {"organisation_id": {"$exists": False}}]},
+                {"$set": {
+                    "organisation_id": organisation.get("id"),
+                    "organisation_name": organisation.get("name"),
+                    "updated_at": now_iso()
+                }, "$addToSet": {"tags": f"corporate:{organisation.get('code')}"}}
+            )
+            refreshed = await db.crm_clients.find_one({"id": crm_client.id}, {"_id": 0})
+            if refreshed:
+                crm_client = CRMClient(**refreshed)
+        elif organisation and crm_client.organisation_id != organisation.get("id"):
+            raise ValueError("This client is already linked to a different corporate account")
 
         # Store intake submission record
         intake_record = CRMIntakeSubmission(
@@ -65,7 +101,11 @@ class IntakeService:
             triage_level=triage_level,
             is_high_risk=is_high_risk,
             source=source,
-            version="1.0",
+            source_type=source_type,
+            organisation_id=organisation.get("id") if organisation else None,
+            organisation_name=organisation.get("name") if organisation else None,
+            organisation_code=organisation.get("code") if organisation else None,
+            version="1.1",
             submitted_at=now_iso(),
             created_at=now_iso()
         )
@@ -81,8 +121,17 @@ class IntakeService:
                 "intake_id": intake_record.id,
                 "client_number": crm_client.client_number,
                 "triage_level": triage_level,
+            "source_type": source_type,
+            "organisation": {
+                "id": organisation.get("id"),
+                "name": organisation.get("name"),
+                "code": organisation.get("code")
+            } if organisation else None,
                 "is_new_client": is_new,
-                "source": source
+                "source": source,
+                "source_type": source_type,
+                "organisation_id": organisation.get("id") if organisation else None,
+                "organisation_code": organisation.get("code") if organisation else None
             }
         )
 
