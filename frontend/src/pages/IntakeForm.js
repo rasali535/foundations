@@ -327,10 +327,17 @@ const IntakeForm = () => {
 
             const [formspreeRes, backendRes] = await Promise.all([formspreePromise, backendPromise]);
 
-            if (formspreeRes.ok || (backendRes && backendRes.ok)) {
+            const backendOk = backendRes && backendRes.ok;
+            // Corporate/EAP links must be accepted by the FCA backend so the
+            // organisation attribution cannot be lost even if email succeeds.
+            if ((corporateCode && backendOk) || (!corporateCode && (formspreeRes.ok || backendOk))) {
                 setSubmitSuccess(true);
                 localStorage.removeItem('pameltex_intake_draft');
             } else {
+                if (corporateCode && backendRes) {
+                    const backendError = await backendRes.json().catch(() => ({}));
+                    throw new Error(backendError.detail || 'This corporate intake link is invalid or inactive. Please request a new link from Foundations.');
+                }
                 const errData = await formspreeRes.json().catch(() => ({}));
                 throw new Error(errData.error || 'Failed to transmit clinical intake form. Please contact our clinic directly at info@academyfoundations.com.');
             }
