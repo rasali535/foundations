@@ -479,10 +479,13 @@ async def submit_clinical_intake(payload: ClinicalIntakeCreate, request: Request
     check_rate_limit(request, limit=5, window_seconds=60)
     target_db = request.app.state.db if hasattr(request.app.state, 'db') and request.app.state.db is not None else db
     # Process through CRM Intake Service (Atomically links to CRM Profile)
-    result = await IntakeService.process_intake_submission(
-        target_db, payload.model_dump(), source="website_intake"
-    )
-    return result
+    try:
+        result = await IntakeService.process_intake_submission(
+            target_db, payload.model_dump(), source="website_intake"
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 @api_router.get("/clinical/records", response_model=List[Dict])
 async def list_clinical_records(request: Request, user: Dict = Depends(require_role(["clinical_admin", "super_admin"]))):
