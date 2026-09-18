@@ -68,6 +68,7 @@ async def lifespan(app: FastAPI):
         await db.crm_clients.create_index([("phone", 1)])
         await db.crm_clients.create_index([("client_number", 1)], unique=True)
         await db.crm_clients.create_index([("created_at", -1)])
+        await db.crm_clients.create_index([("organisation_id", 1)])
         
         await db.bookings.create_index([("client_id", 1)])
         await db.bookings.create_index([("therapist_id", 1)])
@@ -76,6 +77,8 @@ async def lifespan(app: FastAPI):
         
         await db.crm_notes.create_index([("client_id", 1), ("is_pinned", -1), ("created_at", -1)])
         await db.crm_intake_submissions.create_index([("client_id", 1)])
+        await db.crm_intake_submissions.create_index([("organisation_id", 1), ("created_at", -1)])
+        await db.organisations.create_index([("code", 1)], unique=True)
         await db.crm_activity_log.create_index([("client_id", 1)])
         await db.crm_activity_log.create_index([("booking_id", 1)])
         await db.notification_log.create_index([("client_id", 1)])
@@ -272,6 +275,7 @@ class ClinicalIntakeCreate(BaseModel):
     consent_acknowledged: bool
     typed_signature: str
     consent_date: str
+    organisation_code: Optional[str] = None
 
 class ClinicalIntakeRecord(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -475,10 +479,13 @@ async def submit_clinical_intake(payload: ClinicalIntakeCreate, request: Request
     check_rate_limit(request, limit=5, window_seconds=60)
     target_db = request.app.state.db if hasattr(request.app.state, 'db') and request.app.state.db is not None else db
     # Process through CRM Intake Service (Atomically links to CRM Profile)
-    result = await IntakeService.process_intake_submission(
-        target_db, payload.model_dump(), source="website_intake"
-    )
-    return result
+    try:
+        result = await IntakeService.process_intake_submission(
+            target_db, payload.model_dump(), source="website_intake"
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 @api_router.get("/clinical/records", response_model=List[Dict])
 async def list_clinical_records(request: Request, user: Dict = Depends(require_role(["clinical_admin", "super_admin"]))):

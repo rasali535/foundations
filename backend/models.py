@@ -94,7 +94,11 @@ class CRMIntakeSubmission(BaseModel):
     triage_level: str = "ROUTINE_COUNSELLING"
     is_high_risk: bool = False
     source: str = "website_intake"  # website_intake, admin_manual, partner_referral
-    version: str = "1.0"
+    source_type: str = "private"  # private, corporate, referral
+    organisation_id: Optional[str] = None
+    organisation_name: Optional[str] = None
+    organisation_code: Optional[str] = None
+    version: str = "1.1"
     submitted_at: str = Field(default_factory=now_iso)
     created_at: str = Field(default_factory=now_iso)
 

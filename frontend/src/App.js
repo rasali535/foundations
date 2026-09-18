@@ -109,6 +109,7 @@ function App() {
               <Route path="/disclaimer" element={<Disclaimer />} />
               <Route path="/refunds" element={<Refunds />} />
               <Route path="/intake" element={<IntakeForm />} />
+              <Route path="/intake/:organisationCode" element={<IntakeForm />} />
 
               {/* Backwards Compatibility Routes */}
               <Route path="/services" element={<Services />} />
