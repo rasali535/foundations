@@ -121,12 +121,6 @@ class IntakeService:
                 "intake_id": intake_record.id,
                 "client_number": crm_client.client_number,
                 "triage_level": triage_level,
-            "source_type": source_type,
-            "organisation": {
-                "id": organisation.get("id"),
-                "name": organisation.get("name"),
-                "code": organisation.get("code")
-            } if organisation else None,
                 "is_new_client": is_new,
                 "source": source,
                 "source_type": source_type,
@@ -142,6 +136,12 @@ class IntakeService:
             "client_number": crm_client.client_number,
             "is_new_client": is_new,
             "triage_level": triage_level,
+            "source_type": source_type,
+            "organisation": {
+                "id": organisation.get("id"),
+                "name": organisation.get("name"),
+                "code": organisation.get("code")
+            } if organisation else None,
             "escalation_advisory": "If you are in immediate danger or distress, please dial 999 immediately or contact emergency services." if is_high_risk else "Our clinical team will review your submission and contact you to schedule your session.",
             "created_at": intake_record.created_at
         }
