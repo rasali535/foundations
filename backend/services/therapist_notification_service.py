@@ -15,7 +15,7 @@ from services.therapist_service import DEFAULT_THERAPISTS, normalize_e164
 
 
 WHATSAPP_PROVIDER = os.environ.get("WHATSAPP_PROVIDER", "meta").strip().lower()
-META_GRAPH_API_VERSION = os.environ.get("META_GRAPH_API_VERSION", "v19.0")
+META_GRAPH_API_VERSION = os.environ.get("META_GRAPH_API_VERSION", "v23.0")
 WHATSAPP_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_ACCESS_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN")
 WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", f"https://graph.facebook.com/{META_GRAPH_API_VERSION}").rstrip("/")
