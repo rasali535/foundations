@@ -68,6 +68,7 @@ async def lifespan(app: FastAPI):
         await db.crm_clients.create_index([("phone", 1)])
         await db.crm_clients.create_index([("client_number", 1)], unique=True)
         await db.crm_clients.create_index([("created_at", -1)])
+        await db.crm_clients.create_index([("organisation_id", 1)])
         
         await db.bookings.create_index([("client_id", 1)])
         await db.bookings.create_index([("therapist_id", 1)])
@@ -76,6 +77,8 @@ async def lifespan(app: FastAPI):
         
         await db.crm_notes.create_index([("client_id", 1), ("is_pinned", -1), ("created_at", -1)])
         await db.crm_intake_submissions.create_index([("client_id", 1)])
+        await db.crm_intake_submissions.create_index([("organisation_id", 1), ("created_at", -1)])
+        await db.organisations.create_index([("code", 1)], unique=True)
         await db.crm_activity_log.create_index([("client_id", 1)])
         await db.crm_activity_log.create_index([("booking_id", 1)])
         await db.notification_log.create_index([("client_id", 1)])
@@ -272,6 +275,7 @@ class ClinicalIntakeCreate(BaseModel):
     consent_acknowledged: bool
     typed_signature: str
     consent_date: str
+    organisation_code: Optional[str] = None
 
 class ClinicalIntakeRecord(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
