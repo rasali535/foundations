@@ -15,6 +15,12 @@ from services.therapist_service import DEFAULT_THERAPISTS, normalize_e164
 
 
 WHATSAPP_PROVIDER = os.environ.get("WHATSAPP_PROVIDER", "meta").strip().lower()
+META_GRAPH_API_VERSION = os.environ.get("META_GRAPH_API_VERSION", "v23.0")
+WHATSAPP_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
+WHATSAPP_ACCESS_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN")
+WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", f"https://graph.facebook.com/{META_GRAPH_API_VERSION}").rstrip("/")
+WHATSAPP_THERAPIST_TEMPLATE_NAME = os.environ.get("WHATSAPP_THERAPIST_TEMPLATE_NAME")
+WHATSAPP_TEMPLATE_LANGUAGE = os.environ.get("WHATSAPP_TEMPLATE_LANGUAGE", "en")
 BAILEYS_SERVICE_URL = os.environ.get("BAILEYS_SERVICE_URL")
 BAILEYS_SERVICE_TOKEN = os.environ.get("BAILEYS_SERVICE_TOKEN")
 CAT_TZ = ZoneInfo("Africa/Gaborone")
@@ -214,23 +220,60 @@ class TherapistNotificationService:
             log_entry.error_message = "Therapist WhatsApp number must be stored in international E.164 format"
             return await TherapistNotificationService._persist_log(db, log_entry, therapist_id)
 
-        if WHATSAPP_PROVIDER != "baileys":
-            log_entry.status = "failed"
-            log_entry.error_message = "Therapist WhatsApp notifications currently require the configured Baileys provider"
-            return await TherapistNotificationService._persist_log(db, log_entry, therapist_id)
+        if WHATSAPP_PROVIDER == "meta":
+            if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN or not WHATSAPP_THERAPIST_TEMPLATE_NAME:
+                log_entry.status = "failed"
+                log_entry.error_message = "Meta therapist notification provider/template is not configured"
+                return await TherapistNotificationService._persist_log(db, log_entry, therapist_id)
 
-        if not BAILEYS_SERVICE_URL or not BAILEYS_SERVICE_TOKEN:
-            log_entry.status = "failed"
-            log_entry.error_message = "Baileys therapist notification provider is not configured"
-            return await TherapistNotificationService._persist_log(db, log_entry, therapist_id)
+            first = bookings[0]
+            date_str, time_str = _format_booking_datetime(first.starts_at)
+            mode = "In-Person" if first.session_mode == "in_person" else "Virtual"
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": recipient,
+                "type": "template",
+                "template": {
+                    "name": WHATSAPP_THERAPIST_TEMPLATE_NAME,
+                    "language": {"code": WHATSAPP_TEMPLATE_LANGUAGE},
+                    "components": [{
+                        "type": "body",
+                        "parameters": [
+                            {"type": "text", "text": str(target.get("name") or "Therapist")},
+                            {"type": "text", "text": f"{client.first_name} {client.last_name}".strip() or "Client"},
+                            {"type": "text", "text": client.client_number},
+                            {"type": "text", "text": date_str},
+                            {"type": "text", "text": time_str},
+                            {"type": "text", "text": first.session_type.capitalize()},
+                            {"type": "text", "text": mode}
+                        ]
+                    }]
+                }
+            }
+            url = f"{WHATSAPP_API_URL}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
 
-        url = f"{BAILEYS_SERVICE_URL.rstrip('/')}/send"
-        event_key = f"therapist:{therapist_id}:{primary_booking_id}:{bookings[0].starts_at}"
-        if booking_batch_id:
-            event_key = f"therapist:{therapist_id}:batch:{booking_batch_id}:{bookings[0].starts_at}"
+            def _send_provider():
+                return requests.post(
+                    url,
+                    json=payload,
+                    headers={
+                        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+                        "Content-Type": "application/json"
+                    },
+                    timeout=15
+                )
+        elif WHATSAPP_PROVIDER == "baileys":
+            if not BAILEYS_SERVICE_URL or not BAILEYS_SERVICE_TOKEN:
+                log_entry.status = "failed"
+                log_entry.error_message = "Baileys therapist notification provider is not configured"
+                return await TherapistNotificationService._persist_log(db, log_entry, therapist_id)
 
-        try:
-            def _send_baileys():
+            url = f"{BAILEYS_SERVICE_URL.rstrip('/')}/send"
+            event_key = f"therapist:{therapist_id}:{primary_booking_id}:{bookings[0].starts_at}"
+            if booking_batch_id:
+                event_key = f"therapist:{therapist_id}:batch:{booking_batch_id}:{bookings[0].starts_at}"
+
+            def _send_provider():
                 return requests.post(
                     url,
                     json={
@@ -244,23 +287,31 @@ class TherapistNotificationService:
                     },
                     timeout=15
                 )
+        else:
+            log_entry.status = "failed"
+            log_entry.error_message = f"Unsupported WhatsApp provider '{WHATSAPP_PROVIDER}'"
+            return await TherapistNotificationService._persist_log(db, log_entry, therapist_id)
 
-            response = await asyncio.to_thread(_send_baileys)
+        try:
+            response = await asyncio.to_thread(_send_provider)
             if response.status_code in (200, 201, 202):
                 body = response.json() if response.content else {}
                 log_entry.status = "sent"
                 log_entry.sent_at = now_iso()
+                messages = body.get("messages") if isinstance(body, dict) else None
+                meta_id = messages[0].get("id") if messages and isinstance(messages[0], dict) else None
                 log_entry.provider_reference = str(
-                    body.get("message_id") or body.get("id") or "baileys-accepted"
+                    meta_id or body.get("message_id") or body.get("id") or f"{WHATSAPP_PROVIDER}-accepted"
                 )
                 logging.info(
-                    "Therapist WhatsApp notification accepted: therapist_id=%s recipient=%s",
+                    "Therapist WhatsApp notification accepted via %s: therapist_id=%s recipient=%s",
+                    WHATSAPP_PROVIDER,
                     therapist_id,
                     _mask_recipient(raw_recipient)
                 )
             else:
                 log_entry.status = "failed"
-                log_entry.error_message = f"Baileys therapist notification rejected: {_safe_provider_error(response=response)}"
+                log_entry.error_message = f"{WHATSAPP_PROVIDER} therapist notification rejected: {_safe_provider_error(response=response)}"
                 logging.warning(
                     "Therapist WhatsApp notification rejected: therapist_id=%s detail=%s",
                     therapist_id,

@@ -19,7 +19,7 @@ meta_whatsapp_router = APIRouter(prefix="/whatsapp/meta", tags=["WhatsApp Meta"]
 
 META_WEBHOOK_VERIFY_TOKEN = os.environ.get("META_WEBHOOK_VERIFY_TOKEN")
 META_APP_SECRET = os.environ.get("META_APP_SECRET")
-META_GRAPH_API_VERSION = os.environ.get("META_GRAPH_API_VERSION", "v19.0")
+META_GRAPH_API_VERSION = os.environ.get("META_GRAPH_API_VERSION", "v23.0")
 WHATSAPP_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_ACCESS_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN")
 WHATSAPP_API_URL = os.environ.get(
@@ -144,6 +144,25 @@ async def _process_webhook_payload(db: Any, payload: Dict[str, Any]) -> None:
 
         metadata = value.get("metadata") or {}
         await _send_meta_text(sender, reply, metadata.get("phone_number_id"))
+
+
+@meta_whatsapp_router.get("/status")
+async def meta_whatsapp_status():
+    """Non-secret readiness probe for production configuration."""
+    return {
+        "provider": "meta",
+        "webhook_verify_token_configured": bool(META_WEBHOOK_VERIFY_TOKEN),
+        "app_secret_configured": bool(META_APP_SECRET),
+        "phone_number_id_configured": bool(WHATSAPP_PHONE_NUMBER_ID),
+        "access_token_configured": bool(WHATSAPP_ACCESS_TOKEN),
+        "graph_api_version": META_GRAPH_API_VERSION,
+        "ready": bool(
+            META_WEBHOOK_VERIFY_TOKEN
+            and META_APP_SECRET
+            and WHATSAPP_PHONE_NUMBER_ID
+            and WHATSAPP_ACCESS_TOKEN
+        ),
+    }
 
 
 @meta_whatsapp_router.get("/webhook")
