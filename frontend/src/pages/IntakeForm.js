@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import SEO from '../components/SEO';
 import './IntakeForm.css';
 
 const IntakeForm = () => {
+    const { organisationCode } = useParams();
+    const corporateCode = (organisationCode || '').trim().toUpperCase();
     const API = `${process.env.REACT_APP_BACKEND_URL || ''}/api`;
     const formspreeId = (typeof process !== 'undefined' && process.env?.REACT_APP_FORMSPREE_ID) || 'xdajqjev';
     const isPlaceholderId = formspreeId === 'YOUR_FORM_ID';
@@ -264,11 +266,13 @@ const IntakeForm = () => {
             current_medication: formData.medication,
             consent_acknowledged: true,
             typed_signature: formData.signature,
-            consent_date: formData.consent_date
+            consent_date: formData.consent_date,
+            organisation_code: corporateCode || undefined
         };
 
         const formspreePayload = {
-            _subject: `New Virtual Client Intake: ${formData.full_name}`,
+            _subject: `New ${corporateCode ? corporateCode + ' ' : ''}Virtual Client Intake: ${formData.full_name}`,
+            "Client Source": corporateCode ? `Corporate / EAP (${corporateCode})` : "Private Client",
             "Full Name": formData.full_name,
             "Date of Birth": formData.dob,
             "Age": formData.age || 'Not specified',
@@ -350,7 +354,7 @@ const IntakeForm = () => {
             <div className="intake-page">
                 <section className="intake-hero">
                     <div className="container-x">
-                        <span className="intake-badge">Therapy Portal</span>
+                        <span className="intake-badge">{corporateCode ? `${corporateCode} • Corporate/EAP` : 'Therapy Portal'}</span>
                         <h1>Client Intake Form</h1>
                         <p>Foundations Counselling Academy / Pameltex Psychosocial & Counselling Services</p>
                     </div>
