@@ -17,6 +17,7 @@ from services.whatsapp_booking_bot_fast_slots import fast_slot_options
 from services.whatsapp_booking_bot_day_flow import install_day_first_flow
 from services.whatsapp_notification_resilience import install_whatsapp_retry_wrappers
 from services.therapist_service import TherapistService
+from services.scheduling_service import SchedulingService
 
 # Keep slot discovery optimized and present WhatsApp availability as day -> time.
 # The existing booking service remains authoritative for conflict checks, CRM writes,
@@ -119,8 +120,9 @@ async def public_booking_availability(
     available = []
     now = datetime.now(timezone.utc)
     for therapist in therapists:
-        slots = await TherapistService.get_available_slots(
-            db, therapist_id=therapist.id, start_date_str=start_date, days_ahead=days_ahead
+        slots = await SchedulingService.get_available_slots(
+            db, therapist_id=therapist.id, start_date=start_date, days_ahead=days_ahead,
+            session_mode=mode
         )
         for slot in slots:
             if not slot.get("is_available"):

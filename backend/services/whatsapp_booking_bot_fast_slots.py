@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from services.therapist_service import TherapistService
+from services.scheduling_service import SchedulingService
 
 
 CAT_TZ = ZoneInfo("Africa/Gaborone")
@@ -80,8 +81,9 @@ async def fast_slot_options(
 
     availability_results = await asyncio.gather(
         *(
-            TherapistService.get_available_slots(
-                db, therapist.id, today, days_ahead=AVAILABILITY_DAYS
+            SchedulingService.get_available_slots(
+                db, therapist.id, today, days_ahead=AVAILABILITY_DAYS,
+                session_mode=session_mode
             )
             for therapist in therapists
         ),
