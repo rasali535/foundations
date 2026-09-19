@@ -11,7 +11,7 @@ import requests
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
-from services.whatsapp_booking_bot_service import WhatsAppBookingBotService
+from services.aliana_conversation_service import AlianaConversationService
 from models import now_iso
 
 
@@ -218,7 +218,13 @@ async def _process_webhook_payload(db: Any, payload: Dict[str, Any]) -> None:
             if result.matched_count > 0 and result.upserted_id is None:
                 continue
 
-        reply = await WhatsAppBookingBotService.handle_inbound(db, sender, text)
+        session_id = f"whatsapp:{sender}"
+        await AlianaConversationService.log_turn(db, "whatsapp", session_id, "user", text)
+        reply = await AlianaConversationService.respond(
+            db, "whatsapp", sender, text, session_id=session_id
+        )
+        if reply:
+            await AlianaConversationService.log_turn(db, "whatsapp", session_id, "assistant", reply)
         if not reply:
             continue
 
