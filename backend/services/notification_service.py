@@ -36,21 +36,12 @@ SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
 SMTP_FROM = os.environ.get("SMTP_FROM") or EMAIL_FROM
 
-# WhatsApp provider can be explicitly selected as "meta" or "baileys".
-# We do not automatically fail over from Meta to Baileys because that can create
-# duplicate sends and should never be used to bypass Meta template requirements.
-WHATSAPP_PROVIDER = os.environ.get("WHATSAPP_PROVIDER", "meta").strip().lower()
 META_GRAPH_API_VERSION = os.environ.get("META_GRAPH_API_VERSION", "v23.0")
 WHATSAPP_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_ACCESS_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN")
 WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", f"https://graph.facebook.com/{META_GRAPH_API_VERSION}")
 WHATSAPP_BOOKING_TEMPLATE_NAME = os.environ.get("WHATSAPP_BOOKING_TEMPLATE_NAME")
 WHATSAPP_TEMPLATE_LANGUAGE = os.environ.get("WHATSAPP_TEMPLATE_LANGUAGE", "en")
-
-# Optional Baileys adapter. Baileys runs as a separate Node.js service because it is
-# a WhatsApp Web client and requires persistent linked-device credentials.
-BAILEYS_SERVICE_URL = os.environ.get("BAILEYS_SERVICE_URL")
-BAILEYS_SERVICE_TOKEN = os.environ.get("BAILEYS_SERVICE_TOKEN")
 
 CAT_TZ = ZoneInfo("Africa/Gaborone")
 
@@ -129,15 +120,7 @@ class NotificationService:
 
     @staticmethod
     def is_whatsapp_configured() -> bool:
-        if WHATSAPP_PROVIDER == "meta":
-            return bool(
-                WHATSAPP_PHONE_NUMBER_ID
-                and WHATSAPP_ACCESS_TOKEN
-                and WHATSAPP_BOOKING_TEMPLATE_NAME
-            )
-        if WHATSAPP_PROVIDER == "baileys":
-            return bool(BAILEYS_SERVICE_URL and BAILEYS_SERVICE_TOKEN)
-        return False
+        return bool(WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN)
 
     @staticmethod
     async def get_config_status() -> Dict[str, Any]:
@@ -145,9 +128,9 @@ class NotificationService:
             "email_provider": EMAIL_PROVIDER,
             "email_configured": NotificationService.is_email_configured(),
             "email_sender_configured": bool(EMAIL_FROM),
-            "whatsapp_provider": WHATSAPP_PROVIDER,
+            "whatsapp_provider": "meta",
             "whatsapp_configured": NotificationService.is_whatsapp_configured(),
-            "whatsapp_template_configured": bool(WHATSAPP_BOOKING_TEMPLATE_NAME) if WHATSAPP_PROVIDER == "meta" else None,
+            "whatsapp_template_configured": True,
             "operating_timezone": "CAT (Africa/Gaborone, UTC+2)",
             "delivery_status_policy": "sent means accepted by a configured provider"
         }
@@ -164,7 +147,7 @@ class NotificationService:
             metadata={
                 "recipient_masked": mask_recipient(log_entry.recipient),
                 "status": log_entry.status,
-                "provider": EMAIL_PROVIDER if log_entry.channel == "email" else WHATSAPP_PROVIDER
+                "provider": EMAIL_PROVIDER if log_entry.channel == "email" else "meta"
             }
         )
         return log_entry
@@ -365,7 +348,6 @@ class NotificationService:
         primary_booking_id = bookings[0].id if bookings else None
         raw_recipient = getattr(client, "phone", None)
         recipient = whatsapp_recipient(raw_recipient)
-        summary_text = NotificationService.build_booking_whatsapp_content(client, bookings) if bookings else ""
 
         log_entry = NotificationLog(
             client_id=client.id,
@@ -394,11 +376,11 @@ class NotificationService:
             return await NotificationService._persist_log(db, log_entry)
         if not NotificationService.is_whatsapp_configured():
             log_entry.status = "failed"
-            log_entry.error_message = f"WhatsApp provider '{WHATSAPP_PROVIDER}' is not configured"
+            log_entry.error_message = "Meta WhatsApp Cloud API is not configured"
             return await NotificationService._persist_log(db, log_entry)
 
         try:
-            if WHATSAPP_PROVIDER == "meta":
+            if True:
                 first_b = bookings[0]
                 date_str, time_str = _format_booking_datetime(first_b.starts_at)
                 session_type = "In-person" if first_b.session_mode == "in_person" else "Virtual"
@@ -429,36 +411,7 @@ class NotificationService:
                     booking_batch_id=booking_batch_id,
                 )
 
-            elif WHATSAPP_PROVIDER == "baileys":
-                url = f"{BAILEYS_SERVICE_URL.rstrip('/')}/send"
 
-                def _send_baileys():
-                    return requests.post(
-                        url,
-                        json={
-                            "to": recipient,
-                            "text": summary_text,
-                            "idempotency_key": primary_booking_id or booking_batch_id
-                        },
-                        headers={
-                            "Authorization": f"Bearer {BAILEYS_SERVICE_TOKEN}",
-                            "Content-Type": "application/json"
-                        },
-                        timeout=15
-                    )
-
-                response = await asyncio.to_thread(_send_baileys)
-                if response.status_code in (200, 201, 202):
-                    body = response.json() if response.content else {}
-                    log_entry.status = "sent"
-                    log_entry.sent_at = now_iso()
-                    log_entry.provider_reference = str(body.get("message_id") or body.get("id") or "baileys-accepted")
-                else:
-                    log_entry.status = "failed"
-                    log_entry.error_message = _safe_provider_error("Baileys service rejected confirmation", response=response)
-            else:
-                log_entry.status = "failed"
-                log_entry.error_message = f"Unsupported WhatsApp provider '{WHATSAPP_PROVIDER}'"
 
         except Exception as exc:
             log_entry.status = "failed"
