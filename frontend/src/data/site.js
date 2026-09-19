@@ -4,8 +4,8 @@ export const SITE = {
   parent: "A Pameltex Group company",
   tagline: "People first. Practical support. Sustainable performance.",
   email: "info@academyfoundations.com",
-  phone: "+267 72 534 203",
-  whatsapp: "+267 72 534 203",
+  phone: "+267 73 860 490",
+  whatsapp: "+267 73 860 490",
   address: "Plot 18680 Khuhurutse St, Phase 2, Gaborone, Botswana",
   hours: "Mon – Fri: 09:00 – 17:00 · Sat: 09:00 – 13:00 (Subject to confirmation)",
   logo: "/foundations-logo.png",
@@ -22,8 +22,8 @@ export const NAV = [
   { label: "Contact", to: "/contact" },
 ];
 
-export const WHATSAPP_NUMBER = "26772534203";
-export const WHATSAPP_LINK = "https://wa.me/26772534203";
+export const WHATSAPP_NUMBER = "26773860490";
+export const WHATSAPP_LINK = "https://wa.me/26773860490";
 
 export const getWhatsAppUrl = (context = "general") => {
   const messages = {
@@ -33,7 +33,7 @@ export const getWhatsAppUrl = (context = "general") => {
     general: "Hello FCA, I would like to enquire about your services."
   };
   const text = encodeURIComponent(messages[context] || messages.general);
-  return `https://wa.me/26772534203?text=${text}`;
+  return `https://wa.me/26773860490?text=${text}`;
 };
 
 export const KAJABI_URL = "https://academyfoundations.mykajabi.com";

@@ -2,6 +2,7 @@
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageCircle, X, Send, Sparkles, Loader2, CheckCircle2 } from "lucide-react";
+import { getWhatsAppUrl } from "../data/site";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -98,7 +99,7 @@ export default function Chatbot() {
         onClick={() => setOpen((o) => !o)}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
-        className="fixed bottom-24 right-6 z-[60] w-14 h-14 rounded-full bg-[#4C1D95] text-white shadow-[0_12px_32px_-8px_rgba(28,63,58,0.55)] flex items-center justify-center"
+        className="fixed bottom-6 right-6 z-[60] w-14 h-14 rounded-full bg-[#4C1D95] text-white shadow-[0_12px_32px_-8px_rgba(28,63,58,0.55)] flex items-center justify-center"
       >
         <AnimatePresence mode="wait">
           {open ? (
@@ -131,7 +132,7 @@ export default function Chatbot() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={{ type: "spring", stiffness: 320, damping: 28 }}
-            className="fixed bottom-44 right-6 z-[60] w-[min(92vw,380px)] h-[560px] bg-white rounded-2xl border border-slate-200 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.18)] flex flex-col overflow-hidden"
+            className="fixed bottom-24 right-6 z-[60] w-[min(92vw,380px)] h-[560px] bg-white rounded-2xl border border-slate-200 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.18)] flex flex-col overflow-hidden"
           >
             <div className="px-5 py-4 bg-[#4C1D95] text-white flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-[#D4A373] flex items-center justify-center text-[#4C1D95]">
@@ -149,7 +150,7 @@ export default function Chatbot() {
                   onClick={() => setView(view === "lead" ? "chat" : "lead")}
                   className="text-[11px] px-3 py-1 rounded-full bg-white/10 hover:bg-white/20"
                 >
-                  {view === "lead" ? "Back to chat" : "Talk to a human"}
+                  {view === "lead" ? "Back to chat" : "Contact Foundations"}
                 </button>
               </div>
             </div>
@@ -210,8 +211,17 @@ export default function Chatbot() {
                 className="flex-1 overflow-y-auto p-5 space-y-3 bg-[#FAFAFA]"
               >
                 <p className="text-sm text-[#475569]">
-                  Share a few details and we'll be in touch within one business day.
+                  Continue directly with Foundations on WhatsApp, or leave your details for a follow-up.
                 </p>
+                <a
+                  href={getWhatsAppUrl("general")}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-primary w-full justify-center"
+                >
+                  <MessageCircle size={15} />
+                  Talk to Foundations on WhatsApp
+                </a>
                 {[
                   ["name", "Full name"],
                   ["company", "Company"],

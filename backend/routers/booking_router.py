@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import os
 from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, Request, status, Query
 from pydantic import BaseModel, Field
@@ -15,6 +16,7 @@ from services.whatsapp_booking_bot_service import WhatsAppBookingBotService
 from services.whatsapp_booking_bot_fast_slots import fast_slot_options
 from services.whatsapp_booking_bot_day_flow import install_day_first_flow
 from services.whatsapp_notification_resilience import install_whatsapp_retry_wrappers
+from services.therapist_service import TherapistService
 
 # Keep slot discovery optimized and present WhatsApp availability as day -> time.
 # The existing booking service remains authoritative for conflict checks, CRM writes,
@@ -87,6 +89,93 @@ async def whatsapp_booking_inbound(payload: WhatsAppInboundMessage, request: Req
     reply = await WhatsAppBookingBotService.handle_inbound(db, payload.sender, payload.text)
     return {"status": "processed", "reply": reply}
 
+
+
+
+class PublicBookingCreate(BaseModel):
+    client_id: str
+    therapist_id: str
+    session_type: str = "individual"
+    session_mode: str
+    starts_at: str
+    ends_at: Optional[str] = None
+    organisation_code: Optional[str] = None
+
+
+@booking_router.get("/public/availability")
+async def public_booking_availability(
+    request: Request,
+    session_mode: str = Query(...),
+    start_date: str = Query(...),
+    days_ahead: int = Query(14, ge=1, le=30),
+):
+    """Public, privacy-safe slot discovery for the post-intake booking step."""
+    mode = session_mode.lower()
+    if mode not in ("virtual", "in_person"):
+        raise HTTPException(status_code=400, detail="Invalid session mode")
+
+    db = get_db(request)
+    therapists = await TherapistService.list_therapists(db, active_only=True, session_mode=mode)
+    available = []
+    now = datetime.now(timezone.utc)
+    for therapist in therapists:
+        slots = await TherapistService.get_available_slots(
+            db, therapist_id=therapist.id, start_date_str=start_date, days_ahead=days_ahead
+        )
+        for slot in slots:
+            if not slot.get("is_available"):
+                continue
+            try:
+                if datetime.fromisoformat(slot["starts_at"].replace("Z", "+00:00")) <= now:
+                    continue
+            except Exception:
+                continue
+            available.append({
+                "therapist_id": therapist.id,
+                "therapist_name": therapist.name,
+                "starts_at": slot["starts_at"],
+                "ends_at": slot["ends_at"],
+                "date": slot["date"],
+                "time_display": slot["time_display"],
+            })
+    available.sort(key=lambda x: x["starts_at"])
+    return {"session_mode": mode, "slots": available}
+
+
+@booking_router.post("/public", response_model=Booking)
+async def create_public_booking(payload: PublicBookingCreate, request: Request):
+    """Create a booking only for a CRM client produced by the intake workflow."""
+    db = get_db(request)
+    client = await db.crm_clients.find_one({"id": payload.client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Please complete the intake form before booking.")
+
+    if payload.organisation_code:
+        organisation = await db.organisations.find_one(
+            {"code": {"$regex": f"^{__import__('re').escape(payload.organisation_code.strip())}$", "$options": "i"}, "status": "active"},
+            {"_id": 0},
+        )
+        if not organisation or client.get("organisation_id") != organisation.get("id"):
+            raise HTTPException(status_code=400, detail="Corporate booking link does not match this intake.")
+    elif client.get("organisation_id"):
+        raise HTTPException(status_code=400, detail="Please use the corporate intake link assigned to your organisation.")
+
+    booking_request = BookingCreateRequest(
+        client_id=payload.client_id,
+        therapist_id=payload.therapist_id,
+        session_type=payload.session_type,
+        session_mode=payload.session_mode,
+        starts_at=payload.starts_at,
+        ends_at=payload.ends_at,
+        send_notifications=True,
+        source="website_intake",
+    )
+    booking, err = await BookingService.create_booking(
+        db, request=booking_request, actor_id="public_intake", actor_name="Website Intake"
+    )
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return booking
 
 @booking_router.get("")
 async def list_bookings(
