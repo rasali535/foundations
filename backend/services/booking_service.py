@@ -13,6 +13,7 @@ from services.therapist_service import TherapistService
 from services.notification_service import NotificationService
 from services.therapist_notification_service import TherapistNotificationService
 from services.audit_service import AuditService
+from services.meta_whatsapp_template_service import MetaWhatsAppTemplateService
 
 
 def parse_iso(dt_str: str) -> datetime:
@@ -507,9 +508,36 @@ class BookingService:
         if request.send_notifications:
             client = await CRMService.get_client_by_id(db, updated_booking.client_id)
             if client:
-                await BookingService._dispatch_booking_notifications(
-                    db, client, therapist, [updated_booking]
-                )
+                try:
+                    await NotificationService.send_booking_email(db, client, [updated_booking])
+                except Exception as exc:
+                    logging.warning("Reschedule email dispatch failed: %s", exc.__class__.__name__)
+                try:
+                    local_dt = parse_iso(updated_booking.starts_at)
+                    if local_dt.tzinfo is None:
+                        local_dt = local_dt.replace(tzinfo=timezone.utc)
+                    local_dt = local_dt.astimezone(__import__("zoneinfo").ZoneInfo("Africa/Gaborone"))
+                    await MetaWhatsAppTemplateService.send(
+                        db,
+                        phone=client.phone,
+                        event="booking_rescheduled",
+                        variables={
+                            "client_name": client.first_name or "Client",
+                            "appointment_date": local_dt.strftime("%a %d %b %Y"),
+                            "appointment_time": local_dt.strftime("%H:%M CAT"),
+                        },
+                        client_id=client.id,
+                        booking_id=updated_booking.id,
+                        booking_batch_id=updated_booking.booking_batch_id,
+                    )
+                except Exception as exc:
+                    logging.warning("Reschedule WhatsApp dispatch failed: %s", exc.__class__.__name__)
+                try:
+                    await TherapistNotificationService.send_booking_whatsapp(
+                        db, therapist, client, [updated_booking]
+                    )
+                except Exception as exc:
+                    logging.warning("Reschedule therapist WhatsApp dispatch failed: %s", exc.__class__.__name__)
 
         return updated_booking, None
 
@@ -594,6 +622,30 @@ class BookingService:
                 "cancellation_reason": request.cancellation_reason
             }
         )
+
+        if request.send_notifications and updated_booking.status in ["cancelled", "late_cancelled_billable"]:
+            client = await CRMService.get_client_by_id(db, updated_booking.client_id)
+            if client:
+                try:
+                    local_dt = parse_iso(updated_booking.starts_at)
+                    if local_dt.tzinfo is None:
+                        local_dt = local_dt.replace(tzinfo=timezone.utc)
+                    local_dt = local_dt.astimezone(__import__("zoneinfo").ZoneInfo("Africa/Gaborone"))
+                    await MetaWhatsAppTemplateService.send(
+                        db,
+                        phone=client.phone,
+                        event="booking_cancelled",
+                        variables={
+                            "client_name": client.first_name or "Client",
+                            "appointment_date": local_dt.strftime("%a %d %b %Y"),
+                            "appointment_time": local_dt.strftime("%H:%M CAT"),
+                        },
+                        client_id=client.id,
+                        booking_id=updated_booking.id,
+                        booking_batch_id=updated_booking.booking_batch_id,
+                    )
+                except Exception as exc:
+                    logging.warning("Cancellation WhatsApp dispatch failed: %s", exc.__class__.__name__)
 
         return updated_booking, None
 
