@@ -7,6 +7,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import time
+import asyncio
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 import bcrypt
@@ -20,6 +21,7 @@ from models import (
 )
 from services.therapist_service import TherapistService
 from services.intake_service import IntakeService
+from services.whatsapp_reminder_dispatcher import WhatsAppReminderDispatcher
 from routers.crm_router import crm_router
 from routers.booking_router import booking_router
 from routers.therapist_router import therapist_router
@@ -82,13 +84,22 @@ async def lifespan(app: FastAPI):
         await db.crm_activity_log.create_index([("client_id", 1)])
         await db.crm_activity_log.create_index([("booking_id", 1)])
         await db.notification_log.create_index([("client_id", 1)])
+        await db.whatsapp_dispatch_claims.create_index([("event_key", 1)], unique=True)
         
         # Seed default therapists if missing
         await TherapistService.seed_defaults_if_empty(db)
         logging.info("MongoDB indexes verified and therapists seeded.")
     except Exception as e:
         logging.warning(f"Database startup indexing note: {e}")
-    yield
+    reminder_task = asyncio.create_task(WhatsAppReminderDispatcher.run_forever(db))
+    try:
+        yield
+    finally:
+        reminder_task.cancel()
+        try:
+            await reminder_task
+        except asyncio.CancelledError:
+            pass
 
 # ----------------- App & Middleware Initialization -----------------
 app = FastAPI(title="Foundations Counselling Academy API & CRM", version="2.1.0", lifespan=lifespan)
