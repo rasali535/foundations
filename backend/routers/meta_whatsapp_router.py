@@ -193,6 +193,9 @@ async def _send_meta_text(to_e164: str, text: str, phone_number_id: Optional[str
 
 
 async def _process_webhook_payload(db: Any, payload: Dict[str, Any]) -> None:
+    # Process outbound delivery receipts before handling inbound conversation messages.
+    await _process_status_updates(db, payload)
+
     for value, message in _iter_messages(payload):
         sender = _normalize_sender(message.get("from"))
         text = _extract_message_text(message)
