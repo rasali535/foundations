@@ -18,7 +18,9 @@ META_GRAPH_API_VERSION = os.environ.get("META_GRAPH_API_VERSION", "v23.0")
 WHATSAPP_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_ACCESS_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN")
 WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", f"https://graph.facebook.com/{META_GRAPH_API_VERSION}").rstrip("/")
-WHATSAPP_THERAPIST_TEMPLATE_NAME = os.environ.get("WHATSAPP_THERAPIST_TEMPLATE_NAME")
+WHATSAPP_THERAPIST_TEMPLATE_NAME = os.environ.get(
+    "WHATSAPP_THERAPIST_TEMPLATE_NAME", "fca_therapist_booking_confirmation"
+)
 WHATSAPP_TEMPLATE_LANGUAGE = os.environ.get("WHATSAPP_TEMPLATE_LANGUAGE", "en")
 CAT_TZ = ZoneInfo("Africa/Gaborone")
 
@@ -235,13 +237,13 @@ class TherapistNotificationService:
                 "components": [{
                     "type": "body",
                     "parameters": [
-                        {"type": "text", "text": str(target.get("name") or "Therapist")},
-                        {"type": "text", "text": f"{client.first_name} {client.last_name}".strip() or "Client"},
-                        {"type": "text", "text": client.client_number},
-                        {"type": "text", "text": date_str},
-                        {"type": "text", "text": time_str},
-                        {"type": "text", "text": first.session_type.capitalize()},
-                        {"type": "text", "text": mode}
+                        {"type": "text", "parameter_name": "therapist_name", "text": str(target.get("name") or "Therapist")},
+                        {"type": "text", "parameter_name": "client_name", "text": f"{client.first_name} {client.last_name}".strip() or "Client"},
+                        {"type": "text", "parameter_name": "client_number", "text": client.client_number},
+                        {"type": "text", "parameter_name": "appointment_date", "text": date_str},
+                        {"type": "text", "parameter_name": "appointment_time", "text": time_str},
+                        {"type": "text", "parameter_name": "session_type", "text": first.session_type.capitalize()},
+                        {"type": "text", "parameter_name": "session_mode", "text": mode}
                     ]
                 }]
             }
