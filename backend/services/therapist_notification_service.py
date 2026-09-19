@@ -217,48 +217,47 @@ class TherapistNotificationService:
             log_entry.error_message = "Therapist WhatsApp number must be stored in international E.164 format"
             return await TherapistNotificationService._persist_log(db, log_entry, therapist_id)
 
-        if True:
-            if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN or not WHATSAPP_THERAPIST_TEMPLATE_NAME:
-                log_entry.status = "failed"
-                log_entry.error_message = "Meta therapist notification provider/template is not configured"
-                return await TherapistNotificationService._persist_log(db, log_entry, therapist_id)
+        if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN or not WHATSAPP_THERAPIST_TEMPLATE_NAME:
+            log_entry.status = "failed"
+            log_entry.error_message = "Meta therapist notification provider/template is not configured"
+            return await TherapistNotificationService._persist_log(db, log_entry, therapist_id)
 
-            first = bookings[0]
-            date_str, time_str = _format_booking_datetime(first.starts_at)
-            mode = "In-Person" if first.session_mode == "in_person" else "Virtual"
-            payload = {
-                "messaging_product": "whatsapp",
-                "to": recipient,
-                "type": "template",
-                "template": {
-                    "name": WHATSAPP_THERAPIST_TEMPLATE_NAME,
-                    "language": {"code": WHATSAPP_TEMPLATE_LANGUAGE},
-                    "components": [{
-                        "type": "body",
-                        "parameters": [
-                            {"type": "text", "text": str(target.get("name") or "Therapist")},
-                            {"type": "text", "text": f"{client.first_name} {client.last_name}".strip() or "Client"},
-                            {"type": "text", "text": client.client_number},
-                            {"type": "text", "text": date_str},
-                            {"type": "text", "text": time_str},
-                            {"type": "text", "text": first.session_type.capitalize()},
-                            {"type": "text", "text": mode}
-                        ]
-                    }]
-                }
+        first = bookings[0]
+        date_str, time_str = _format_booking_datetime(first.starts_at)
+        mode = "In-Person" if first.session_mode == "in_person" else "Virtual"
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": recipient,
+            "type": "template",
+            "template": {
+                "name": WHATSAPP_THERAPIST_TEMPLATE_NAME,
+                "language": {"code": WHATSAPP_TEMPLATE_LANGUAGE},
+                "components": [{
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": str(target.get("name") or "Therapist")},
+                        {"type": "text", "text": f"{client.first_name} {client.last_name}".strip() or "Client"},
+                        {"type": "text", "text": client.client_number},
+                        {"type": "text", "text": date_str},
+                        {"type": "text", "text": time_str},
+                        {"type": "text", "text": first.session_type.capitalize()},
+                        {"type": "text", "text": mode}
+                    ]
+                }]
             }
-            url = f"{WHATSAPP_API_URL}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+        }
+        url = f"{WHATSAPP_API_URL}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
 
-            def _send_provider():
-                return requests.post(
-                    url,
-                    json=payload,
-                    headers={
-                        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
-                        "Content-Type": "application/json"
-                    },
-                    timeout=15
-                )
+        def _send_provider():
+            return requests.post(
+                url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+                    "Content-Type": "application/json"
+                },
+                timeout=15
+            )
 
 
         try:
@@ -279,7 +278,7 @@ class TherapistNotificationService:
                 )
             else:
                 log_entry.status = "failed"
-                log_entry.error_message = f"{"meta"} therapist notification rejected: {_safe_provider_error(response=response)}"
+                log_entry.error_message = f"Meta therapist notification rejected: {_safe_provider_error(response=response)}"
                 logging.warning(
                     "Therapist WhatsApp notification rejected: therapist_id=%s detail=%s",
                     therapist_id,
