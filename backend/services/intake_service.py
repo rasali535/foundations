@@ -4,6 +4,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from models import CRMIntakeSubmission, CRMClient, now_iso
 from services.crm_service import CRMService
 from services.audit_service import AuditService
+from services.meta_whatsapp_template_service import MetaWhatsAppTemplateService
 
 class IntakeService:
     @staticmethod
@@ -111,6 +112,23 @@ class IntakeService:
         )
 
         await db.crm_intake_submissions.insert_one(intake_record.model_dump())
+
+        # Intake acknowledgement is operational only; clinical/triage details are
+        # deliberately never placed in WhatsApp template variables.
+        try:
+            if getattr(crm_client, "phone", None) and MetaWhatsAppTemplateService.configured():
+                await MetaWhatsAppTemplateService.send(
+                    db,
+                    phone=crm_client.phone,
+                    event="intake_received",
+                    variables={"client_name": crm_client.first_name or "Client"},
+                    client_id=crm_client.id,
+                )
+        except Exception as exc:
+            # Intake persistence must never fail because a notification provider is unavailable.
+            __import__("logging").warning(
+                "Intake WhatsApp acknowledgement failed: %s", exc.__class__.__name__
+            )
 
         # Audit log
         await AuditService.log_activity(
