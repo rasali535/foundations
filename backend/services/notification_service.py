@@ -15,6 +15,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from models import NotificationLog, Booking, CRMClient, now_iso
 from services.audit_service import AuditService
+from services.meta_whatsapp_template_service import MetaWhatsAppTemplateService
 
 # ==================== Environment Configuration ====================
 # Render Free can make outbound HTTPS requests but SMTP delivery on common mail ports
@@ -400,64 +401,33 @@ class NotificationService:
             if WHATSAPP_PROVIDER == "meta":
                 first_b = bookings[0]
                 date_str, time_str = _format_booking_datetime(first_b.starts_at)
-                mode = "In-Person" if first_b.session_mode == "in_person" else "Virtual"
-                if first_b.session_mode == "virtual" and first_b.virtual_meeting_link:
-                    access = f"Meeting link: {first_b.virtual_meeting_link}"
-                elif first_b.session_mode == "virtual":
-                    access = "Virtual access details will be provided by FCA administration."
-                elif first_b.location:
-                    access = f"Location: {first_b.location}"
-                else:
-                    access = "FCA administration will provide any additional access details."
+                session_type = "In-person" if first_b.session_mode == "in_person" else "Virtual"
 
-                # Approved Meta template body variables, in order:
-                # 1 first name, 2 date, 3 time, 4 session type,
-                # 5 mode, 6 therapist, 7 access/location details.
-                payload = {
-                    "messaging_product": "whatsapp",
-                    "to": recipient,
-                    "type": "template",
-                    "template": {
-                        "name": WHATSAPP_BOOKING_TEMPLATE_NAME,
-                        "language": {"code": WHATSAPP_TEMPLATE_LANGUAGE},
-                        "components": [{
-                            "type": "body",
-                            "parameters": [
-                                {"type": "text", "text": client.first_name or "Client"},
-                                {"type": "text", "text": date_str},
-                                {"type": "text", "text": time_str},
-                                {"type": "text", "text": first_b.session_type.capitalize()},
-                                {"type": "text", "text": mode},
-                                {"type": "text", "text": first_b.therapist_name or "Assigned Specialist"},
-                                {"type": "text", "text": access}
-                            ]
-                        }]
-                    }
+                # Virtual confirmations intentionally do not expose the meeting URL.
+                # The secure link is delivered by fca_virtual_session_link 3 hours
+                # before the appointment by the reminder dispatcher.
+                event = (
+                    "virtual_session_confirmation"
+                    if first_b.session_mode == "virtual"
+                    else "booking_confirmation"
+                )
+                variables = {
+                    "client_name": client.first_name or "Client",
+                    "appointment_date": date_str,
+                    "appointment_time": time_str,
                 }
-                url = f"{WHATSAPP_API_URL.rstrip('/')}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+                if event == "booking_confirmation":
+                    variables["session_type"] = session_type
 
-                def _send_meta():
-                    return requests.post(
-                        url,
-                        json=payload,
-                        headers={
-                            "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
-                            "Content-Type": "application/json"
-                        },
-                        timeout=15
-                    )
-
-                response = await asyncio.to_thread(_send_meta)
-                if response.status_code in (200, 201, 202):
-                    body = response.json() if response.content else {}
-                    messages = body.get("messages") if isinstance(body, dict) else None
-                    provider_id = messages[0].get("id") if messages and isinstance(messages[0], dict) else None
-                    log_entry.status = "sent"
-                    log_entry.sent_at = now_iso()
-                    log_entry.provider_reference = provider_id or "meta-accepted"
-                else:
-                    log_entry.status = "failed"
-                    log_entry.error_message = _safe_provider_error("Meta WhatsApp rejected confirmation", response=response)
+                return await MetaWhatsAppTemplateService.send(
+                    db,
+                    phone=raw_recipient,
+                    event=event,
+                    variables=variables,
+                    client_id=client.id,
+                    booking_id=primary_booking_id,
+                    booking_batch_id=booking_batch_id,
+                )
 
             elif WHATSAPP_PROVIDER == "baileys":
                 url = f"{BAILEYS_SERVICE_URL.rstrip('/')}/send"
