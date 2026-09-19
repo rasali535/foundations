@@ -1,5 +1,4 @@
-import re
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from models import now_iso
 from services.whatsapp_booking_bot_service import WhatsAppBookingBotService
@@ -79,12 +78,26 @@ class AlianaConversationService:
         lower = raw.lower()
         wants_booking = any(word in lower for word in AlianaConversationService.BOOKING_WORDS)
 
-        # WhatsApp has a verified phone identity path and can execute the existing
-        # booking workflow. FAQs are answered first unless the user clearly asks to book.
-        if channel == "whatsapp" and wants_booking:
-            booking_reply = await WhatsAppBookingBotService.handle_inbound(db, sender_id, "BOOK")
-            if booking_reply:
-                return booking_reply
+        # Preserve the existing verified WhatsApp booking state machine. Numbered
+        # replies and active booking states must continue through it, while ordinary
+        # language at the menu can be handled as an FAQ/conversation.
+        if channel == "whatsapp":
+            upper = raw.upper()
+            booking_commands = {
+                "1", "2", "3", "4", "5", "6", "MENU", "START", "HELP", "BOT",
+                "BOOK", "BOOK APPOINTMENT", "MY BOOKINGS", "MY APPOINTMENTS",
+                "APPOINTMENTS", "RESCHEDULE", "CANCEL", "BALANCE",
+                "SESSION BALANCE", "AGENT", "HUMAN", "FCA",
+            }
+            session = await WhatsAppBookingBotService._get_session(db, sender_id)
+            active_booking_state = session.get("state", "menu") != "menu" or session.get("handoff_active")
+            token_command = upper.startswith("BOOK ") and len(raw.split()) == 2
+
+            if active_booking_state or upper in booking_commands or token_command or wants_booking:
+                booking_text = "BOOK" if wants_booking and not active_booking_state else raw
+                booking_reply = await WhatsAppBookingBotService.handle_inbound(db, sender_id, booking_text)
+                if booking_reply:
+                    return booking_reply
 
         if faq:
             return faq
