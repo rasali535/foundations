@@ -380,36 +380,35 @@ class NotificationService:
             return await NotificationService._persist_log(db, log_entry)
 
         try:
-            if True:
-                first_b = bookings[0]
-                date_str, time_str = _format_booking_datetime(first_b.starts_at)
-                session_type = "In-person" if first_b.session_mode == "in_person" else "Virtual"
+            first_b = bookings[0]
+            date_str, time_str = _format_booking_datetime(first_b.starts_at)
+            session_type = "In-person" if first_b.session_mode == "in_person" else "Virtual"
 
-                # Virtual confirmations intentionally do not expose the meeting URL.
-                # The secure link is delivered by fca_virtual_session_link 3 hours
-                # before the appointment by the reminder dispatcher.
-                event = (
-                    "virtual_session_confirmation"
-                    if first_b.session_mode == "virtual"
-                    else "booking_confirmation"
-                )
-                variables = {
-                    "client_name": client.first_name or "Client",
-                    "appointment_date": date_str,
-                    "appointment_time": time_str,
-                }
-                if event == "booking_confirmation":
-                    variables["session_type"] = session_type
+            # Virtual confirmations intentionally do not expose the meeting URL.
+            # The secure link is delivered by fca_virtual_session_link 3 hours
+            # before the appointment by the reminder dispatcher.
+            event = (
+                "virtual_session_confirmation"
+                if first_b.session_mode == "virtual"
+                else "booking_confirmation"
+            )
+            variables = {
+                "client_name": client.first_name or "Client",
+                "appointment_date": date_str,
+                "appointment_time": time_str,
+            }
+            if event == "booking_confirmation":
+                variables["session_type"] = session_type
 
-                return await MetaWhatsAppTemplateService.send(
-                    db,
-                    phone=raw_recipient,
-                    event=event,
-                    variables=variables,
-                    client_id=client.id,
-                    booking_id=primary_booking_id,
-                    booking_batch_id=booking_batch_id,
-                )
+            return await MetaWhatsAppTemplateService.send(
+                db,
+                phone=raw_recipient,
+                event=event,
+                variables=variables,
+                client_id=client.id,
+                booking_id=primary_booking_id,
+                booking_batch_id=booking_batch_id,
+            )
 
 
 
