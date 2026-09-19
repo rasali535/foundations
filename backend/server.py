@@ -29,6 +29,8 @@ from routers.admin_router import admin_router
 from routers.hr_router import hr_router
 from routers.invoice_router import invoice_router
 from routers.meta_whatsapp_router import meta_whatsapp_router
+from routers.meta_messenger_router import meta_messenger_router
+from services.aliana_conversation_service import AlianaConversationService
 
 # ----------------- Environment & Configuration -----------------
 ROOT_DIR = Path(__file__).parent
@@ -472,7 +474,9 @@ async def chat_message(payload: ChatMessageCreate, request: Request):
     except Exception:
         pass
     
-    reply = aliana.generate_response(payload.message)
+    reply = await AlianaConversationService.respond(
+        db, "website", payload.session_id, payload.message, session_id=payload.session_id
+    )
     try:
         await db.chat_messages.insert_one({
             "session_id": payload.session_id,
@@ -515,6 +519,7 @@ api_router.include_router(admin_router)
 api_router.include_router(hr_router)
 api_router.include_router(invoice_router)
 api_router.include_router(meta_whatsapp_router)
+api_router.include_router(meta_messenger_router)
 
 app.include_router(api_router)
 
