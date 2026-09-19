@@ -26,8 +26,10 @@ TEMPLATES = {
     "booking_reminder_2h": "fca_booking_reminder_2h",
     "booking_rescheduled": "fca_booking_rescheduled",
     "booking_cancelled": "fca_booking_cancelled",
-    "virtual_session_confirmation": "fca_virtual_session_confirmation",
-    "virtual_session_link": "fca_virtual_session_link",
+    # The reviewed virtual template tells the client that access arrives 3 hours before.
+    "virtual_session_confirmation": "fca_virtual_session_link",
+    # Separate utility template required to deliver the actual secure URL at T-3h.
+    "virtual_session_link": "fca_virtual_access_link",
     "followup_booking": "fca_followup_booking",
     "payment_reminder": "fca_payment_reminder",
     "payment_received": "fca_payment_received",
