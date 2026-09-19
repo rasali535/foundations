@@ -67,6 +67,83 @@ def _extract_message_text(message: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _iter_statuses(payload: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
+    for entry in payload.get("entry") or []:
+        for change in entry.get("changes") or []:
+            if change.get("field") != "messages":
+                continue
+            value = change.get("value") or {}
+            for status in value.get("statuses") or []:
+                yield status
+
+
+async def _process_status_updates(db: Any, payload: Dict[str, Any]) -> None:
+    """Persist Meta delivery lifecycle against the outbound notification wamid."""
+    for status in _iter_statuses(payload):
+        message_id = str(status.get("id") or "").strip()
+        meta_status = str(status.get("status") or "").lower().strip()
+        if not message_id or meta_status not in {"sent", "delivered", "read", "failed"}:
+            continue
+
+        timestamp = status.get("timestamp")
+        errors = status.get("errors") or []
+        error_summary = None
+        if errors:
+            first = errors[0] or {}
+            error_summary = str(
+                first.get("message")
+                or first.get("title")
+                or ((first.get("error_data") or {}).get("details"))
+                or "Meta reported message delivery failure"
+            )[:500]
+
+        now = now_iso()
+        update_fields: Dict[str, Any] = {
+            "status": meta_status,
+            "meta_status": meta_status,
+            "status_updated_at": now,
+        }
+        if timestamp:
+            update_fields["meta_status_timestamp"] = str(timestamp)
+        if meta_status == "sent":
+            update_fields["sent_at"] = now
+        elif meta_status == "delivered":
+            update_fields["delivered_at"] = now
+        elif meta_status == "read":
+            update_fields["read_at"] = now
+        elif meta_status == "failed":
+            update_fields["failed_at"] = now
+            update_fields["error_message"] = error_summary
+
+        result = await db.notification_log.update_many(
+            {"provider_reference": message_id},
+            {"$set": update_fields},
+        )
+        if result.matched_count:
+            logging.info(
+                "Meta WhatsApp delivery status updated: status=%s matched=%s",
+                meta_status,
+                result.matched_count,
+            )
+        else:
+            # Keep unmatched callbacks for diagnosis (for example bot free-text replies
+            # that are not represented in notification_log).
+            await db.whatsapp_meta_status_events.update_one(
+                {"message_id": message_id, "status": meta_status},
+                {
+                    "$set": {
+                        "message_id": message_id,
+                        "status": meta_status,
+                        "timestamp": str(timestamp or ""),
+                        "error_message": error_summary,
+                        "updated_at": now,
+                    },
+                    "$setOnInsert": {"created_at": now},
+                },
+                upsert=True,
+            )
+
+
 def _iter_messages(payload: Dict[str, Any]) -> Iterable[Tuple[Dict[str, Any], Dict[str, Any]]]:
     for entry in payload.get("entry") or []:
         for change in entry.get("changes") or []:
