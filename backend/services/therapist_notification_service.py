@@ -19,7 +19,7 @@ WHATSAPP_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_ACCESS_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN")
 WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", f"https://graph.facebook.com/{META_GRAPH_API_VERSION}").rstrip("/")
 WHATSAPP_THERAPIST_TEMPLATE_NAME = os.environ.get(
-    "WHATSAPP_THERAPIST_TEMPLATE_NAME", "fca_therapist_booking_confirmation"
+    "WHATSAPP_THERAPIST_TEMPLATE_NAME", "fca_therapist_booking_notification"
 )
 WHATSAPP_TEMPLATE_LANGUAGE = os.environ.get("WHATSAPP_TEMPLATE_LANGUAGE", "en")
 CAT_TZ = ZoneInfo("Africa/Gaborone")
