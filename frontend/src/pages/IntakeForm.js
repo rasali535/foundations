@@ -51,6 +51,12 @@ const IntakeForm = () => {
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitSuccess, setSubmitSuccess] = useState(false);
+    const [intakeResult, setIntakeResult] = useState(null);
+    const [bookingMode, setBookingMode] = useState('virtual');
+    const [bookingSlots, setBookingSlots] = useState([]);
+    const [selectedSlot, setSelectedSlot] = useState(null);
+    const [bookingBusy, setBookingBusy] = useState(false);
+    const [bookingSuccess, setBookingSuccess] = useState(null);
     const [submitError, setSubmitError] = useState('');
 
     useEffect(() => {
@@ -331,6 +337,9 @@ const IntakeForm = () => {
             // Corporate/EAP links must be accepted by the FCA backend so the
             // organisation attribution cannot be lost even if email succeeds.
             if ((corporateCode && backendOk) || (!corporateCode && (formspreeRes.ok || backendOk))) {
+                let acceptedIntake = null;
+                if (backendOk) acceptedIntake = await backendRes.json().catch(() => null);
+                setIntakeResult(acceptedIntake);
                 setSubmitSuccess(true);
                 localStorage.removeItem('pameltex_intake_draft');
             } else {
@@ -346,6 +355,52 @@ const IntakeForm = () => {
             setSubmitError(err.message || 'An error occurred during submission. Please contact our clinic at info@academyfoundations.com.');
         } finally {
             setIsSubmitting(false);
+        }
+    };
+
+    const loadBookingSlots = async (mode = bookingMode) => {
+        if (!intakeResult?.client_id) return;
+        setBookingBusy(true);
+        setSelectedSlot(null);
+        try {
+            const today = new Date().toISOString().slice(0, 10);
+            const res = await fetch(`${API}/bookings/public/availability?session_mode=${mode}&start_date=${today}&days_ahead=14`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Could not load appointment availability.');
+            setBookingSlots(data.slots || []);
+        } catch (err) {
+            setSubmitError(err.message || 'Could not load appointment availability.');
+        } finally {
+            setBookingBusy(false);
+        }
+    };
+
+    const confirmIntakeBooking = async () => {
+        if (!selectedSlot || !intakeResult?.client_id) return;
+        setBookingBusy(true);
+        setSubmitError('');
+        try {
+            const res = await fetch(`${API}/bookings/public`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({
+                    client_id: intakeResult.client_id,
+                    therapist_id: selectedSlot.therapist_id,
+                    session_type: 'individual',
+                    session_mode: bookingMode,
+                    starts_at: selectedSlot.starts_at,
+                    ends_at: selectedSlot.ends_at,
+                    organisation_code: corporateCode || undefined
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'That appointment is no longer available. Please choose another time.');
+            setBookingSuccess(data);
+        } catch (err) {
+            setSubmitError(err.message || 'Could not confirm appointment.');
+            await loadBookingSlots(bookingMode);
+        } finally {
+            setBookingBusy(false);
         }
     };
 
@@ -393,7 +448,54 @@ const IntakeForm = () => {
                                     </svg>
                                 </div>
                                 <h2>Intake Form Submitted Successfully!</h2>
-                                <p>Thank you for taking the time to share your details. Your intake form has been processed securely. Our administrative team will review your file and get in touch with you shortly to schedule or confirm your virtual consultation.</p>
+                                <p>Thank you for taking the time to share your details. Your intake form has been processed securely.</p>
+
+                                {intakeResult?.client_id && !bookingSuccess && (
+                                    <div className="intake-booking-card" style={{ marginTop: '24px', textAlign: 'left' }}>
+                                        <h3>Book your session</h3>
+                                        <p>Choose how you would like to attend, then select an available appointment.</p>
+                                        <div className="form-group">
+                                            <label htmlFor="booking-mode">Session format</label>
+                                            <select id="booking-mode" value={bookingMode} onChange={(e) => {
+                                                const mode = e.target.value;
+                                                setBookingMode(mode);
+                                                setBookingSlots([]);
+                                                setSelectedSlot(null);
+                                            }}>
+                                                <option value="virtual">Virtual</option>
+                                                <option value="in_person">In person</option>
+                                            </select>
+                                        </div>
+                                        <button type="button" className="btn-primary" disabled={bookingBusy} onClick={() => loadBookingSlots(bookingMode)}>
+                                            {bookingBusy ? 'Checking availability...' : 'Show available times'}
+                                        </button>
+                                        {bookingSlots.length > 0 && (
+                                            <div style={{ marginTop: '18px' }}>
+                                                <label>Available appointments</label>
+                                                <div className="checkbox-list" style={{ marginTop: '8px' }}>
+                                                    {bookingSlots.slice(0, 30).map((slot) => (
+                                                        <div key={slot.therapist_id + slot.starts_at} className={`checkbox-card ${selectedSlot?.starts_at === slot.starts_at && selectedSlot?.therapist_id === slot.therapist_id ? 'checked' : ''}`} onClick={() => setSelectedSlot(slot)}>
+                                                            <div className="checkbox-ui">{selectedSlot?.starts_at === slot.starts_at && selectedSlot?.therapist_id === slot.therapist_id ? <span className="check-mark">✓</span> : null}</div>
+                                                            <span className="checkbox-label">{new Date(slot.starts_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · {slot.therapist_name}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <button type="button" className="btn-primary" disabled={!selectedSlot || bookingBusy} onClick={confirmIntakeBooking} style={{ marginTop: '14px' }}>
+                                                    {bookingBusy ? 'Confirming...' : 'Confirm appointment'}
+                                                </button>
+                                            </div>
+                                        )}
+                                        {!bookingBusy && bookingSlots.length === 0 && <p style={{ marginTop: '12px', fontSize: '13px' }}>Select “Show available times” to see the next 14 days.</p>}
+                                    </div>
+                                )}
+
+                                {bookingSuccess && (
+                                    <div className="intake-booking-card" style={{ marginTop: '24px' }}>
+                                        <h3>Appointment confirmed</h3>
+                                        <p>Your {bookingSuccess.session_mode === 'virtual' ? 'virtual' : 'in-person'} session with {bookingSuccess.therapist_name} is booked for {new Date(bookingSuccess.starts_at).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })}.</p>
+                                        {bookingSuccess.session_mode === 'virtual' && <p>Your secure session link will be sent via WhatsApp 3 hours before your appointment.</p>}
+                                    </div>
+                                )}
                                 
                                 {isPlaceholderId && (
                                     <div className="demo-data-receipt">
@@ -410,7 +512,7 @@ const IntakeForm = () => {
                                 )}
 
                                 <div className="success-actions">
-                                    <Link to="/contact" className="btn-primary">Book a Session</Link>
+                                    {!intakeResult?.client_id && <Link to="/contact" className="btn-primary">Contact Us to Book</Link>}
                                     <Link to="/" className="btn-ghost" style={{ marginLeft: '10px' }}>Return to Homepage</Link>
                                 </div>
                             </div>
