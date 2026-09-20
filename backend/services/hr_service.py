@@ -8,6 +8,7 @@ from models import (
     AggregateMetric, HRContractStatus, HRDashboardResponse,
     HR_MIN_REPORTING_COUNT, now_iso
 )
+from services.corporate_entitlement_service import CorporateEntitlementService, ENTITLEMENT_STATUSES
 
 class HRPrivacyService:
     """
@@ -140,12 +141,21 @@ class HRReportingService:
     @staticmethod
     async def get_organisation(db: AsyncIOMotorDatabase, org_id: str) -> Optional[Organisation]:
         doc = await db.organisations.find_one({"id": org_id}, {"_id": 0})
-        return Organisation(**doc) if doc else None
+        if not doc:
+            return None
+        pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id)
+        doc["allocated_sessions"] = pool["allocated_sessions"]
+        return Organisation(**doc)
 
     @staticmethod
     async def list_organisations(db: AsyncIOMotorDatabase) -> List[Organisation]:
         docs = await db.organisations.find({}, {"_id": 0}).sort("name", 1).to_list(100)
-        return [Organisation(**d) for d in docs]
+        result: List[Organisation] = []
+        for doc in docs:
+            pool = await CorporateEntitlementService.organisation_pool_summary(db, doc["id"])
+            doc["allocated_sessions"] = pool["allocated_sessions"]
+            result.append(Organisation(**doc))
+        return result
 
     @staticmethod
     async def update_organisation(db: AsyncIOMotorDatabase, org_id: str, payload: OrganisationUpdate) -> Optional[Organisation]:
@@ -311,15 +321,19 @@ class HRReportingService:
         client_ids = await HRReportingService._get_org_client_ids(db, org_id)
         query: Dict[str, Any] = {
             "client_id": {"$in": client_ids},
-            "status": {"$in": ["completed", "confirmed"]}
+            "status": {"$in": ENTITLEMENT_STATUSES}
         }
         if org.contract_start and org.contract_end:
-            query["starts_at"] = {"$gte": f"{org.contract_start}T00:00:00Z", "$lte": f"{org.contract_end}T23:59:59Z"}
+            query["starts_at"] = {
+                "$gte": f"{org.contract_start}T00:00:00",
+                "$lte": f"{org.contract_end}T23:59:59"
+            }
 
         sessions_used = await db.bookings.count_documents(query)
-        allocated = org.allocated_sessions
-        remaining = max(0, allocated - sessions_used) if allocated is not None else None
-        utilisation_pct = round((sessions_used / allocated) * 100, 1) if allocated and allocated > 0 else None
+        pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id)
+        allocated = pool["allocated_sessions"]
+        remaining = max(0, allocated - sessions_used)
+        utilisation_pct = round((sessions_used / allocated) * 100, 1) if allocated > 0 else None
 
         return HRContractStatus(
             organisation_id=org.id,
@@ -328,10 +342,13 @@ class HRReportingService:
             contract_start=org.contract_start,
             contract_end=org.contract_end,
             allocated_sessions=allocated,
+            member_count=pool["member_count"],
+            base_sessions_per_member=4,
+            approved_extra_sessions=pool["approved_extra_sessions"],
             sessions_used=sessions_used,
             sessions_remaining=remaining,
             utilisation_percentage=utilisation_pct,
-            is_configured=allocated is not None
+            is_configured=pool["member_count"] > 0
         )
 
     # ==================== Utilisation Reporting & Trends ====================
