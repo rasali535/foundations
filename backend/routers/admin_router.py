@@ -398,3 +398,92 @@ async def update_invoice_profile(
         metadata={"profile": "default"}
     )
     return InvoiceProfile(**data)
+
+
+@admin_router.get("/corporate-entitlements/client/{client_id}")
+async def get_client_corporate_entitlement(
+    client_id: str,
+    request: Request,
+    user: Dict = Depends(require_staff_or_above)
+):
+    db = get_db(request)
+    client = await db.crm_clients.find_one({"id": client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found.")
+    if not client.get("organisation_id"):
+        return {"corporate": False}
+
+    contact = await CorporateEntitlementService.get_contact_for_client(db, client)
+    entitlement = await CorporateEntitlementService.remaining_for_client(db, client)
+    org = await db.organisations.find_one({"id": client.get("organisation_id")}, {"_id": 0})
+    return {
+        "corporate": True,
+        "organisation": {
+            "id": client.get("organisation_id"),
+            "name": (org or {}).get("name") or client.get("organisation_name"),
+        },
+        "roster_member": {
+            "id": contact.get("id"),
+            "name": contact.get("name"),
+            "email": contact.get("email"),
+            "base_session_allocation": contact.get("base_session_allocation", 4),
+            "extra_sessions_approved": contact.get("extra_sessions_approved", 0),
+            "extra_sessions_approved_by_name": contact.get("extra_sessions_approved_by_name"),
+            "extra_sessions_approved_at": contact.get("extra_sessions_approved_at"),
+            "extra_sessions_approval_reason": contact.get("extra_sessions_approval_reason"),
+        } if contact else None,
+        "entitlement": entitlement,
+    }
+
+
+@admin_router.post("/corporate-entitlements/client/{client_id}/approve-extra")
+async def approve_client_extra_sessions(
+    client_id: str,
+    payload: SessionAllocationApprovalRequest,
+    request: Request,
+    user: Dict = Depends(require_therapist_approval_role)
+):
+    if payload.extra_sessions <= 0 or payload.extra_sessions > 20:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Extra sessions must be between 1 and 20.")
+
+    db = get_db(request)
+    client = await db.crm_clients.find_one({"id": client_id}, {"_id": 0})
+    if not client or not client.get("organisation_id"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corporate client not found.")
+
+    contact = await CorporateEntitlementService.get_contact_for_client(db, client)
+    if not contact:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This corporate client is not linked to an active employee roster entry."
+        )
+
+    new_extra = int(contact.get("extra_sessions_approved") or 0) + int(payload.extra_sessions)
+    now = now_iso()
+    await db.organisation_contacts.update_one(
+        {"id": contact["id"], "organisation_id": client["organisation_id"]},
+        {"$set": {
+            "extra_sessions_approved": new_extra,
+            "extra_sessions_approved_by": user.get("therapist_id") or user.get("user_id"),
+            "extra_sessions_approved_by_name": user.get("name"),
+            "extra_sessions_approved_at": now,
+            "extra_sessions_approval_reason": payload.reason,
+            "updated_at": now,
+        }}
+    )
+
+    await AuditService.log_activity(
+        db,
+        action="corporate_extra_sessions_approved",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        client_id=client_id,
+        metadata={
+            "organisation_id": client["organisation_id"],
+            "contact_id": contact["id"],
+            "extra_sessions_added": payload.extra_sessions,
+            "new_extra_session_total": new_extra,
+        }
+    )
+    entitlement = await CorporateEntitlementService.remaining_for_client(db, client)
+    return {"status": "approved", "entitlement": entitlement}
