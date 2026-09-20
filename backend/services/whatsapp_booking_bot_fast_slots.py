@@ -16,6 +16,11 @@ MAX_WEEKLY_SLOTS = 100
 ENTITLEMENT_STATUSES = ["pending", "confirmed", "completed", "late_cancelled_billable", "no_show"]
 
 
+class MonthlySessionLimitReached(RuntimeError):
+    """Raised when calendar slots exist but the client has no monthly entitlement left."""
+
+
+
 def _parse_iso(value: str) -> datetime:
     dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if dt.tzinfo is None:
@@ -142,12 +147,22 @@ async def fast_slot_options(
     remaining_by_month = dict(remaining_results)
 
     eligible: List[Dict[str, Any]] = []
+    blocked_months = set()
     for item in candidates:
         month_key = item.pop("_month_key")
         if remaining_by_month.get(month_key, 0) <= 0:
+            blocked_months.add(month_key)
             continue
         eligible.append(item)
         if len(eligible) >= MAX_WEEKLY_SLOTS:
             break
+
+    if not eligible and blocked_months:
+        logging.warning(
+            "WA_SCHED_TRACE stage=entitlement_block client_id=%s blocked_months=%s",
+            client_doc.get("id"),
+            sorted(blocked_months),
+        )
+        raise MonthlySessionLimitReached("monthly_session_limit_reached")
 
     return eligible
