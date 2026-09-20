@@ -472,6 +472,37 @@ class BookingService:
                 p.booking_id = booking.id
 
             await db.bookings.insert_one(booking.model_dump())
+
+            if SchedulingService.provider() == "setmore":
+                try:
+                    sync = await SetmoreService.create_appointment_for_booking(db, booking, client)
+                    booking.setmore_appointment_id = sync["appointment_id"]
+                    booking.setmore_staff_key = sync["staff_key"]
+                    booking.setmore_service_key = sync["service_key"]
+                    booking.setmore_customer_key = sync["customer_key"]
+                    booking.setmore_sync_status = "synced"
+                    booking.setmore_synced_at = now_iso()
+                except Exception as exc:
+                    await db.bookings.delete_one({"id": booking.id})
+                    logging.error(
+                        "Setmore multi-booking sync failed batch_id=%s booking_id=%s error=%s",
+                        batch.id,
+                        booking.id,
+                        exc.__class__.__name__,
+                    )
+                    await db.booking_batches.update_one(
+                        {"id": batch.id},
+                        {"$set": {
+                            "total_slots": len(created_bookings),
+                            "sync_warning": "setmore_partial_failure",
+                            "updated_at": now_iso(),
+                        }}
+                    )
+                    if not created_bookings:
+                        await db.booking_batches.delete_one({"id": batch.id})
+                        return None, "Setmore could not confirm the monthly booking plan. Please choose fresh availability."
+                    break
+
             created_bookings.append(booking)
 
             await AuditService.log_activity(
@@ -500,9 +531,15 @@ class BookingService:
                 booking_batch_id=batch.id
             )
 
+        await db.booking_batches.update_one(
+            {"id": batch.id},
+            {"$set": {"total_slots": len(created_bookings), "updated_at": now_iso()}}
+        )
         return {
             "batch_id": batch.id,
             "total_created": len(created_bookings),
+            "requested_total": len(validated_slots),
+            "partial": len(created_bookings) != len(validated_slots),
             "bookings": created_bookings,
             "client_id": client.id,
             "client_number": client.client_number
