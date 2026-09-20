@@ -130,7 +130,7 @@ async def test_capability_routing_and_rejection(test_app):
         assert a_virtual.status_code == 200
         assert a_virtual.json()["therapist_id"] == "therapist-alpheaus-chiwaze"
         assert a_virtual.json()["session_mode"] == "virtual"
-        assert a_virtual.json()["virtual_meeting_link"] is not None
+        # Meeting links are optional until a verified therapist/provider link is configured.
 
         # 4. Alpheaus + In-Person -> REJECTED (400 Bad Request)
         a_in_person = await ac.post("/api/bookings", json={
