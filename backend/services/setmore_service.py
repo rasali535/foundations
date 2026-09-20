@@ -1,6 +1,8 @@
 import asyncio
 import os
 import time
+import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -122,19 +124,57 @@ class SetmoreService:
         if mapping and mapping.get("service_key"):
             return str(mapping["service_key"])
 
-        wanted = [
-            f"{session_type} {session_mode}".replace("_", " "),
-            session_type.replace("_", " "),
-        ]
         rows = await cls.services()
-        matches = []
+        if not rows:
+            raise SetmoreError("Setmore returned no active services")
+
+        def norm(value: Any) -> str:
+            return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+        type_aliases = {
+            "individual": {"individual", "individual counselling", "individual counseling", "counselling", "counseling"},
+            "couple": {"couple", "couples", "couple counselling", "couples counselling", "couple counseling", "couples counseling"},
+            "family": {"family", "family counselling", "family counseling"},
+        }
+        mode_aliases = {
+            "in_person": {"in person", "inperson", "face to face", "physical", "office"},
+            "virtual": {"virtual", "online", "remote", "video"},
+        }
+        wanted_types = {norm(v) for v in type_aliases.get(session_type, {session_type})}
+        wanted_modes = {norm(v) for v in mode_aliases.get(session_mode, {session_mode})}
+
+        scored = []
+        safe_titles = []
         for row in rows:
-            title = str(row.get("service_name") or row.get("name") or row.get("title") or "").strip().lower()
-            if any(value == title for value in wanted):
-                matches.append(row)
-        if not matches and len(rows) == 1:
+            title = norm(row.get("service_name") or row.get("name") or row.get("title"))
+            if not title or not cls._key(row):
+                continue
+            safe_titles.append(title[:80])
+            type_score = max((3 if title == alias else 2 if alias in title else 0) for alias in wanted_types)
+            mode_score = max((2 if alias in title else 0) for alias in wanted_modes)
+            # A type match is required. Mode is a useful discriminator when the
+            # Setmore account exposes separate virtual/in-person services.
+            if type_score:
+                scored.append((type_score + mode_score, mode_score, row))
+
+        if scored:
+            scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+            best_score = scored[0][0]
+            best = [item[2] for item in scored if item[0] == best_score]
+            if len(best) == 1:
+                matches = best
+            else:
+                matches = []
+        elif len(rows) == 1 and cls._key(rows[0]):
             matches = rows
-        if len(matches) != 1 or not cls._key(matches[0]):
+        else:
+            matches = []
+
+        if len(matches) != 1:
+            logging.error(
+                "Setmore service auto-mapping failed session_type=%s session_mode=%s available_services=%s",
+                session_type, session_mode, safe_titles
+            )
             raise SetmoreError(
                 f"Setmore service mapping missing for {session_type}/{session_mode}"
             )
