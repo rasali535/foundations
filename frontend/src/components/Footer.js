@@ -104,6 +104,16 @@ export default function Footer() {
                 Confidential Intake Portal
               </Link>
             </li>
+            <li>
+              <Link to="/admin/login" className="hover:text-white transition-colors">
+                Staff / Admin Portal
+              </Link>
+            </li>
+            <li>
+              <Link to="/hr/login" className="hover:text-white transition-colors">
+                Corporate HR Portal
+              </Link>
+            </li>
           </ul>
         </div>
 

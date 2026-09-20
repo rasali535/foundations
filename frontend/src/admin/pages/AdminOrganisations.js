@@ -10,7 +10,10 @@ import {
   Edit2,
   X,
   Check,
-  AlertCircle
+  AlertCircle,
+  Link2,
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 
 const AdminOrganisations = () => {
@@ -45,6 +48,23 @@ const AdminOrganisations = () => {
 
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [copiedOrgId, setCopiedOrgId] = useState(null);
+
+  const getIntakeLink = (org) => {
+    const code = encodeURIComponent(String(org?.code || '').trim().toUpperCase());
+    return `${window.location.origin}/intake/${code}`;
+  };
+
+  const handleCopyIntakeLink = async (org) => {
+    const url = getIntakeLink(org);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedOrgId(org.id);
+      window.setTimeout(() => setCopiedOrgId(null), 1800);
+    } catch (err) {
+      setActionError(`Could not copy automatically. Intake link: ${url}`);
+    }
+  };
 
   // Organisation Users View
   const [orgUsers, setOrgUsers] = useState({});
@@ -274,6 +294,42 @@ const AdminOrganisations = () => {
                   <div className="p-3 bg-slate-50 rounded-xl">
                     <span className="text-[10px] text-slate-400 block font-semibold">HR Portal Accounts</span>
                     <span className="font-bold text-teal-700 text-sm">{usersList.length} Active</span>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl border border-teal-100 bg-teal-50/60">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-teal-900 font-bold text-xs">
+                        <Link2 className="w-4 h-4" />
+                        Corporate / EAP Intake Link
+                      </div>
+                      <p className="mt-1 text-[11px] text-teal-700 break-all">
+                        {getIntakeLink(org)}
+                      </p>
+                      <p className="mt-1 text-[10px] text-slate-500">
+                        Clients using this link are automatically attributed to {org.name}; they do not select their employer manually.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyIntakeLink(org)}
+                        className="px-3 py-2 bg-white hover:bg-teal-100 text-teal-800 text-xs font-bold rounded-lg border border-teal-200 transition inline-flex items-center gap-1.5"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        {copiedOrgId === org.id ? 'Copied' : 'Copy Link'}
+                      </button>
+                      <a
+                        href={getIntakeLink(org)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-2 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-lg transition inline-flex items-center gap-1.5"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Open
+                      </a>
+                    </div>
                   </div>
                 </div>
 
