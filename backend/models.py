@@ -43,8 +43,9 @@ class CRMClient(BaseModel):
     emergency_contact_name: Optional[str] = None
     emergency_contact_relationship: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
-    organisation_id: Optional[str] = None  # Nullable for future corporate client support
+    organisation_id: Optional[str] = None  # Nullable for private clients
     organisation_name: Optional[str] = None
+    organisation_contact_id: Optional[str] = None  # Corporate roster member, when applicable
     status: str = "active"  # active, inactive, archived, flagged_review
     tags: List[str] = Field(default_factory=list)
     setmore_customer_key: Optional[str] = None
@@ -65,6 +66,7 @@ class CRMClientCreate(BaseModel):
     emergency_contact_phone: Optional[str] = None
     organisation_id: Optional[str] = None
     organisation_name: Optional[str] = None
+    organisation_contact_id: Optional[str] = None
     status: str = "active"
     tags: List[str] = Field(default_factory=list)
 
@@ -82,6 +84,7 @@ class CRMClientUpdate(BaseModel):
     emergency_contact_phone: Optional[str] = None
     organisation_id: Optional[str] = None
     organisation_name: Optional[str] = None
+    organisation_contact_id: Optional[str] = None
     status: Optional[str] = None
     tags: Optional[List[str]] = None
 
@@ -429,6 +432,12 @@ class OrganisationContact(BaseModel):
     department: Optional[str] = None
     contact_type: str = "employee"  # employee, hr, billing, admin
     active: bool = True
+    base_session_allocation: int = 4
+    extra_sessions_approved: int = 0
+    extra_sessions_approved_by: Optional[str] = None
+    extra_sessions_approved_by_name: Optional[str] = None
+    extra_sessions_approved_at: Optional[str] = None
+    extra_sessions_approval_reason: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
@@ -442,6 +451,10 @@ class OrganisationContactBulkRow(BaseModel):
 
 class OrganisationContactBulkRequest(BaseModel):
     contacts: List[OrganisationContactBulkRow]
+
+class SessionAllocationApprovalRequest(BaseModel):
+    extra_sessions: int
+    reason: Optional[str] = None
 
 class InvoiceProfile(BaseModel):
     legal_name: str = "Foundations Counselling Academy"
@@ -493,6 +506,9 @@ class HRContractStatus(BaseModel):
     contract_start: Optional[str] = None
     contract_end: Optional[str] = None
     allocated_sessions: Optional[int] = None
+    member_count: int = 0
+    base_sessions_per_member: int = 4
+    approved_extra_sessions: int = 0
     sessions_used: int
     sessions_remaining: Optional[int] = None
     utilisation_percentage: Optional[float] = None
