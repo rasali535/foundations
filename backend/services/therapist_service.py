@@ -166,7 +166,16 @@ class TherapistService:
 
         cursor = db.therapists.find(filter_dict, {"_id": 0}).sort("name", 1)
         docs = await cursor.to_list(100)
-        return [TherapistRecord(**d) for d in docs]
+
+        # Route one canonical record per clinician. Legacy duplicate records stay
+        # in Mongo so historical bookings keep their original therapist IDs.
+        canonical: Dict[str, Dict[str, Any]] = {}
+        for doc in docs:
+            key = str(doc.get("name") or doc.get("id") or "").strip().casefold()
+            current = canonical.get(key)
+            if current is None or (doc.get("setmore_staff_key") and not current.get("setmore_staff_key")):
+                canonical[key] = doc
+        return [TherapistRecord(**d) for d in canonical.values()]
 
     @staticmethod
     async def get_therapist_by_id(db: AsyncIOMotorDatabase, therapist_id: str) -> Optional[TherapistRecord]:
