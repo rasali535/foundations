@@ -151,11 +151,26 @@ class SetmoreService:
         if not therapist:
             raise SetmoreError("FCA therapist was not found")
         explicit = therapist.get("setmore_staff_key")
-        if explicit:
-            return str(explicit)
         email = str(therapist.get("email") or "").strip().lower()
         name = str(therapist.get("name") or "").strip().lower()
         rows = await cls.staffs()
+
+        # Revalidate persisted staff mappings against Setmore instead of trusting
+        # them forever. A stale staff key can otherwise yield a valid 200 response
+        # with no slots and look indistinguishable from "fully booked".
+        if explicit:
+            explicit_key = str(explicit)
+            if any(cls._key(row) == explicit_key for row in rows):
+                logging.warning(
+                    "SETMORE_TRACE stage=staff_selected source=stored staff_count=%s",
+                    len(rows),
+                )
+                return explicit_key
+            logging.warning(
+                "SETMORE_TRACE stage=staff_stale staff_count=%s",
+                len(rows),
+            )
+
         matches = []
         for row in rows:
             row_email = str(row.get("email") or row.get("email_id") or "").strip().lower()
@@ -168,6 +183,10 @@ class SetmoreService:
             raise SetmoreError("Setmore staff mapping is missing or ambiguous")
         key = cls._key(matches[0])
         await db.therapists.update_one({"id": therapist_id}, {"$set": {"setmore_staff_key": key}})
+        logging.warning(
+            "SETMORE_TRACE stage=staff_selected source=resolved staff_count=%s",
+            len(rows),
+        )
         return str(key)
 
     @classmethod
@@ -448,5 +467,46 @@ class SetmoreService:
                     "setmore_staff_key": staff_key,
                     "setmore_service_key": service_key,
                 })
+        if not output:
+            # Diagnostic-only probe: never return off-hours/double-booked times to
+            # clients. This distinguishes Setmore configuration from parser issues.
+            probe_day = next(
+                (first + timedelta(days=offset) for offset in range(1, days_ahead) if (first + timedelta(days=offset)).weekday() < 5),
+                first,
+            )
+
+            async def probe(off_hours: bool, double_booking: bool) -> int:
+                payload = await cls._api(
+                    "POST",
+                    "/slots",
+                    json={
+                        "staff_key": staff_key,
+                        "service_key": service_key,
+                        "selected_date": probe_day.strftime("%d/%m/%Y"),
+                        "off_hours": off_hours,
+                        "double_booking": double_booking,
+                        "slot_limit": 30,
+                        "timezone": cls.timezone(),
+                    },
+                )
+                slots_map = ((payload.get("data") or {}).get("slots") or {})
+                times = slots_map.get(probe_day.isoformat(), []) if isinstance(slots_map, dict) else []
+                return len(times) if isinstance(times, list) else 0
+
+            try:
+                off_hours_count = await probe(True, False)
+                double_booking_count = await probe(True, True) if off_hours_count == 0 else 0
+                logging.warning(
+                    "SETMORE_TRACE stage=empty_diagnostic date=%s off_hours_slots=%s double_booking_slots=%s",
+                    probe_day.isoformat(),
+                    off_hours_count,
+                    double_booking_count,
+                )
+            except Exception as exc:
+                logging.warning(
+                    "SETMORE_TRACE stage=empty_diagnostic_failed error=%s",
+                    exc.__class__.__name__,
+                )
+
         logging.warning("SETMORE_TRACE stage=complete therapist_id=%s usable_slots=%s", therapist_id, len(output))
         return output
