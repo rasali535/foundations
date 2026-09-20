@@ -387,6 +387,14 @@ class SetmoreService:
         key = cls._key(selected)
         selected_name = str(selected.get("service_name") or selected.get("name") or selected.get("title") or "").strip()
         selected_duration = selected.get("duration") or selected.get("duration_minutes") or selected.get("service_duration")
+        logging.warning(
+            "SETMORE_TRACE stage=service_shape fields=%s key_field=%s service_key_field=%s category_key_field=%s category_name=%s",
+            sorted(selected.keys()),
+            bool(selected.get("key")),
+            bool(selected.get("service_key")),
+            bool(selected.get("category_key") or selected.get("categoryKey")),
+            str(selected.get("category_name") or selected.get("categoryName") or selected.get("category") or "")[:80],
+        )
         if mapped_key and mapped_key != key:
             logging.warning(
                 "SETMORE_TRACE stage=service_remap type=%s mode=%s old_key=%s new_key=%s new_name=%s",
@@ -450,7 +458,7 @@ class SetmoreService:
             # and a validation payload. Do not silently turn a validation response
             # into "zero availability"; surface safe metadata so the real cause can
             # be diagnosed.
-            if not slots_present or not isinstance(slots_map, dict):
+            if not slots_present:
                 safe_msg = (
                     payload.get("msg")
                     or payload.get("message")
@@ -475,10 +483,22 @@ class SetmoreService:
                 )
                 raise SetmoreError(f"Setmore slots validation response: {str(safe_msg)[:120]}")
 
-            times = slots_map.get(day.isoformat(), [])
+            if isinstance(slots_map, dict):
+                times = slots_map.get(day.isoformat(), [])
+                returned_dates = list(slots_map.keys())[:10]
+            elif isinstance(slots_map, list):
+                times = slots_map
+                returned_dates = []
+            else:
+                times = []
+                returned_dates = []
+
             if not isinstance(times, list):
                 times = []
-            logging.warning("SETMORE_TRACE stage=day therapist_id=%s date=%s slot_count=%s returned_dates=%s", therapist_id, day.isoformat(), len(times), list(slots_map.keys())[:10])
+            logging.warning(
+                "SETMORE_TRACE stage=day therapist_id=%s date=%s slot_count=%s returned_dates=%s slots_shape=%s",
+                therapist_id, day.isoformat(), len(times), returned_dates, type(slots_map).__name__
+            )
             for display in times:
                 try:
                     local_start = datetime.strptime(
@@ -500,39 +520,46 @@ class SetmoreService:
                     "setmore_service_key": service_key,
                 })
         if not output:
-            # Diagnostic-only probe: never return off-hours/double-booked times to
-            # clients. This distinguishes Setmore configuration from parser issues.
+            # Diagnostic-only probes: never return these times to clients. They
+            # isolate timezone/lead-time/window/configuration causes without
+            # weakening normal booking rules.
             probe_day = next(
                 (first + timedelta(days=offset) for offset in range(1, days_ahead) if (first + timedelta(days=offset)).weekday() < 5),
                 first,
             )
 
-            async def probe(off_hours: bool, double_booking: bool) -> int:
-                payload = await cls._api(
-                    "POST",
-                    "/slots",
-                    json={
-                        "staff_key": staff_key,
-                        "service_key": service_key,
-                        "selected_date": probe_day.strftime("%d/%m/%Y"),
-                        "off_hours": off_hours,
-                        "double_booking": double_booking,
-                        "slot_limit": 30,
-                        "timezone": cls.timezone(),
-                    },
-                )
-                slots_map = ((payload.get("data") or {}).get("slots") or {})
-                times = slots_map.get(probe_day.isoformat(), []) if isinstance(slots_map, dict) else []
-                return len(times) if isinstance(times, list) else 0
+            async def probe(day_value, off_hours: bool, double_booking: bool, include_timezone: bool) -> int:
+                body = {
+                    "staff_key": staff_key,
+                    "service_key": service_key,
+                    "selected_date": day_value.strftime("%d/%m/%Y"),
+                    "off_hours": off_hours,
+                    "double_booking": double_booking,
+                    "slot_limit": 30,
+                }
+                if include_timezone:
+                    body["timezone"] = cls.timezone()
+                payload = await cls._api("POST", "/slots", json=body)
+                data = payload.get("data") or {}
+                slots_value = data.get("slots") if isinstance(data, dict) else None
+                if isinstance(slots_value, dict):
+                    values = slots_value.get(day_value.isoformat(), [])
+                    return len(values) if isinstance(values, list) else 0
+                if isinstance(slots_value, list):
+                    return len(slots_value)
+                return 0
 
             try:
-                off_hours_count = await probe(True, False)
-                double_booking_count = await probe(True, True) if off_hours_count == 0 else 0
+                probes = {}
+                probes["weekday_standard_no_tz"] = await probe(probe_day, False, False, False)
+                probes["weekday_offhours_double_no_tz"] = await probe(probe_day, True, True, False)
+                for days_out in (14, 30):
+                    future_day = first + timedelta(days=days_out)
+                    probes[f"future_{days_out}d"] = await probe(future_day, False, False, False)
                 logging.warning(
-                    "SETMORE_TRACE stage=empty_diagnostic date=%s off_hours_slots=%s double_booking_slots=%s",
+                    "SETMORE_TRACE stage=empty_diagnostic date=%s results=%s",
                     probe_day.isoformat(),
-                    off_hours_count,
-                    double_booking_count,
+                    probes,
                 )
             except Exception as exc:
                 logging.warning(
