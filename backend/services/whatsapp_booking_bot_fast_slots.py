@@ -8,10 +8,12 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from services.therapist_service import TherapistService
 from services.scheduling_service import SchedulingService
+from services.corporate_entitlement_service import CorporateEntitlementService
 
 
 CAT_TZ = ZoneInfo("Africa/Gaborone")
 AVAILABILITY_DAYS = 7
+CORPORATE_AVAILABILITY_DAYS = 35
 MAX_WEEKLY_SLOTS = 100
 ENTITLEMENT_STATUSES = ["pending", "confirmed", "completed", "late_cancelled_billable", "no_show"]
 
@@ -94,10 +96,11 @@ async def fast_slot_options(
     today = datetime.now(CAT_TZ).date().isoformat()
     now_utc = datetime.now(timezone.utc)
 
+    days_ahead = CORPORATE_AVAILABILITY_DAYS if client_doc.get("organisation_id") else AVAILABILITY_DAYS
     availability_results = await asyncio.gather(
         *(
             SchedulingService.get_available_slots(
-                db, therapist.id, today, days_ahead=AVAILABILITY_DAYS,
+                db, therapist.id, today, days_ahead=days_ahead,
                 session_mode=session_mode, session_type=session_type
             )
             for therapist in therapists
@@ -139,6 +142,53 @@ async def fast_slot_options(
     if not candidates:
         return []
 
+    # Corporate/EAP clients receive four sessions per calendar month, with no
+    # more than one entitlement-consuming session per calendar week.
+    if client_doc.get("organisation_id"):
+        eligible: List[Dict[str, Any]] = []
+        blocked_months = set()
+        month_cache: Dict[str, Dict[str, int]] = {}
+        week_cache: Dict[str, bool] = {}
+
+        for item in sorted(candidates, key=lambda row: row["starts_at"]):
+            starts_at = item["starts_at"]
+            month_key = CorporateEntitlementService.month_key(starts_at)
+            if month_key not in month_cache:
+                month_cache[month_key] = await CorporateEntitlementService.remaining_for_client(
+                    db, client_doc, reference=starts_at
+                )
+            entitlement = month_cache[month_key]
+            if entitlement and entitlement["remaining"] <= 0:
+                blocked_months.add(month_key)
+                continue
+
+            week_start, _ = CorporateEntitlementService.week_bounds_utc(starts_at)
+            if week_start not in week_cache:
+                week_cache[week_start] = await CorporateEntitlementService.has_weekly_booking(
+                    db, client_doc["id"], starts_at
+                )
+            if week_cache[week_start]:
+                continue
+
+            item.pop("_month_key", None)
+            eligible.append(item)
+            if len(eligible) >= MAX_WEEKLY_SLOTS:
+                break
+
+        if not eligible:
+            first_entitlement = next(iter(month_cache.values()), None)
+            if first_entitlement and first_entitlement["limit"] <= 0:
+                raise MonthlySessionLimitReached(
+                    "Your corporate email is not currently linked to an active FCA employee roster entry. "
+                    "Please contact your organisation or FCA before booking."
+                )
+            if blocked_months:
+                raise MonthlySessionLimitReached(
+                    "You have used your corporate counselling allocation for this month. "
+                    "Additional sessions require therapist approval."
+                )
+        return eligible
+
     candidates.sort(key=lambda item: item["starts_at"])
     month_keys = sorted({item["_month_key"] for item in candidates})
     remaining_results = await asyncio.gather(
@@ -163,6 +213,8 @@ async def fast_slot_options(
             client_doc.get("id"),
             sorted(blocked_months),
         )
-        raise MonthlySessionLimitReached("monthly_session_limit_reached")
+        raise MonthlySessionLimitReached(
+            "You have reached your self-service session limit for this month."
+        )
 
     return eligible

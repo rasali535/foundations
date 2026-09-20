@@ -39,7 +39,7 @@ async def hr_test_app():
 
     # Seed Default Therapists
     for t in DEFAULT_THERAPISTS:
-        await mock_db.therapists.insert_one(Therapist(**t).model_dump())
+        await mock_db.therapists.insert_one(dict(t))
 
     app.state.db = mock_db
 
@@ -188,6 +188,19 @@ async def test_aggregate_metrics_and_contract_calculations(hr_test_app):
         "organisation_id": org_id,
         "therapist_id": None
     }
+
+    # Roster-derived allocation: 50 active employees x 4 sessions = 200 monthly pool.
+    for idx in range(50):
+        await mock_db.organisation_contacts.insert_one({
+            "id": f"btc-roster-{idx}",
+            "organisation_id": org_id,
+            "name": f"Employee {idx}",
+            "email": f"employee{idx}@btc.co.bw",
+            "email_normalized": f"employee{idx}@btc.co.bw",
+            "active": True,
+            "base_session_allocation": 4,
+            "extra_sessions_by_month": {},
+        })
 
     # Create 3 clients belonging to this org
     client1 = CRMClient(id="client-01", first_name="Synthetic", last_name="One", email="s1@btc.co.bw", phone="+26771111111", client_number="FCA-001", organisation_id=org_id)

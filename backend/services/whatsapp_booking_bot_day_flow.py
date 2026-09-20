@@ -6,6 +6,9 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from services.whatsapp_booking_bot_service import normalize_sender
 from services.whatsapp_booking_bot_fast_slots import MonthlySessionLimitReached
+from services.corporate_entitlement_service import CorporateEntitlementService
+from services.booking_service import BookingService
+from models import BookingCreateRequest, MultiBookingCreateRequest, SingleBookingSlot
 
 
 CAT_TZ = ZoneInfo("Africa/Gaborone")
@@ -60,6 +63,62 @@ def _unique_time_slots(slots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         seen.add(start_key)
         unique.append(slot)
     return unique
+
+
+def _corporate_month_series(
+    selected: Dict[str, Any],
+    slots: List[Dict[str, Any]],
+    max_sessions: int,
+) -> List[Dict[str, Any]]:
+    if max_sessions <= 0:
+        return []
+
+    selected_dt = _parse_iso(selected["starts_at"]).astimezone(CAT_TZ)
+    month_key = selected_dt.strftime("%Y-%m")
+    therapist_id = selected.get("therapist_id")
+    preferred_weekday = selected_dt.weekday()
+    preferred_minutes = selected_dt.hour * 60 + selected_dt.minute
+
+    def week_key(slot: Dict[str, Any]) -> str:
+        local = _parse_iso(slot["starts_at"]).astimezone(CAT_TZ)
+        monday = local.date() - __import__("datetime").timedelta(days=local.weekday())
+        return monday.isoformat()
+
+    same_month = []
+    for slot in slots:
+        local = _parse_iso(slot["starts_at"]).astimezone(CAT_TZ)
+        if local.strftime("%Y-%m") != month_key:
+            continue
+        if therapist_id and slot.get("therapist_id") != therapist_id:
+            continue
+        if local < selected_dt:
+            continue
+        same_month.append(slot)
+
+    chosen = [selected]
+    used_weeks = {week_key(selected)}
+    remaining = [slot for slot in same_month if slot.get("starts_at") != selected.get("starts_at")]
+
+    while len(chosen) < max_sessions:
+        candidates = [slot for slot in remaining if week_key(slot) not in used_weeks]
+        if not candidates:
+            break
+
+        def score(slot: Dict[str, Any]):
+            local = _parse_iso(slot["starts_at"]).astimezone(CAT_TZ)
+            minutes = local.hour * 60 + local.minute
+            return (
+                0 if local.weekday() == preferred_weekday else 1,
+                abs(minutes - preferred_minutes),
+                local,
+            )
+
+        pick = min(candidates, key=score)
+        chosen.append(pick)
+        used_weeks.add(week_key(pick))
+        remaining = [slot for slot in remaining if slot is not pick]
+
+    return sorted(chosen, key=lambda item: item["starts_at"])
 
 
 def _render_times(day_key: str, slots: List[Dict[str, Any]]) -> str:
@@ -126,10 +185,10 @@ def install_day_first_flow(service_cls) -> None:
 
             try:
                 slots = await service_cls._slot_options(db, client_doc, mode, type_map[upper_text])
-            except MonthlySessionLimitReached:
+            except MonthlySessionLimitReached as exc:
                 await service_cls._save_session(db, sender, client_id, "menu", {})
                 return (
-                    "You have reached your self-service session limit for this month. "
+                    f"{str(exc)} "
                     "Reply 6 to speak to FCA if you need help with another appointment, "
                     "or MENU to return to the main menu."
                 )
@@ -196,6 +255,36 @@ def install_day_first_flow(service_cls) -> None:
 
             selected = time_slots[time_index]
             context["selected_slot"] = selected
+
+            if client_doc.get("organisation_id"):
+                entitlement = await CorporateEntitlementService.remaining_for_client(
+                    db, client_doc, reference=selected["starts_at"]
+                )
+                remaining = int((entitlement or {}).get("remaining") or 0)
+                monthly_series = _corporate_month_series(
+                    selected,
+                    context.get("slots") or [],
+                    max_sessions=min(remaining, 4),
+                )
+                context["monthly_series"] = monthly_series
+                await service_cls._save_session(
+                    db, sender, client_id, "confirm_corporate_month", context
+                )
+                lines = [
+                    "Confirm your corporate counselling booking?",
+                    "",
+                    f"First session: {_day_label(context['selected_day'])} at {_time_label(selected)}",
+                    f"Therapist: {selected.get('therapist_name') or 'FCA therapist'}",
+                    "",
+                    "1. Book this session only",
+                ]
+                if len(monthly_series) > 1:
+                    lines.append(
+                        f"2. Book the rest of the month weekly ({len(monthly_series)} sessions total)"
+                    )
+                lines.extend(["3. Change time", "4. Change day"])
+                return "\n".join(lines)
+
             await service_cls._save_session(
                 db, sender, client_id, "confirm_booking", context
             )
@@ -208,6 +297,102 @@ def install_day_first_flow(service_cls) -> None:
                 f"Therapist: {selected.get('therapist_name') or 'FCA therapist'}\n\n"
                 "1. Confirm\n2. Change time\n3. Change day"
             )
+
+        if state == "confirm_corporate_month":
+            selected = context.get("selected_slot")
+            monthly_series = context.get("monthly_series") or []
+
+            if raw_text == "3":
+                context.pop("selected_slot", None)
+                context.pop("monthly_series", None)
+                await service_cls._save_session(db, sender, client_id, "choose_time", context)
+                return _render_times(context.get("selected_day"), context.get("time_slots") or [])
+
+            if raw_text == "4":
+                context.pop("selected_day", None)
+                context.pop("time_slots", None)
+                context.pop("selected_slot", None)
+                context.pop("monthly_series", None)
+                await service_cls._save_session(db, sender, client_id, "choose_day", context)
+                return _render_days(context.get("day_keys") or [])
+
+            if raw_text not in {"1", "2"}:
+                return "Reply 1 to book this session, 2 to book weekly for the month, 3 to change time, or 4 to change day."
+
+            if not selected:
+                await service_cls._save_session(db, sender, client_id, "menu", {})
+                return "That booking selection expired. Send BOOK to start again."
+
+            if raw_text == "1" or len(monthly_series) <= 1:
+                booking, error = await BookingService.create_booking(
+                    db,
+                    BookingCreateRequest(
+                        client_id=client_id,
+                        therapist_id=selected["therapist_id"],
+                        session_type=context["session_type"],
+                        session_mode=context["session_mode"],
+                        starts_at=selected["starts_at"],
+                        ends_at=selected["ends_at"],
+                        send_notifications=True,
+                        source="whatsapp",
+                    ),
+                    actor_id="whatsapp-self-service",
+                    actor_name="WhatsApp Client Self-Service",
+                )
+                await service_cls._save_session(db, sender, client_id, "menu", {})
+                if error or not booking:
+                    return (
+                        f"That appointment could not be booked: {error or 'the slot is no longer available.'}\n\n"
+                        "Send BOOK to see fresh availability."
+                    )
+                local = _parse_iso(booking.starts_at).astimezone(CAT_TZ)
+                return (
+                    "Your FCA corporate appointment has been booked successfully. ✅\n"
+                    f"{local.strftime('%a %d %b %Y, %H:%M CAT')}\n\n"
+                    "Corporate clients may use up to 4 sessions per month, with one session per calendar week. "
+                    "Send MENU for more options."
+                )
+
+            result, error = await BookingService.create_multi_booking(
+                db,
+                MultiBookingCreateRequest(
+                    client_id=client_id,
+                    therapist_id=selected["therapist_id"],
+                    session_type=context["session_type"],
+                    session_mode=context["session_mode"],
+                    slots=[
+                        SingleBookingSlot(
+                            starts_at=slot["starts_at"],
+                            ends_at=slot.get("ends_at"),
+                        )
+                        for slot in monthly_series
+                    ],
+                    send_notifications=True,
+                    source="whatsapp",
+                ),
+                actor_id="whatsapp-self-service",
+                actor_name="WhatsApp Client Self-Service",
+            )
+            await service_cls._save_session(db, sender, client_id, "menu", {})
+            if error or not result:
+                return (
+                    f"The monthly booking plan could not be completed: {error or 'availability changed.'}\n\n"
+                    "Send BOOK to see fresh availability."
+                )
+
+            bookings = result.get("bookings") or []
+            lines = [
+                f"{len(bookings)} corporate counselling session(s) booked for the month. ✅",
+                "One session per calendar week:",
+            ]
+            for booking in bookings:
+                starts_at = booking.starts_at if hasattr(booking, "starts_at") else booking.get("starts_at")
+                local = _parse_iso(starts_at).astimezone(CAT_TZ)
+                lines.append(f"• {local.strftime('%a %d %b %Y, %H:%M CAT')}")
+            if result.get("partial"):
+                lines.append("\nSome later slots changed while booking, so only the confirmed appointments above were saved.")
+            lines.append("\nSetmore and FCA confirmations will follow. Send MENU for more options.")
+            return "\n".join(lines)
 
         if state == "confirm_booking":
             if raw_text == "2":

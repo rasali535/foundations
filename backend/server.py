@@ -85,6 +85,12 @@ async def lifespan(app: FastAPI):
         await db.crm_intake_submissions.create_index([("client_id", 1)])
         await db.crm_intake_submissions.create_index([("organisation_id", 1), ("created_at", -1)])
         await db.organisations.create_index([("code", 1)], unique=True)
+        await db.organisation_contacts.create_index(
+            [("organisation_id", 1), ("email_normalized", 1)],
+            unique=True,
+            sparse=True
+        )
+        await db.organisation_contacts.create_index([("organisation_id", 1), ("active", 1)])
         await db.crm_activity_log.create_index([("client_id", 1)])
         await db.crm_activity_log.create_index([("booking_id", 1)])
         await db.notification_log.create_index([("client_id", 1)])

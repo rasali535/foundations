@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import io
 import logging
+import html
 from typing import Dict, Any, List, Optional, Tuple
 from uuid import uuid4
 from fastapi import HTTPException, status
@@ -16,7 +17,8 @@ from models import (
     InvoicePreviewResponse,
     SESSION_RATES,
     SESSION_TYPE_DESCRIPTIONS,
-    DEFAULT_CURRENCY
+    DEFAULT_CURRENCY,
+    InvoiceProfile
 )
 from services.audit_service import AuditService
 
@@ -121,20 +123,36 @@ class BillingService:
         return eligible_bookings
 
     @staticmethod
-    def calculate_totals(session_counts: Dict[str, int]) -> Tuple[List[InvoicePreviewItem], Decimal, Decimal, int]:
-        """
-        Deterministic, Decimal/currency-safe arithmetic calculation of line items and totals.
-        No floating-point rounding errors.
-        """
+    def _organisation_rates(org: Dict[str, Any]) -> Dict[str, Decimal]:
+        return {
+            "individual": Decimal(str(org.get("rate_individual"))) if org.get("rate_individual") is not None else SESSION_RATES["individual"],
+            "couple": Decimal(str(org.get("rate_couple"))) if org.get("rate_couple") is not None else SESSION_RATES["couple"],
+            "family": Decimal(str(org.get("rate_family"))) if org.get("rate_family") is not None else SESSION_RATES["family"],
+        }
+
+    @staticmethod
+    async def _invoice_profile(db: AsyncIOMotorDatabase) -> InvoiceProfile:
+        doc = await db.invoice_profiles.find_one({"_id": "default"})
+        if not doc:
+            return InvoiceProfile()
+        doc.pop("_id", None)
+        return InvoiceProfile(**doc)
+
+    @staticmethod
+    def calculate_totals(
+        session_counts: Dict[str, int],
+        rates: Optional[Dict[str, Decimal]] = None,
+    ) -> Tuple[List[InvoicePreviewItem], Decimal, Decimal, int]:
+        """Calculate invoice items with organisation-specific rates when configured."""
         items: List[InvoicePreviewItem] = []
         subtotal = Decimal("0.00")
         total_sessions = 0
+        rate_map = rates or SESSION_RATES
 
-        # Always evaluate standard session types
         for s_type in ["individual", "couple", "family"]:
             qty = session_counts.get(s_type, 0)
             if qty > 0:
-                rate = SESSION_RATES.get(s_type, Decimal("0.00"))
+                rate = rate_map.get(s_type, SESSION_RATES.get(s_type, Decimal("0.00")))
                 line_total = Decimal(qty) * rate
                 subtotal += line_total
                 total_sessions += qty
@@ -146,10 +164,9 @@ class BillingService:
                     line_total=float(line_total)
                 ))
 
-        # Check any other custom session types if present
         for s_type, qty in session_counts.items():
             if s_type not in ["individual", "couple", "family"] and qty > 0:
-                rate = SESSION_RATES.get(s_type, Decimal("350.00"))
+                rate = rate_map.get(s_type, SESSION_RATES.get(s_type, Decimal("350.00")))
                 line_total = Decimal(qty) * rate
                 subtotal += line_total
                 total_sessions += qty
@@ -187,14 +204,15 @@ class BillingService:
             stype = str(s.get("session_type", "individual")).lower().strip()
             counts[stype] = counts.get(stype, 0) + 1
 
-        items, subtotal, total, total_sessions = BillingService.calculate_totals(counts)
+        rates = BillingService._organisation_rates(org)
+        items, subtotal, total, total_sessions = BillingService.calculate_totals(counts, rates=rates)
 
         return InvoicePreviewResponse(
             organisation_id=organisation_id,
             organisation_name=org.get("name", "Unknown Organisation"),
             billing_period_start=start_date,
             billing_period_end=end_date,
-            currency=DEFAULT_CURRENCY,
+            currency=str(org.get("billing_currency") or DEFAULT_CURRENCY).upper(),
             items=items,
             total_sessions=total_sessions,
             subtotal=float(subtotal),
@@ -208,6 +226,12 @@ class BillingService:
         start_date: str,
         end_date: str,
         due_date: Optional[str] = None,
+        purchase_order_reference: Optional[str] = None,
+        billing_contact_name: Optional[str] = None,
+        billing_email: Optional[str] = None,
+        billing_phone: Optional[str] = None,
+        billing_address: Optional[str] = None,
+        invoice_notes: Optional[str] = None,
         actor_user_id: Optional[str] = None,
         actor_name: Optional[str] = None
     ) -> Tuple[Invoice, List[InvoiceItem]]:
@@ -233,7 +257,25 @@ class BillingService:
             stype = str(s.get("session_type", "individual")).lower().strip()
             counts[stype] = counts.get(stype, 0) + 1
 
-        items_preview, subtotal, total, total_sessions = BillingService.calculate_totals(counts)
+        rates = BillingService._organisation_rates(org)
+        items_preview, subtotal, total, total_sessions = BillingService.calculate_totals(counts, rates=rates)
+        profile = await BillingService._invoice_profile(db)
+        currency = str(org.get("billing_currency") or DEFAULT_CURRENCY).upper()
+
+        if not due_date:
+            payment_terms_days = max(int(org.get("payment_terms_days") or 30), 0)
+            due_date = (datetime.now(timezone.utc) + __import__("datetime").timedelta(days=payment_terms_days)).date().isoformat()
+
+        issuer_details = profile.model_dump()
+        bill_to_details = {
+            "name": org.get("name", "Corporate Client"),
+            "contact_name": billing_contact_name or org.get("billing_contact_name") or org.get("contact_person"),
+            "email": billing_email or org.get("billing_email") or org.get("contact_email"),
+            "phone": billing_phone or org.get("billing_phone") or org.get("contact_phone"),
+            "address": billing_address or org.get("billing_address"),
+            "registration_number": org.get("registration_number"),
+            "tax_number": org.get("tax_number"),
+        }
 
         year = int(start_date[:4]) if len(start_date) >= 4 and start_date[:4].isdigit() else datetime.now(timezone.utc).year
         invoice_number = await BillingService.get_next_invoice_number(db, year)
@@ -244,13 +286,17 @@ class BillingService:
             organisation_name=org.get("name", "Corporate Client"),
             billing_period_start=start_date,
             billing_period_end=end_date,
-            currency=DEFAULT_CURRENCY,
+            currency=currency,
             subtotal=float(subtotal),
             total=float(total),
             total_sessions=total_sessions,
             status="draft",
             due_date=due_date,
             created_by=actor_user_id,
+            purchase_order_reference=purchase_order_reference or org.get("purchase_order_reference"),
+            invoice_notes=invoice_notes or org.get("invoice_notes"),
+            issuer_details=issuer_details,
+            bill_to_details=bill_to_details,
             created_at=now_iso(),
             updated_at=now_iso()
         )
@@ -575,16 +621,34 @@ class BillingService:
 
         elements = []
 
+        def safe(value: Any) -> str:
+            return html.escape(str(value or ""))
+
+        issuer = invoice.issuer_details or {}
+        if not issuer:
+            issuer = InvoiceProfile().model_dump()
+        bill_to = invoice.bill_to_details or {}
+
+        issuer_name = issuer.get("trading_name") or issuer.get("legal_name") or "Foundations Counselling Academy"
+        issuer_subtitle_parts = [
+            issuer.get("legal_name") if issuer.get("legal_name") != issuer_name else None,
+            issuer.get("address"),
+            issuer.get("email"),
+            issuer.get("phone"),
+            issuer.get("website"),
+        ]
+        issuer_subtitle = "<br/>".join(safe(v) for v in issuer_subtitle_parts if v)
+
         # Header Block
         header_table_data = [
             [
-                Paragraph("FOUNDATIONS COUNSELLING & ADVISORY", title_style),
-                Paragraph(f"INVOICE<br/><b>{invoice.invoice_number}</b>", ParagraphStyle(
+                Paragraph(safe(issuer_name).upper(), title_style),
+                Paragraph(f"INVOICE<br/><b>{safe(invoice.invoice_number)}</b>", ParagraphStyle(
                     'InvNum', parent=styles['Heading2'], fontName='Helvetica-Bold', fontSize=14, leading=17, alignment=TA_RIGHT, textColor=colors.HexColor("#0f766e")
                 ))
             ],
             [
-                Paragraph("Specialist Psychological & Corporate Well-being Services", subtitle_style),
+                Paragraph(issuer_subtitle or "Corporate Counselling & Well-being Services", subtitle_style),
                 Paragraph(f"Status: <b>{invoice.status.upper()}</b>", badge_style)
             ]
         ]
@@ -600,10 +664,21 @@ class BillingService:
         elements.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#cbd5e1"), spaceAfter=15))
 
         # Bill To & Meta Section
-        org_name = invoice.organisation_name
-        bill_to_text = f"<b>Bill To:</b><br/>{org_name}"
-        if organisation and organisation.get("contact_person"):
-            bill_to_text += f"<br/>Attn: {organisation.get('contact_person')}"
+        org_name = bill_to.get("name") or invoice.organisation_name
+        bill_to_lines = [f"<b>Bill To:</b><br/>{safe(org_name)}"]
+        if bill_to.get("contact_name"):
+            bill_to_lines.append(f"Attn: {safe(bill_to.get('contact_name'))}")
+        if bill_to.get("address"):
+            bill_to_lines.append(safe(bill_to.get("address")))
+        if bill_to.get("email"):
+            bill_to_lines.append(safe(bill_to.get("email")))
+        if bill_to.get("phone"):
+            bill_to_lines.append(safe(bill_to.get("phone")))
+        if bill_to.get("registration_number"):
+            bill_to_lines.append(f"Registration: {safe(bill_to.get('registration_number'))}")
+        if bill_to.get("tax_number"):
+            bill_to_lines.append(f"Tax No: {safe(bill_to.get('tax_number'))}")
+        bill_to_text = "<br/>".join(bill_to_lines)
 
         meta_right_data = [
             [Paragraph("Issue Date:", meta_label_style), Paragraph(invoice.issued_at[:10] if invoice.issued_at else invoice.created_at[:10], meta_value_style)],
@@ -612,6 +687,8 @@ class BillingService:
         ]
         if invoice.due_date:
             meta_right_data.append([Paragraph("Due Date:", meta_label_style), Paragraph(invoice.due_date, meta_value_style)])
+        if invoice.purchase_order_reference:
+            meta_right_data.append([Paragraph("PO / Reference:", meta_label_style), Paragraph(safe(invoice.purchase_order_reference), meta_value_style)])
         if invoice.paid_at:
             meta_right_data.append([Paragraph("Paid Date:", meta_label_style), Paragraph(invoice.paid_at[:10], meta_value_style)])
 
@@ -642,8 +719,8 @@ class BillingService:
                 Paragraph("Description", table_header_style),
                 Paragraph("Session Type", table_header_style),
                 Paragraph("Quantity", ParagraphStyle('HRight1', parent=table_header_style, alignment=TA_RIGHT)),
-                Paragraph("Rate (BWP)", ParagraphStyle('HRight2', parent=table_header_style, alignment=TA_RIGHT)),
-                Paragraph("Line Total (BWP)", ParagraphStyle('HRight3', parent=table_header_style, alignment=TA_RIGHT)),
+                Paragraph(f"Rate ({safe(invoice.currency)})", ParagraphStyle('HRight2', parent=table_header_style, alignment=TA_RIGHT)),
+                Paragraph(f"Line Total ({safe(invoice.currency)})", ParagraphStyle('HRight3', parent=table_header_style, alignment=TA_RIGHT)),
             ]
         ]
 
@@ -662,7 +739,7 @@ class BillingService:
             "",
             Paragraph(f"<b>{invoice.total_sessions}</b>", table_cell_right_style),
             Paragraph("<b>TOTAL</b>", table_total_style),
-            Paragraph(f"<b>BWP {invoice.total:,.2f}</b>", table_total_style)
+            Paragraph(f"<b>{safe(invoice.currency)} {invoice.total:,.2f}</b>", table_total_style)
         ])
 
         col_widths = [190, 110, 65, 80, 85]
@@ -681,7 +758,32 @@ class BillingService:
         ]))
         elements.append(items_table)
 
-        elements.append(Spacer(1, 35))
+        elements.append(Spacer(1, 25))
+
+        payment_lines = []
+        if issuer.get("bank_name"):
+            payment_lines.append(f"<b>Bank:</b> {safe(issuer.get('bank_name'))}")
+        if issuer.get("account_name"):
+            payment_lines.append(f"<b>Account Name:</b> {safe(issuer.get('account_name'))}")
+        if issuer.get("account_number"):
+            payment_lines.append(f"<b>Account Number:</b> {safe(issuer.get('account_number'))}")
+        if issuer.get("branch_code"):
+            payment_lines.append(f"<b>Branch Code:</b> {safe(issuer.get('branch_code'))}")
+        if issuer.get("swift_code"):
+            payment_lines.append(f"<b>SWIFT:</b> {safe(issuer.get('swift_code'))}")
+        if issuer.get("payment_instructions"):
+            payment_lines.append(safe(issuer.get("payment_instructions")))
+        if payment_lines:
+            elements.append(Paragraph("<b>Payment Details</b><br/>" + "<br/>".join(payment_lines), meta_value_style))
+            elements.append(Spacer(1, 14))
+
+        if invoice.invoice_notes:
+            elements.append(Paragraph(f"<b>Invoice Note:</b><br/>{safe(invoice.invoice_notes)}", meta_value_style))
+            elements.append(Spacer(1, 14))
+
+        if issuer.get("footer_note"):
+            elements.append(Paragraph(safe(issuer.get("footer_note")), subtitle_style))
+            elements.append(Spacer(1, 16))
 
         # Bottom Privacy & Compliance Statement
         elements.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#e2e8f0"), spaceAfter=12))

@@ -299,6 +299,32 @@ const AdminInvoiceDetail = () => {
           </div>
         </div>
 
+        {(invoice.bill_to_details || invoice.purchase_order_reference || invoice.invoice_notes) && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+              <p className="font-bold text-slate-800 uppercase tracking-wider text-[10px] mb-2">Bill To Details</p>
+              <p className="font-semibold text-slate-900">{invoice.bill_to_details?.name || invoice.organisation_name}</p>
+              {invoice.bill_to_details?.contact_name && <p className="text-slate-600">Attn: {invoice.bill_to_details.contact_name}</p>}
+              {invoice.bill_to_details?.email && <p className="text-slate-600">{invoice.bill_to_details.email}</p>}
+              {invoice.bill_to_details?.phone && <p className="text-slate-600">{invoice.bill_to_details.phone}</p>}
+              {invoice.bill_to_details?.address && <p className="text-slate-600 whitespace-pre-line mt-1">{invoice.bill_to_details.address}</p>}
+              {invoice.bill_to_details?.registration_number && <p className="text-slate-500 mt-1">Registration: {invoice.bill_to_details.registration_number}</p>}
+              {invoice.bill_to_details?.tax_number && <p className="text-slate-500">Tax/VAT: {invoice.bill_to_details.tax_number}</p>}
+            </div>
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-2">
+              <p className="font-bold text-slate-800 uppercase tracking-wider text-[10px]">Invoice References</p>
+              <p><span className="text-slate-500">PO / Reference:</span> <span className="font-semibold text-slate-800">{invoice.purchase_order_reference || '—'}</span></p>
+              <p><span className="text-slate-500">Due date:</span> <span className="font-semibold text-slate-800">{invoice.due_date || '—'}</span></p>
+              {invoice.invoice_notes && (
+                <div>
+                  <span className="text-slate-500">Invoice note:</span>
+                  <p className="text-slate-700 whitespace-pre-line mt-0.5">{invoice.invoice_notes}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {invoice.status === 'cancelled' && (
           <div className="p-4 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 space-y-1">
             <p className="font-bold flex items-center gap-1.5">

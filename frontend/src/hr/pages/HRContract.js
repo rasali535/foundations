@@ -86,7 +86,10 @@ const HRContract = () => {
             </span>
             <span className="text-xs text-slate-400">sessions</span>
           </div>
-          <p className="text-[10px] text-slate-400 mt-1">Contractual annual allocation</p>
+          <p className="text-[10px] text-slate-400 mt-1">
+            {contract.member_count || 0} people × {contract.base_sessions_per_member || 4}
+            {contract.approved_extra_sessions > 0 ? ` + ${contract.approved_extra_sessions} approved extras` : ''}
+          </p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm">
@@ -163,7 +166,7 @@ const HRContract = () => {
             <span className="font-bold text-slate-700 block uppercase tracking-wider text-[10px]">Contract Accounting Rule</span>
             <div className="flex items-center gap-2 text-slate-900 font-semibold">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>Deductions occur on session completion or confirmed booking</span>
+              <span>Each rostered employee receives 4 sessions; additional sessions require therapist approval</span>
             </div>
           </div>
         </div>

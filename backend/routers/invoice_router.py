@@ -78,6 +78,12 @@ async def create_draft_invoice(
         start_date=payload.billing_period_start,
         end_date=payload.billing_period_end,
         due_date=payload.due_date,
+        purchase_order_reference=payload.purchase_order_reference,
+        billing_contact_name=payload.billing_contact_name,
+        billing_email=payload.billing_email,
+        billing_phone=payload.billing_phone,
+        billing_address=payload.billing_address,
+        invoice_notes=payload.invoice_notes,
         actor_user_id=user.get("user_id"),
         actor_name=user.get("name")
     )

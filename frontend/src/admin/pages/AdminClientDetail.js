@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { api } from '../AdminAuthContext';
+import { api, useAdminAuth } from '../AdminAuthContext';
 import {
   User,
   ArrowLeft,
@@ -30,11 +30,17 @@ import { SESSION_TYPE_COLORS, SESSION_MODE_CONFIG, STATUS_CONFIG, formatSessionD
 const AdminClientDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAdminAuth();
 
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('bookings'); // bookings, intakes, notes, activity
+  const [corporateEntitlement, setCorporateEntitlement] = useState(null);
+  const [extraSessions, setExtraSessions] = useState('1');
+  const [extraSessionReason, setExtraSessionReason] = useState('');
+  const [approvalBusy, setApprovalBusy] = useState(false);
+  const [approvalMessage, setApprovalMessage] = useState('');
 
   // Note creation state
   const [newNoteContent, setNewNoteContent] = useState('');
@@ -79,6 +85,17 @@ const AdminClientDetail = () => {
     try {
       const res = await api.get(`/crm/clients/${id}`);
       setProfile(res.data);
+      if (res.data?.client?.organisation_id) {
+        try {
+          const entitlementRes = await api.get(`/admin-ops/corporate-entitlements/client/${id}`);
+          setCorporateEntitlement(entitlementRes.data);
+        } catch (entitlementErr) {
+          console.warn('Could not load corporate entitlement:', entitlementErr);
+          setCorporateEntitlement(null);
+        }
+      } else {
+        setCorporateEntitlement(null);
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to load client profile.');
     } finally {
@@ -171,6 +188,30 @@ const AdminClientDetail = () => {
       setBookError(err.response?.data?.detail || 'Failed to schedule booking.');
     } finally {
       setBookLoading(false);
+    }
+  };
+
+  const handleApproveExtraSessions = async () => {
+    const amount = parseInt(extraSessions, 10);
+    if (!amount || amount < 1) {
+      setApprovalMessage('Enter at least 1 additional session.');
+      return;
+    }
+    setApprovalBusy(true);
+    setApprovalMessage('');
+    try {
+      await api.post(`/admin-ops/corporate-entitlements/client/${id}/approve-extra`, {
+        extra_sessions: amount,
+        reason: extraSessionReason.trim() || null
+      });
+      setApprovalMessage(`${amount} additional session(s) approved.`);
+      setExtraSessions('1');
+      setExtraSessionReason('');
+      await fetchProfile();
+    } catch (err) {
+      setApprovalMessage(err.response?.data?.detail || 'Could not approve additional sessions.');
+    } finally {
+      setApprovalBusy(false);
     }
   };
 
@@ -289,6 +330,76 @@ const AdminClientDetail = () => {
           </div>
         </div>
       </div>
+
+      {client.organisation_id && (
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5">
+          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-5">
+            <div>
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                <h3 className="text-sm font-bold text-slate-900">Corporate Session Entitlement</h3>
+              </div>
+              {corporateEntitlement?.roster_member ? (
+                <div className="mt-3 grid grid-cols-3 gap-3 max-w-xl">
+                  <div className="p-3 rounded-xl bg-slate-50">
+                    <span className="text-[10px] uppercase font-bold text-slate-400">Allocated</span>
+                    <p className="text-lg font-black text-slate-900">{corporateEntitlement.entitlement?.limit ?? 0}</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50">
+                    <span className="text-[10px] uppercase font-bold text-slate-400">Used</span>
+                    <p className="text-lg font-black text-slate-900">{corporateEntitlement.entitlement?.used ?? 0}</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-emerald-50">
+                    <span className="text-[10px] uppercase font-bold text-emerald-700">Remaining</span>
+                    <p className="text-lg font-black text-emerald-800">{corporateEntitlement.entitlement?.remaining ?? 0}</p>
+                  </div>
+                  <p className="col-span-3 text-[11px] text-slate-500">
+                    Base allocation: 4 sessions. Therapist-approved extras: {corporateEntitlement.entitlement?.extra ?? 0}.
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                  This corporate client is not linked to an active employee roster email. Self-service booking is blocked until the roster is corrected.
+                </div>
+              )}
+            </div>
+
+            {corporateEntitlement?.roster_member && ['therapist', 'clinical_admin'].includes(user?.role) && (
+              <div className="w-full lg:max-w-sm p-4 rounded-xl border border-emerald-200 bg-emerald-50/50">
+                <h4 className="text-xs font-bold text-emerald-900">Approve Additional Sessions</h4>
+                <p className="text-[10px] text-emerald-800 mt-1">
+                  Use only after clinical review. The approval is recorded in the audit trail.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={extraSessions}
+                    onChange={(e) => setExtraSessions(e.target.value)}
+                    className="w-20 px-2 py-2 border border-emerald-200 rounded-lg text-xs"
+                  />
+                  <input
+                    value={extraSessionReason}
+                    onChange={(e) => setExtraSessionReason(e.target.value)}
+                    placeholder="Reason / approval note"
+                    className="flex-1 px-3 py-2 border border-emerald-200 rounded-lg text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleApproveExtraSessions}
+                    disabled={approvalBusy}
+                    className="px-3 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold rounded-lg"
+                  >
+                    {approvalBusy ? '...' : 'Approve'}
+                  </button>
+                </div>
+                {approvalMessage && <p className="mt-2 text-[11px] text-slate-600">{approvalMessage}</p>}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Profile Navigation Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-px">

@@ -4,10 +4,14 @@ import bcrypt
 from models import (
     NotificationLog, CRMActivityLog,
     Organisation, OrganisationCreate, OrganisationUpdate,
-    OrganisationUser, OrganisationUserCreate
+    OrganisationUser, OrganisationUserCreate,
+    OrganisationContact, OrganisationContactBulkRequest,
+    SessionAllocationApprovalRequest, InvoiceProfile, now_iso
 )
 from services.notification_service import NotificationService
 from services.hr_service import HRReportingService
+from services.audit_service import AuditService
+from services.corporate_entitlement_service import CorporateEntitlementService
 
 admin_router = APIRouter(prefix="/admin-ops", tags=["Admin Operations"])
 
@@ -19,7 +23,12 @@ def get_current_user(request: Request) -> Dict[str, Any]:
     role = request.session.get("role")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
-    return {"user_id": user_id, "role": role, "name": request.session.get("name", user_id)}
+    return {
+        "user_id": user_id,
+        "role": role,
+        "name": request.session.get("name", user_id),
+        "therapist_id": request.session.get("therapist_id"),
+    }
 
 def require_admin(request: Request):
     user = get_current_user(request)
@@ -147,3 +156,344 @@ async def create_organisation_user(org_id: str, payload: OrganisationUserCreate,
 async def list_organisation_users(org_id: str, request: Request, user: Dict = Depends(require_admin)):
     db = get_db(request)
     return await HRReportingService.list_organisation_users(db, org_id)
+
+
+# ==================== Corporate Employee Roster & Entitlements ====================
+@admin_router.get("/organisations/{org_id}/contacts")
+async def list_organisation_contacts(
+    org_id: str,
+    request: Request,
+    user: Dict = Depends(require_admin)
+):
+    db = get_db(request)
+    org = await db.organisations.find_one({"id": org_id}, {"_id": 0})
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found.")
+
+    contacts = await db.organisation_contacts.find(
+        {"organisation_id": org_id},
+        {"_id": 0}
+    ).sort("name", 1).to_list(50000)
+    pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id)
+    return {"contacts": contacts, "pool": pool}
+
+
+@admin_router.post("/organisations/{org_id}/contacts/bulk")
+async def bulk_upsert_organisation_contacts(
+    org_id: str,
+    payload: OrganisationContactBulkRequest,
+    request: Request,
+    user: Dict = Depends(require_admin)
+):
+    db = get_db(request)
+    org = await db.organisations.find_one({"id": org_id}, {"_id": 0})
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found.")
+
+    if not payload.contacts:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one contact is required.")
+
+    inserted = 0
+    updated = 0
+    seen = set()
+    for row in payload.contacts:
+        email = CorporateEntitlementService.normalize_email(row.email)
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Every corporate roster member must have an email address so their four-session allocation can be tracked."
+            )
+        if email in seen:
+            continue
+        seen.add(email)
+
+        existing = await db.organisation_contacts.find_one(
+            {"organisation_id": org_id, "email_normalized": email},
+            {"_id": 0}
+        )
+        now = now_iso()
+        update_fields = {
+            "name": row.name.strip(),
+            "email": email,
+            "email_normalized": email,
+            "phone": str(row.phone or "").strip() or None,
+            "job_title": str(row.job_title or "").strip() or None,
+            "department": str(row.department or "").strip() or None,
+            "contact_type": str(row.contact_type or "employee").strip().lower(),
+            "active": True,
+            "updated_at": now,
+        }
+
+        if existing:
+            await db.organisation_contacts.update_one(
+                {"id": existing["id"]},
+                {"$set": update_fields}
+            )
+            updated += 1
+        else:
+            contact = OrganisationContact(
+                organisation_id=org_id,
+                name=update_fields["name"],
+                email=email,
+                phone=update_fields["phone"],
+                job_title=update_fields["job_title"],
+                department=update_fields["department"],
+                contact_type=update_fields["contact_type"],
+                base_session_allocation=4,
+                extra_sessions_approved=0,
+                active=True,
+                created_at=now,
+                updated_at=now,
+            )
+            doc = contact.model_dump()
+            doc["email_normalized"] = email
+            await db.organisation_contacts.insert_one(doc)
+            inserted += 1
+
+        # If this person already completed an FCA intake under the organisation,
+        # bind the CRM client to the roster entry without exposing that link to HR.
+        contact_doc = await db.organisation_contacts.find_one(
+            {"organisation_id": org_id, "email_normalized": email},
+            {"_id": 0}
+        )
+        if contact_doc:
+            await db.crm_clients.update_many(
+                {"organisation_id": org_id, "email": {"$regex": f"^{__import__('re').escape(email)}$", "$options": "i"}},
+                {"$set": {"organisation_contact_id": contact_doc["id"], "updated_at": now}}
+            )
+
+    pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id)
+    contacts = await db.organisation_contacts.find(
+        {"organisation_id": org_id},
+        {"_id": 0}
+    ).sort("name", 1).to_list(50000)
+
+    await AuditService.log_activity(
+        db,
+        action="organisation_roster_bulk_updated",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "organisation_id": org_id,
+            "inserted": inserted,
+            "updated": updated,
+            "member_count": pool["member_count"],
+            "allocated_sessions": pool["allocated_sessions"],
+        }
+    )
+    return {"inserted": inserted, "updated": updated, "contacts": contacts, "pool": pool}
+
+
+@admin_router.patch("/organisations/{org_id}/contacts/{contact_id}/status")
+async def set_organisation_contact_status(
+    org_id: str,
+    contact_id: str,
+    request: Request,
+    active: bool = Query(...),
+    user: Dict = Depends(require_admin)
+):
+    db = get_db(request)
+    result = await db.organisation_contacts.update_one(
+        {"id": contact_id, "organisation_id": org_id},
+        {"$set": {"active": active, "updated_at": now_iso()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corporate roster member not found.")
+    pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id)
+    return {"status": "updated", "active": active, "pool": pool}
+
+
+def require_therapist_approval_role(request: Request):
+    user = get_current_user(request)
+    if user.get("role") not in ["therapist", "clinical_admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Additional corporate sessions require therapist or clinical lead approval."
+        )
+    return user
+
+
+@admin_router.post("/organisations/{org_id}/contacts/{contact_id}/approve-extra-sessions")
+async def approve_extra_sessions(
+    org_id: str,
+    contact_id: str,
+    payload: SessionAllocationApprovalRequest,
+    request: Request,
+    user: Dict = Depends(require_therapist_approval_role)
+):
+    if payload.extra_sessions <= 0 or payload.extra_sessions > 20:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Extra sessions must be between 1 and 20.")
+
+    db = get_db(request)
+    contact = await db.organisation_contacts.find_one(
+        {"id": contact_id, "organisation_id": org_id, "active": True},
+        {"_id": 0}
+    )
+    if not contact:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corporate roster member not found.")
+
+    month_key = payload.month or CorporateEntitlementService.month_key()
+    monthly_map = contact.get("extra_sessions_by_month") or {}
+    new_extra = int(monthly_map.get(month_key) or 0) + int(payload.extra_sessions)
+    now = now_iso()
+    await db.organisation_contacts.update_one(
+        {"id": contact_id, "organisation_id": org_id},
+        {"$set": {
+            f"extra_sessions_by_month.{month_key}": new_extra,
+            "extra_sessions_approved": new_extra,
+            "extra_sessions_approved_by": user.get("therapist_id") or user.get("user_id"),
+            "extra_sessions_approved_by_name": user.get("name"),
+            "extra_sessions_approved_at": now,
+            "extra_sessions_approval_reason": payload.reason,
+            "updated_at": now,
+        }}
+    )
+
+    await AuditService.log_activity(
+        db,
+        action="corporate_extra_sessions_approved",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "organisation_id": org_id,
+            "contact_id": contact_id,
+            "extra_sessions_added": payload.extra_sessions,
+            "new_extra_session_total": new_extra,
+            "month": month_key,
+        }
+    )
+    pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id, reference=f"{month_key}-01T00:00:00+02:00")
+    return {"status": "approved", "extra_sessions_approved": new_extra, "month": month_key, "pool": pool}
+
+
+# ==================== Invoice Identity / Company Profile ====================
+@admin_router.get("/invoice-profile", response_model=InvoiceProfile)
+async def get_invoice_profile(
+    request: Request,
+    user: Dict = Depends(require_admin)
+):
+    db = get_db(request)
+    doc = await db.invoice_profiles.find_one({"_id": "default"})
+    if not doc:
+        return InvoiceProfile()
+    doc.pop("_id", None)
+    return InvoiceProfile(**doc)
+
+
+@admin_router.put("/invoice-profile", response_model=InvoiceProfile)
+async def update_invoice_profile(
+    payload: InvoiceProfile,
+    request: Request,
+    user: Dict = Depends(require_admin)
+):
+    db = get_db(request)
+    data = payload.model_dump()
+    data["updated_at"] = now_iso()
+    await db.invoice_profiles.update_one(
+        {"_id": "default"},
+        {"$set": data},
+        upsert=True
+    )
+    await AuditService.log_activity(
+        db,
+        action="invoice_profile_updated",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={"profile": "default"}
+    )
+    return InvoiceProfile(**data)
+
+
+@admin_router.get("/corporate-entitlements/client/{client_id}")
+async def get_client_corporate_entitlement(
+    client_id: str,
+    request: Request,
+    user: Dict = Depends(require_staff_or_above)
+):
+    db = get_db(request)
+    client = await db.crm_clients.find_one({"id": client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found.")
+    if not client.get("organisation_id"):
+        return {"corporate": False}
+
+    contact = await CorporateEntitlementService.get_contact_for_client(db, client)
+    entitlement = await CorporateEntitlementService.remaining_for_client(db, client)
+    org = await db.organisations.find_one({"id": client.get("organisation_id")}, {"_id": 0})
+    return {
+        "corporate": True,
+        "organisation": {
+            "id": client.get("organisation_id"),
+            "name": (org or {}).get("name") or client.get("organisation_name"),
+        },
+        "roster_member": {
+            "id": contact.get("id"),
+            "name": contact.get("name"),
+            "email": contact.get("email"),
+            "base_session_allocation": contact.get("base_session_allocation", 4),
+            "extra_sessions_approved": contact.get("extra_sessions_approved", 0),
+            "extra_sessions_approved_by_name": contact.get("extra_sessions_approved_by_name"),
+            "extra_sessions_approved_at": contact.get("extra_sessions_approved_at"),
+            "extra_sessions_approval_reason": contact.get("extra_sessions_approval_reason"),
+        } if contact else None,
+        "entitlement": entitlement,
+    }
+
+
+@admin_router.post("/corporate-entitlements/client/{client_id}/approve-extra")
+async def approve_client_extra_sessions(
+    client_id: str,
+    payload: SessionAllocationApprovalRequest,
+    request: Request,
+    user: Dict = Depends(require_therapist_approval_role)
+):
+    if payload.extra_sessions <= 0 or payload.extra_sessions > 20:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Extra sessions must be between 1 and 20.")
+
+    db = get_db(request)
+    client = await db.crm_clients.find_one({"id": client_id}, {"_id": 0})
+    if not client or not client.get("organisation_id"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corporate client not found.")
+
+    contact = await CorporateEntitlementService.get_contact_for_client(db, client)
+    if not contact:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This corporate client is not linked to an active employee roster entry."
+        )
+
+    month_key = payload.month or CorporateEntitlementService.month_key()
+    monthly_map = contact.get("extra_sessions_by_month") or {}
+    new_extra = int(monthly_map.get(month_key) or 0) + int(payload.extra_sessions)
+    now = now_iso()
+    await db.organisation_contacts.update_one(
+        {"id": contact["id"], "organisation_id": client["organisation_id"]},
+        {"$set": {
+            f"extra_sessions_by_month.{month_key}": new_extra,
+            "extra_sessions_approved": new_extra,
+            "extra_sessions_approved_by": user.get("therapist_id") or user.get("user_id"),
+            "extra_sessions_approved_by_name": user.get("name"),
+            "extra_sessions_approved_at": now,
+            "extra_sessions_approval_reason": payload.reason,
+            "updated_at": now,
+        }}
+    )
+
+    await AuditService.log_activity(
+        db,
+        action="corporate_extra_sessions_approved",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        client_id=client_id,
+        metadata={
+            "organisation_id": client["organisation_id"],
+            "contact_id": contact["id"],
+            "extra_sessions_added": payload.extra_sessions,
+            "new_extra_session_total": new_extra,
+            "month": month_key,
+        }
+    )
+    entitlement = await CorporateEntitlementService.remaining_for_client(
+        db, client, reference=f"{month_key}-01T00:00:00+02:00"
+    )
+    return {"status": "approved", "month": month_key, "entitlement": entitlement}

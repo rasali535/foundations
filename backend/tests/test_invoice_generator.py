@@ -18,12 +18,19 @@ FORBIDDEN_INVOICE_PII = {
     "therapist_name", "intake_id", "clinical", "triage_level"
 }
 
+ALLOWED_BUSINESS_CONTACT_PATHS = {
+    "invoice.issuer_details.email",
+    "invoice.issuer_details.phone",
+    "invoice.bill_to_details.email",
+    "invoice.bill_to_details.phone",
+}
+
 def scan_for_pii(obj, path=""):
     findings = []
     if isinstance(obj, dict):
         for k, v in obj.items():
             curr_path = f"{path}.{k}" if path else k
-            if k.lower() in FORBIDDEN_INVOICE_PII:
+            if k.lower() in FORBIDDEN_INVOICE_PII and curr_path not in ALLOWED_BUSINESS_CONTACT_PATHS:
                 findings.append(f"Forbidden PII key found: '{curr_path}'")
             findings.extend(scan_for_pii(v, curr_path))
     elif isinstance(obj, list):
