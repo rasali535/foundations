@@ -196,6 +196,17 @@ const HRDashboard = () => {
                 </span>
               </div>
               <div className="flex justify-between items-center">
+                <span className="text-slate-500">Rostered Employees</span>
+                <span className="font-bold text-slate-800 text-sm">{contract.member_count || 0}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">Allocation Rule</span>
+                <span className="font-semibold text-slate-700 text-xs text-right">
+                  {contract.base_sessions_per_member || 4} per person
+                  {contract.approved_extra_sessions > 0 ? ` + ${contract.approved_extra_sessions} approved extras` : ''}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
                 <span className="text-slate-500">Sessions Utilised</span>
                 <span className="font-bold text-teal-700 text-sm">{contract.sessions_used}</span>
               </div>
