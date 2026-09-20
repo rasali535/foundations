@@ -189,6 +189,19 @@ async def test_aggregate_metrics_and_contract_calculations(hr_test_app):
         "therapist_id": None
     }
 
+    # Roster-derived allocation: 50 active employees x 4 sessions = 200 monthly pool.
+    for idx in range(50):
+        await mock_db.organisation_contacts.insert_one({
+            "id": f"btc-roster-{idx}",
+            "organisation_id": org_id,
+            "name": f"Employee {idx}",
+            "email": f"employee{idx}@btc.co.bw",
+            "email_normalized": f"employee{idx}@btc.co.bw",
+            "active": True,
+            "base_session_allocation": 4,
+            "extra_sessions_by_month": {},
+        })
+
     # Create 3 clients belonging to this org
     client1 = CRMClient(id="client-01", first_name="Synthetic", last_name="One", email="s1@btc.co.bw", phone="+26771111111", client_number="FCA-001", organisation_id=org_id)
     client2 = CRMClient(id="client-02", first_name="Synthetic", last_name="Two", email="s2@btc.co.bw", phone="+26772222222", client_number="FCA-002", organisation_id=org_id)
