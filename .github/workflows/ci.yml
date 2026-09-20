@@ -22,7 +22,7 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-asyncio httpx mongomock-motor
       - name: Run backend tests
-        run: pytest -q
+        run: pytest -q tests/test_*.py
 
   frontend:
     runs-on: ubuntu-latest
