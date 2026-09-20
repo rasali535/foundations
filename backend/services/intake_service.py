@@ -5,6 +5,7 @@ from models import CRMIntakeSubmission, CRMClient, now_iso
 from services.crm_service import CRMService
 from services.audit_service import AuditService
 from services.meta_whatsapp_template_service import MetaWhatsAppTemplateService
+from services.corporate_entitlement_service import CorporateEntitlementService
 
 class IntakeService:
     @staticmethod
@@ -54,6 +55,19 @@ class IntakeService:
 
         source_type = "corporate" if organisation else "private"
 
+        organisation_contact = None
+        if organisation:
+            email_normalized = CorporateEntitlementService.normalize_email(payload.get("email"))
+            if email_normalized:
+                organisation_contact = await db.organisation_contacts.find_one(
+                    {
+                        "organisation_id": organisation.get("id"),
+                        "email_normalized": email_normalized,
+                        "active": True,
+                    },
+                    {"_id": 0},
+                )
+
         # Client profile fields extraction
         client_data = {
             "full_name": payload.get("full_name") or payload.get("name"),
@@ -70,6 +84,7 @@ class IntakeService:
             "emergency_contact_phone": payload.get("emergency_contact_phone") or payload.get("emergency_phone"),
             "organisation_id": organisation.get("id") if organisation else None,
             "organisation_name": organisation.get("name") if organisation else None,
+            "organisation_contact_id": organisation_contact.get("id") if organisation_contact else None,
             "tags": [f"corporate:{organisation.get('code')}"] if organisation else ["private"]
         }
 
@@ -85,6 +100,7 @@ class IntakeService:
                 {"$set": {
                     "organisation_id": organisation.get("id"),
                     "organisation_name": organisation.get("name"),
+                    "organisation_contact_id": organisation_contact.get("id") if organisation_contact else None,
                     "updated_at": now_iso()
                 }, "$addToSet": {"tags": f"corporate:{organisation.get('code')}"}}
             )
@@ -93,6 +109,18 @@ class IntakeService:
                 crm_client = CRMClient(**refreshed)
         elif organisation and crm_client.organisation_id != organisation.get("id"):
             raise ValueError("This client is already linked to a different corporate account")
+
+        if organisation and organisation_contact and getattr(crm_client, "organisation_contact_id", None) != organisation_contact.get("id"):
+            await db.crm_clients.update_one(
+                {"id": crm_client.id, "organisation_id": organisation.get("id")},
+                {"$set": {
+                    "organisation_contact_id": organisation_contact.get("id"),
+                    "updated_at": now_iso(),
+                }}
+            )
+            refreshed = await db.crm_clients.find_one({"id": crm_client.id}, {"_id": 0})
+            if refreshed:
+                crm_client = CRMClient(**refreshed)
 
         # Store intake submission record
         intake_record = CRMIntakeSubmission(
