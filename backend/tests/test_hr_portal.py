@@ -39,7 +39,7 @@ async def hr_test_app():
 
     # Seed Default Therapists
     for t in DEFAULT_THERAPISTS:
-        await mock_db.therapists.insert_one(Therapist(**t).model_dump())
+        await mock_db.therapists.insert_one(dict(t))
 
     app.state.db = mock_db
 
