@@ -89,23 +89,60 @@ class SetmoreService:
     async def service_categories(cls) -> List[Dict[str, Any]]:
         payload = await cls._api("GET", "/services/categories")
         data = payload.get("data") or {}
-        rows = data.get("categories") or data.get("category") or []
-        return rows if isinstance(rows, list) else []
+        if isinstance(data, list):
+            return data
+        if not isinstance(data, dict):
+            return []
+        for key in (
+            "categories",
+            "category",
+            "service_categories",
+            "service_category",
+            "category_list",
+            "categoryList",
+        ):
+            rows = data.get(key)
+            if isinstance(rows, list):
+                return rows
+            if isinstance(rows, dict):
+                return [rows]
+        # Be tolerant of Setmore response-shape drift: if data contains exactly
+        # one list of objects, treat that list as the category collection.
+        object_lists = [
+            value for value in data.values()
+            if isinstance(value, list) and all(isinstance(item, dict) for item in value)
+        ]
+        return object_lists[0] if len(object_lists) == 1 else []
 
     @classmethod
     async def services_for_category(cls, category_key: str) -> List[Dict[str, Any]]:
         payload = await cls._api("GET", f"/services/categories/{category_key}")
         data = payload.get("data") or {}
-        rows = data.get("services") or data.get("service") or []
-        if isinstance(rows, list):
-            return rows
-        if isinstance(rows, dict):
-            return [rows]
-        return []
+        if isinstance(data, list):
+            return data
+        if not isinstance(data, dict):
+            return []
+        for key in ("services", "service", "service_list", "serviceList"):
+            rows = data.get(key)
+            if isinstance(rows, list):
+                return rows
+            if isinstance(rows, dict):
+                return [rows]
+        object_lists = [
+            value for value in data.values()
+            if isinstance(value, list) and all(isinstance(item, dict) for item in value)
+        ]
+        return object_lists[0] if len(object_lists) == 1 else []
 
     @staticmethod
     def _key(row: Dict[str, Any]) -> Optional[str]:
-        value = row.get("key") or row.get("staff_key") or row.get("service_key")
+        value = (
+            row.get("key")
+            or row.get("staff_key")
+            or row.get("service_key")
+            or row.get("category_key")
+            or row.get("categoryKey")
+        )
         return str(value) if value else None
 
     @classmethod
@@ -175,6 +212,7 @@ class SetmoreService:
             category_key = cls._key(category)
             category_name = norm(
                 category.get("category_name")
+                or category.get("categoryName")
                 or category.get("name")
                 or category.get("title")
                 or category.get("label")
@@ -194,8 +232,10 @@ class SetmoreService:
         def service_category(row: Dict[str, Any]) -> str:
             direct = norm(
                 row.get("category_name")
+                or row.get("categoryName")
                 or row.get("category")
                 or row.get("category_title")
+                or row.get("categoryTitle")
             )
             if direct:
                 return direct
@@ -240,6 +280,7 @@ class SetmoreService:
             for category in category_rows:
                 category_name = norm(
                     category.get("category_name")
+                    or category.get("categoryName")
                     or category.get("name")
                     or category.get("title")
                     or category.get("label")
