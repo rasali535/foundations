@@ -85,6 +85,24 @@ class SetmoreService:
         rows = data.get("services") or data.get("service") or []
         return rows if isinstance(rows, list) else []
 
+    @classmethod
+    async def service_categories(cls) -> List[Dict[str, Any]]:
+        payload = await cls._api("GET", "/services/categories")
+        data = payload.get("data") or {}
+        rows = data.get("categories") or data.get("category") or []
+        return rows if isinstance(rows, list) else []
+
+    @classmethod
+    async def services_for_category(cls, category_key: str) -> List[Dict[str, Any]]:
+        payload = await cls._api("GET", f"/services/categories/{category_key}")
+        data = payload.get("data") or {}
+        rows = data.get("services") or data.get("service") or []
+        if isinstance(rows, list):
+            return rows
+        if isinstance(rows, dict):
+            return [rows]
+        return []
+
     @staticmethod
     def _key(row: Dict[str, Any]) -> Optional[str]:
         value = row.get("key") or row.get("staff_key") or row.get("service_key")
@@ -144,15 +162,61 @@ class SetmoreService:
 
         scored = []
         safe_titles = []
+
+        # Setmore accounts can model FCA's session type as a service category
+        # (Individual/Couples/Family) and the mode as the service name
+        # (In Person/Virtual). Build a category lookup so both layouts work.
+        try:
+            category_rows = await cls.service_categories()
+        except Exception:
+            category_rows = []
+        category_names: Dict[str, str] = {}
+        for category in category_rows:
+            category_key = cls._key(category)
+            category_name = norm(
+                category.get("category_name")
+                or category.get("name")
+                or category.get("title")
+                or category.get("label")
+            )
+            if category_key and category_name:
+                category_names[str(category_key)] = category_name
+
+        def service_title(row: Dict[str, Any]) -> str:
+            return norm(
+                row.get("service_name")
+                or row.get("name")
+                or row.get("title")
+                or row.get("label")
+                or row.get("display_name")
+            )
+
+        def service_category(row: Dict[str, Any]) -> str:
+            direct = norm(
+                row.get("category_name")
+                or row.get("category")
+                or row.get("category_title")
+            )
+            if direct:
+                return direct
+            category_key = row.get("category_key") or row.get("categoryKey")
+            return category_names.get(str(category_key), "") if category_key else ""
+
         for row in rows:
-            title = norm(row.get("service_name") or row.get("name") or row.get("title"))
+            title = service_title(row)
+            category = service_category(row)
             if not title or not cls._key(row):
                 continue
-            safe_titles.append(title[:80])
-            type_score = max((3 if title == alias else 2 if alias in title else 0) for alias in wanted_types)
-            mode_score = max((2 if alias in title else 0) for alias in wanted_modes)
-            # A type match is required. Mode is a useful discriminator when the
-            # Setmore account exposes separate virtual/in-person services.
+            descriptor = " ".join(part for part in (category, title) if part)
+            safe_titles.append(descriptor[:100])
+            type_score = max(
+                (4 if category == alias else 3 if alias in category else 2 if alias in descriptor else 0)
+                for alias in wanted_types
+            )
+            mode_score = max(
+                (3 if title == alias else 2 if alias in title else 1 if alias in descriptor else 0)
+                for alias in wanted_modes
+            )
             if type_score:
                 scored.append((type_score + mode_score, mode_score, row))
 
@@ -161,35 +225,81 @@ class SetmoreService:
         if scored:
             scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
             best_score = scored[0][0]
-            best = [item[2] for item in scored if item[0] == best_score]
+            best_mode_score = scored[0][1]
+            best = [item[2] for item in scored if item[0] == best_score and item[1] == best_mode_score]
             if len(best) == 1:
                 matches = best
             elif mapped_row in best:
                 matches = [mapped_row]
             else:
                 matches = []
-        elif mapped_row is not None:
-            # Keep an existing valid mapping only when no better FCA-specific
-            # service exists. This lets accounts move off bootstrap generic
-            # services without manually clearing Mongo mappings.
-            matches = [mapped_row]
         else:
-            # Fresh Setmore accounts commonly start with generic duration services.
-            # FCA counselling appointments are currently 60 minutes, so a single
-            # unambiguous one-hour service is the safe bootstrap mapping until the
-            # account is renamed/configured with FCA-specific service names.
-            hour_aliases = {"1 hour meeting", "60 minute meeting", "60 minutes meeting", "1 hour"}
-            hour_matches = [
-                row for row in rows
-                if norm(row.get("service_name") or row.get("name") or row.get("title")) in hour_aliases
-                and cls._key(row)
-            ]
-            if len(hour_matches) == 1:
-                matches = hour_matches
-            elif len(rows) == 1 and cls._key(rows[0]):
-                matches = rows
+            # If the flat service list exposes only mode names, resolve through
+            # Setmore's service-category endpoints.
+            matching_categories = []
+            for category in category_rows:
+                category_name = norm(
+                    category.get("category_name")
+                    or category.get("name")
+                    or category.get("title")
+                    or category.get("label")
+                )
+                if category_name and any(
+                    category_name == alias or alias in category_name
+                    for alias in wanted_types
+                ):
+                    category_key = cls._key(category)
+                    if category_key:
+                        matching_categories.append((str(category_key), category_name))
+
+            category_matches = []
+            for category_key, category_name in matching_categories:
+                try:
+                    category_services = await cls.services_for_category(category_key)
+                except Exception:
+                    category_services = []
+                for row in category_services:
+                    title = service_title(row)
+                    if not title or not cls._key(row):
+                        continue
+                    mode_score = max(
+                        (3 if title == alias else 2 if alias in title else 0)
+                        for alias in wanted_modes
+                    )
+                    if mode_score:
+                        safe_titles.append(f"{category_name} {title}"[:100])
+                        category_matches.append((mode_score, row))
+
+            if category_matches:
+                category_matches.sort(key=lambda item: item[0], reverse=True)
+                best_mode = category_matches[0][0]
+                best = [row for score, row in category_matches if score == best_mode]
+                matches = best if len(best) == 1 else []
+            elif mapped_row is not None:
+                # Keep an existing valid mapping only when no better FCA-specific
+                # service exists.
+                matches = [mapped_row]
             else:
-                matches = []
+                # Fresh Setmore accounts commonly start with generic duration services.
+                hour_aliases = {"1 hour meeting", "60 minute meeting", "60 minutes meeting", "1 hour"}
+                hour_matches = [
+                    row for row in rows
+                    if service_title(row) in hour_aliases and cls._key(row)
+                ]
+                if len(hour_matches) == 1:
+                    matches = hour_matches
+                elif len(rows) == 1 and cls._key(rows[0]):
+                    matches = rows
+                else:
+                    matches = []
+
+        logging.warning(
+            "SETMORE_TRACE stage=service_catalog type=%s mode=%s categories=%s services=%s",
+            session_type,
+            session_mode,
+            list(category_names.values())[:10],
+            safe_titles[:20],
+        )
 
         if len(matches) != 1:
             logging.error(
