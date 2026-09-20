@@ -351,6 +351,20 @@ class Organisation(BaseModel):
     allocated_sessions: Optional[int] = None  # Contract session pool
     contact_person: Optional[str] = None
     contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    billing_contact_name: Optional[str] = None
+    billing_email: Optional[str] = None
+    billing_phone: Optional[str] = None
+    billing_address: Optional[str] = None
+    registration_number: Optional[str] = None
+    tax_number: Optional[str] = None
+    purchase_order_reference: Optional[str] = None
+    billing_currency: str = "BWP"
+    payment_terms_days: int = 30
+    rate_individual: Optional[float] = None
+    rate_couple: Optional[float] = None
+    rate_family: Optional[float] = None
+    invoice_notes: Optional[str] = None
     notes: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
@@ -364,6 +378,20 @@ class OrganisationCreate(BaseModel):
     allocated_sessions: Optional[int] = None
     contact_person: Optional[str] = None
     contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    billing_contact_name: Optional[str] = None
+    billing_email: Optional[str] = None
+    billing_phone: Optional[str] = None
+    billing_address: Optional[str] = None
+    registration_number: Optional[str] = None
+    tax_number: Optional[str] = None
+    purchase_order_reference: Optional[str] = None
+    billing_currency: str = "BWP"
+    payment_terms_days: int = 30
+    rate_individual: Optional[float] = None
+    rate_couple: Optional[float] = None
+    rate_family: Optional[float] = None
+    invoice_notes: Optional[str] = None
     notes: Optional[str] = None
 
 class OrganisationUpdate(BaseModel):
@@ -375,7 +403,63 @@ class OrganisationUpdate(BaseModel):
     allocated_sessions: Optional[int] = None
     contact_person: Optional[str] = None
     contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    billing_contact_name: Optional[str] = None
+    billing_email: Optional[str] = None
+    billing_phone: Optional[str] = None
+    billing_address: Optional[str] = None
+    registration_number: Optional[str] = None
+    tax_number: Optional[str] = None
+    purchase_order_reference: Optional[str] = None
+    billing_currency: Optional[str] = None
+    payment_terms_days: Optional[int] = None
+    rate_individual: Optional[float] = None
+    rate_couple: Optional[float] = None
+    rate_family: Optional[float] = None
+    invoice_notes: Optional[str] = None
     notes: Optional[str] = None
+
+class OrganisationContact(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    organisation_id: str
+    name: str = ""
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    job_title: Optional[str] = None
+    department: Optional[str] = None
+    contact_type: str = "employee"  # employee, hr, billing, admin
+    active: bool = True
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+class OrganisationContactBulkRow(BaseModel):
+    name: str = ""
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    job_title: Optional[str] = None
+    department: Optional[str] = None
+    contact_type: str = "employee"
+
+class OrganisationContactBulkRequest(BaseModel):
+    contacts: List[OrganisationContactBulkRow]
+
+class InvoiceProfile(BaseModel):
+    legal_name: str = "Foundations Counselling Academy"
+    trading_name: Optional[str] = "Foundations Counselling & Advisory"
+    registration_number: Optional[str] = None
+    tax_number: Optional[str] = None
+    address: str = "Plot 18680 Khuhurutse St, Phase 2, Gaborone, Botswana"
+    email: str = "info@academyfoundations.com"
+    phone: str = "+267 72 534 203"
+    website: Optional[str] = "academyfoundations.com"
+    bank_name: Optional[str] = None
+    account_name: Optional[str] = None
+    account_number: Optional[str] = None
+    branch_code: Optional[str] = None
+    swift_code: Optional[str] = None
+    payment_instructions: Optional[str] = None
+    footer_note: Optional[str] = "Thank you for your business."
+    updated_at: str = Field(default_factory=now_iso)
 
 class OrganisationUser(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -481,6 +565,10 @@ class Invoice(BaseModel):
     cancelled_at: Optional[str] = None
     cancellation_reason: Optional[str] = None
     created_by: Optional[str] = None
+    purchase_order_reference: Optional[str] = None
+    invoice_notes: Optional[str] = None
+    issuer_details: Dict[str, Any] = Field(default_factory=dict)
+    bill_to_details: Dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
@@ -507,6 +595,12 @@ class InvoiceCreateRequest(BaseModel):
     billing_period_start: str  # YYYY-MM-DD
     billing_period_end: str    # YYYY-MM-DD
     due_date: Optional[str] = None
+    purchase_order_reference: Optional[str] = None
+    billing_contact_name: Optional[str] = None
+    billing_email: Optional[str] = None
+    billing_phone: Optional[str] = None
+    billing_address: Optional[str] = None
+    invoice_notes: Optional[str] = None
 
 class InvoiceCancelRequest(BaseModel):
     reason: Optional[str] = "Cancelled by admin"
