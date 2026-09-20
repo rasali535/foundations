@@ -29,31 +29,12 @@ class BookingService:
     async def check_corporate_entitlement(
         db: AsyncIOMotorDatabase,
         client: CRMClient,
-        requested_sessions: int = 1,
+        starts_at: str,
     ) -> Tuple[bool, Optional[str]]:
-        """Enforce roster-derived corporate session allocation.
-
-        Private clients are not affected. Corporate clients receive four sessions
-        per active roster member by default; extra sessions only become available
-        after therapist/clinical-lead approval has been recorded.
-        """
+        """Enforce corporate monthly + once-per-week rules for one slot."""
         if not getattr(client, "organisation_id", None):
             return True, None
-
-        entitlement = await CorporateEntitlementService.remaining_for_client(db, client)
-        if entitlement is None:
-            return True, None
-        if entitlement["limit"] <= 0:
-            return False, (
-                "Your corporate email is not currently linked to an active FCA employee roster entry. "
-                "Please contact your organisation or FCA before booking."
-            )
-        if entitlement["remaining"] < requested_sessions:
-            return False, (
-                f"Your corporate session allocation has {entitlement['remaining']} session(s) remaining. "
-                "Additional sessions require therapist approval."
-            )
-        return True, None
+        return await CorporateEntitlementService.validate_slot(db, client, starts_at)
 
     # ==================== Conflict / Double-Booking Validator ====================
     @staticmethod
@@ -189,11 +170,7 @@ class BookingService:
             }
             client, _ = await CRMService.find_or_create_client(db, client_dict, actor_id=actor_id, actor_name=actor_name)
 
-        entitlement_ok, entitlement_error = await BookingService.check_corporate_entitlement(
-            db, client, requested_sessions=1
-        )
-        if not entitlement_ok:
-            return None, entitlement_error
+        # Corporate entitlement is validated after the requested start time is parsed.
 
         # 2. Validate Session Type and Session Mode
         valid_types = ["individual", "couple", "family"]
@@ -227,6 +204,12 @@ class BookingService:
 
         starts_at_iso = start_dt.isoformat()
         ends_at_iso = end_dt.isoformat()
+
+        entitlement_ok, entitlement_error = await BookingService.check_corporate_entitlement(
+            db, client, starts_at_iso
+        )
+        if not entitlement_ok:
+            return None, entitlement_error
 
         # 5. Check Double-Booking Conflict
         has_conflict, conflict_msg = await BookingService.check_therapist_conflict(
@@ -367,11 +350,7 @@ class BookingService:
         session_type = request.session_type.lower()
         session_mode = request.session_mode.lower()
 
-        entitlement_ok, entitlement_error = await BookingService.check_corporate_entitlement(
-            db, client, requested_sessions=len(request.slots)
-        )
-        if not entitlement_ok:
-            return None, entitlement_error
+        # Corporate multi-booking entitlement is validated per slot below.
 
         # 2. Route & Validate Therapist
         therapist, err = await TherapistService.validate_and_route_therapist(
@@ -380,9 +359,11 @@ class BookingService:
         if err or not therapist:
             return None, err or "Failed to assign a compatible therapist."
 
-        # 3. Pre-validate All Slots for Conflicts
+        # 3. Pre-validate All Slots for conflicts and corporate monthly/weekly rules.
         slot_duration = therapist.slot_duration_minutes or 60
         validated_slots: List[Tuple[str, str, Optional[str]]] = []
+        corporate_months = set()
+        corporate_weeks = set()
 
         for idx, s in enumerate(request.slots, 1):
             try:
@@ -394,6 +375,20 @@ class BookingService:
             s_iso = s_dt.isoformat()
             e_iso = e_dt.isoformat()
 
+            if getattr(client, "organisation_id", None):
+                month_key = CorporateEntitlementService.month_key(s_iso)
+                week_start, _ = CorporateEntitlementService.week_bounds_utc(s_iso)
+                corporate_months.add(month_key)
+                if week_start in corporate_weeks:
+                    return None, "Corporate multi-booking allows only one counselling session per calendar week."
+                corporate_weeks.add(week_start)
+
+                entitlement_ok, entitlement_error = await BookingService.check_corporate_entitlement(
+                    db, client, s_iso
+                )
+                if not entitlement_ok:
+                    return None, entitlement_error
+
             has_conflict, conflict_msg = await BookingService.check_therapist_conflict(
                 db, therapist.id, s_iso, e_iso
             )
@@ -401,6 +396,16 @@ class BookingService:
                 return None, f"Slot #{idx} ({s.starts_at[:10]} {s.starts_at[11:16]} UTC) cannot be booked: {conflict_msg}"
 
             validated_slots.append((s_iso, e_iso, s.notes))
+
+        if getattr(client, "organisation_id", None):
+            if len(corporate_months) > 1:
+                return None, "Corporate monthly booking must stay within one calendar month."
+            reference = validated_slots[0][0]
+            entitlement = await CorporateEntitlementService.remaining_for_client(db, client, reference=reference)
+            if entitlement and len(validated_slots) > entitlement["remaining"]:
+                return None, (
+                    f"Only {entitlement['remaining']} corporate session(s) remain for {entitlement['month']}."
+                )
 
         # 4. Create Booking Batch Record
         batch = BookingBatch(
