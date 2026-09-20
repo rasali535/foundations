@@ -183,35 +183,8 @@ app.add_middleware(
 # Production user store starts empty and is populated strictly via explicit environment bootstrap or database.
 USERS_DB: Dict[str, Dict[str, Any]] = {}
 
-def bootstrap_super_admin():
-    """
-    Initializes the super_admin user ONLY if explicit environment credentials
-    (FCA_BOOTSTRAP_ADMIN_EMAIL / FCA_BOOTSTRAP_ADMIN_PASSWORD or ADMIN_USER / ADMIN_PASSWORD)
-    are configured.
-    No hardcoded, default, fallback, or domain-derived passwords are ever accepted.
-    """
-    admin_email = os.environ.get("FCA_BOOTSTRAP_ADMIN_EMAIL") or os.environ.get("ADMIN_USER")
-    admin_password = os.environ.get("FCA_BOOTSTRAP_ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
-
-    if admin_email and admin_password and len(admin_password.strip()) >= 8:
-        email_clean = admin_email.strip().lower()
-        admin_data = {
-            "password_hash": bcrypt.hashpw(admin_password.strip().encode(), bcrypt.gensalt()).decode(),
-            "role": "super_admin",
-            "name": "FCA System Administrator",
-            "therapist_id": None
-        }
-        USERS_DB[email_clean] = admin_data
-        if "@" in email_clean:
-            prefix = email_clean.split("@")[0]
-            USERS_DB[prefix] = admin_data
-        logging.info(f"Initialized super_admin account for {email_clean}")
-    else:
-        logging.info("No bootstrap admin credentials provided in environment. User store initialized empty.")
-
-# Initialize on module load
-bootstrap_super_admin()
-
+# No separate bootstrap super-admin account is created. Privileged access is
+# assigned explicitly to persistent staff users in MongoDB.
 def get_current_user_session(request: Request) -> Dict:
     user_id = request.session.get('user_id')
     if not user_id or user_id not in USERS_DB:

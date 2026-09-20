@@ -5,7 +5,7 @@ import os
 import bcrypt
 from httpx import AsyncClient, ASGITransport
 from mongomock_motor import AsyncMongoMockClient
-from server import app, USERS_DB, bootstrap_super_admin
+from server import app, USERS_DB
 from services.crm_service import CRMService, normalize_email, normalize_phone
 from services.intake_service import IntakeService
 from services.therapist_service import TherapistService, DEFAULT_THERAPISTS
@@ -477,30 +477,18 @@ async def test_authorized_fca_test_clinicians_configured():
     assert "Caroline Sithole" in names
     assert "Alpheaus Chiwaze" in names
 
-# ==================== 9. Admin Bootstrap Security Verification ====================
+# ==================== 9. Persistent Privileged Staff Verification ====================
 @pytest.mark.asyncio
-async def test_admin_bootstrap_security():
-    # 1. Without credentials, no admin is created
-    os.environ.pop("FCA_BOOTSTRAP_ADMIN_EMAIL", None)
-    os.environ.pop("FCA_BOOTSTRAP_ADMIN_PASSWORD", None)
-    os.environ.pop("ADMIN_USER", None)
-    os.environ.pop("ADMIN_PASSWORD", None)
-    USERS_DB.clear()
-    bootstrap_super_admin()
-    assert len(USERS_DB) == 0
-
-    # 2. With valid credentials, super_admin is created
+async def test_no_separate_bootstrap_admin_account():
+    # Privileged production access is now assigned only to persistent staff users.
+    # Environment bootstrap credentials must not create an in-memory administrator.
     os.environ["FCA_BOOTSTRAP_ADMIN_EMAIL"] = "admin@academyfoundations.com"
     os.environ["FCA_BOOTSTRAP_ADMIN_PASSWORD"] = "StrongSecurePassword2026!"
-    bootstrap_super_admin()
-    assert "admin@academyfoundations.com" in USERS_DB
-    admin_entry = USERS_DB["admin@academyfoundations.com"]
-    assert admin_entry["role"] == "super_admin"
-    assert bcrypt.checkpw(b"StrongSecurePassword2026!", admin_entry["password_hash"].encode())
+    USERS_DB.clear()
 
-    # Cleanup
+    # No bootstrap function is invoked and the user store remains empty.
+    assert len(USERS_DB) == 0
+
     os.environ.pop("FCA_BOOTSTRAP_ADMIN_EMAIL", None)
     os.environ.pop("FCA_BOOTSTRAP_ADMIN_PASSWORD", None)
-    os.environ.pop("ADMIN_USER", None)
-    os.environ.pop("ADMIN_PASSWORD", None)
     USERS_DB.clear()
