@@ -433,7 +433,8 @@ class OrganisationContact(BaseModel):
     contact_type: str = "employee"  # employee, hr, billing, admin
     active: bool = True
     base_session_allocation: int = 4
-    extra_sessions_approved: int = 0
+    extra_sessions_approved: int = 0  # Legacy compatibility; new approvals are month-specific
+    extra_sessions_by_month: Dict[str, int] = Field(default_factory=dict)
     extra_sessions_approved_by: Optional[str] = None
     extra_sessions_approved_by_name: Optional[str] = None
     extra_sessions_approved_at: Optional[str] = None
@@ -454,6 +455,7 @@ class OrganisationContactBulkRequest(BaseModel):
 
 class SessionAllocationApprovalRequest(BaseModel):
     extra_sessions: int
+    month: Optional[str] = None  # YYYY-MM; defaults to current CAT month
     reason: Optional[str] = None
 
 class InvoiceProfile(BaseModel):
