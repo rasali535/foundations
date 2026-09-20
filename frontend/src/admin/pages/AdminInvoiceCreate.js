@@ -23,6 +23,12 @@ const AdminInvoiceCreate = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [purchaseOrderReference, setPurchaseOrderReference] = useState('');
+  const [billingContactName, setBillingContactName] = useState('');
+  const [billingEmail, setBillingEmail] = useState('');
+  const [billingPhone, setBillingPhone] = useState('');
+  const [billingAddress, setBillingAddress] = useState('');
+  const [invoiceNotes, setInvoiceNotes] = useState('');
 
   // Preview State
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -88,7 +94,13 @@ const AdminInvoiceCreate = () => {
         organisation_id: organisationId,
         billing_period_start: startDate,
         billing_period_end: endDate,
-        due_date: dueDate || undefined
+        due_date: dueDate || undefined,
+        purchase_order_reference: purchaseOrderReference || undefined,
+        billing_contact_name: billingContactName || undefined,
+        billing_email: billingEmail || undefined,
+        billing_phone: billingPhone || undefined,
+        billing_address: billingAddress || undefined,
+        invoice_notes: invoiceNotes || undefined
       };
       const res = await api.post('/invoices', payload);
       const newInvoice = res.data.invoice;
@@ -137,8 +149,21 @@ const AdminInvoiceCreate = () => {
             <select
               value={organisationId}
               onChange={(e) => {
-                setOrganisationId(e.target.value);
+                const nextId = e.target.value;
+                setOrganisationId(nextId);
                 setPreviewData(null);
+                const org = organisations.find(item => item.id === nextId);
+                setPurchaseOrderReference(org?.purchase_order_reference || '');
+                setBillingContactName(org?.billing_contact_name || org?.contact_person || '');
+                setBillingEmail(org?.billing_email || org?.contact_email || '');
+                setBillingPhone(org?.billing_phone || org?.contact_phone || '');
+                setBillingAddress(org?.billing_address || '');
+                setInvoiceNotes(org?.invoice_notes || '');
+                if (org?.payment_terms_days != null) {
+                  const due = new Date();
+                  due.setDate(due.getDate() + Number(org.payment_terms_days || 0));
+                  setDueDate(due.toISOString().slice(0, 10));
+                }
               }}
               disabled={loadingOrgs}
               className="w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -193,6 +218,48 @@ const AdminInvoiceCreate = () => {
               className="w-full sm:w-1/2 px-3.5 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
           </div>
+
+          {selectedOrgObj && (
+            <div className="sm:col-span-2 pt-4 border-t border-slate-100 space-y-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Invoice Details for {selectedOrgObj.name}</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  These values are prefilled from the corporate billing profile and can be overridden for this invoice.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Billing Contact</label>
+                  <input value={billingContactName} onChange={(e) => setBillingContactName(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Billing Email</label>
+                  <input type="email" value={billingEmail} onChange={(e) => setBillingEmail(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Billing Phone</label>
+                  <input value={billingPhone} onChange={(e) => setBillingPhone(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">PO / Reference</label>
+                  <input value={purchaseOrderReference} onChange={(e) => setPurchaseOrderReference(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Billing Address</label>
+                  <textarea rows="2" value={billingAddress} onChange={(e) => setBillingAddress(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">Invoice Note</label>
+                  <textarea rows="2" value={invoiceNotes} onChange={(e) => setInvoiceNotes(e.target.value)} placeholder="Optional note displayed on this invoice" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                </div>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-lg text-xs text-slate-600">
+                Contract rates: Individual <b>{selectedOrgObj.billing_currency || 'BWP'} {selectedOrgObj.rate_individual ?? 'default'}</b> •
+                Couple <b>{selectedOrgObj.billing_currency || 'BWP'} {selectedOrgObj.rate_couple ?? 'default'}</b> •
+                Family <b>{selectedOrgObj.billing_currency || 'BWP'} {selectedOrgObj.rate_family ?? 'default'}</b>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="pt-3 border-t border-slate-100 flex justify-end">
