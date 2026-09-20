@@ -105,6 +105,8 @@ class SetmoreService:
             row_name = " ".join(str(row.get(k) or "").strip() for k in ("first_name", "last_name")).strip().lower()
             if (email and row_email == email) or (name and row_name == name):
                 matches.append(row)
+        if not matches and len(rows) == 1:
+            matches = rows
         if len(matches) != 1 or not cls._key(matches[0]):
             raise SetmoreError("Setmore staff mapping is missing or ambiguous")
         key = cls._key(matches[0])
@@ -130,6 +132,8 @@ class SetmoreService:
             title = str(row.get("service_name") or row.get("name") or row.get("title") or "").strip().lower()
             if any(value == title for value in wanted):
                 matches.append(row)
+        if not matches and len(rows) == 1:
+            matches = rows
         if len(matches) != 1 or not cls._key(matches[0]):
             raise SetmoreError(
                 f"Setmore service mapping missing for {session_type}/{session_mode}"
