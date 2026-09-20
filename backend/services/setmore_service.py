@@ -186,7 +186,10 @@ class SetmoreService:
             return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
 
         type_aliases = {
-            "individual": {"individual", "individual counselling", "individual counseling", "counselling", "counseling"},
+            # Keep these aliases specific to the session type. Generic values such
+            # as "counselling" make Individual/Couples/Family categories all match
+            # at once and cause an ambiguous Setmore service resolution.
+            "individual": {"individual", "individual counselling", "individual counseling"},
             "couple": {"couple", "couples", "couple counselling", "couples counselling", "couple counseling", "couples counseling"},
             "family": {"family", "family counselling", "family counseling"},
         }
@@ -277,6 +280,7 @@ class SetmoreService:
             # If the flat service list exposes only mode names, resolve through
             # Setmore's service-category endpoints.
             matching_categories = []
+            scored_categories = []
             for category in category_rows:
                 category_name = norm(
                     category.get("category_name")
@@ -285,13 +289,23 @@ class SetmoreService:
                     or category.get("title")
                     or category.get("label")
                 )
-                if category_name and any(
-                    category_name == alias or alias in category_name
+                if not category_name:
+                    continue
+                category_score = max(
+                    (3 if category_name == alias else 2 if category_name.startswith(alias + " ") else 1 if alias in category_name else 0)
                     for alias in wanted_types
-                ):
-                    category_key = cls._key(category)
-                    if category_key:
-                        matching_categories.append((str(category_key), category_name))
+                )
+                category_key = cls._key(category)
+                if category_key and category_score:
+                    scored_categories.append((category_score, str(category_key), category_name))
+
+            if scored_categories:
+                best_category_score = max(item[0] for item in scored_categories)
+                matching_categories = [
+                    (category_key, category_name)
+                    for score, category_key, category_name in scored_categories
+                    if score == best_category_score
+                ]
 
             category_matches = []
             for category_key, category_name in matching_categories:
