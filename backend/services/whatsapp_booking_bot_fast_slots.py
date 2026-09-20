@@ -8,6 +8,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from services.therapist_service import TherapistService
 from services.scheduling_service import SchedulingService
+from services.corporate_entitlement_service import CorporateEntitlementService
 
 
 CAT_TZ = ZoneInfo("Africa/Gaborone")
@@ -139,6 +140,30 @@ async def fast_slot_options(
     if not candidates:
         return []
 
+    # Corporate/EAP clients use a contract-period entitlement derived from the
+    # organisation roster: four sessions per active member plus therapist-approved
+    # extras. Private clients retain the existing monthly self-service limit.
+    if client_doc.get("organisation_id"):
+        entitlement = await CorporateEntitlementService.remaining_for_client(db, client_doc)
+        if entitlement and entitlement["remaining"] <= 0:
+            logging.warning(
+                "WA_SCHED_TRACE stage=corporate_entitlement_block client_id=%s organisation_id=%s limit=%s used=%s",
+                client_doc.get("id"),
+                client_doc.get("organisation_id"),
+                entitlement["limit"],
+                entitlement["used"],
+            )
+            if entitlement["limit"] <= 0:
+                raise MonthlySessionLimitReached(
+                    "Your corporate email is not currently linked to an active FCA employee roster entry. "
+                    "Please contact your organisation or FCA before booking."
+                )
+            raise MonthlySessionLimitReached(
+                "You have used your allocated corporate counselling sessions. "
+                "Additional sessions require therapist approval."
+            )
+        return sorted(candidates, key=lambda item: item["starts_at"])[:MAX_WEEKLY_SLOTS]
+
     candidates.sort(key=lambda item: item["starts_at"])
     month_keys = sorted({item["_month_key"] for item in candidates})
     remaining_results = await asyncio.gather(
@@ -163,6 +188,8 @@ async def fast_slot_options(
             client_doc.get("id"),
             sorted(blocked_months),
         )
-        raise MonthlySessionLimitReached("monthly_session_limit_reached")
+        raise MonthlySessionLimitReached(
+            "You have reached your self-service session limit for this month."
+        )
 
     return eligible

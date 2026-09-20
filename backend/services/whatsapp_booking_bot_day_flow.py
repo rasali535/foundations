@@ -126,10 +126,10 @@ def install_day_first_flow(service_cls) -> None:
 
             try:
                 slots = await service_cls._slot_options(db, client_doc, mode, type_map[upper_text])
-            except MonthlySessionLimitReached:
+            except MonthlySessionLimitReached as exc:
                 await service_cls._save_session(db, sender, client_id, "menu", {})
                 return (
-                    "You have reached your self-service session limit for this month. "
+                    f"{str(exc)} "
                     "Reply 6 to speak to FCA if you need help with another appointment, "
                     "or MENU to return to the main menu."
                 )
