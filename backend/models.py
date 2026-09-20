@@ -47,6 +47,7 @@ class CRMClient(BaseModel):
     organisation_name: Optional[str] = None
     status: str = "active"  # active, inactive, archived, flagged_review
     tags: List[str] = Field(default_factory=list)
+    setmore_customer_key: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
@@ -239,6 +240,13 @@ class Booking(BaseModel):
     participants: List[BookingParticipant] = Field(default_factory=list)
     notes: Optional[str] = None
     active_invoice_id: Optional[str] = None  # Reference to linked active invoice (draft, issued, paid)
+    setmore_appointment_id: Optional[str] = None
+    setmore_staff_key: Optional[str] = None
+    setmore_service_key: Optional[str] = None
+    setmore_customer_key: Optional[str] = None
+    setmore_sync_status: Optional[str] = None  # pending_backfill, synced, failed
+    setmore_synced_at: Optional[str] = None
+    setmore_sync_error: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 

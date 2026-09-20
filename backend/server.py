@@ -31,6 +31,8 @@ from routers.invoice_router import invoice_router
 from routers.meta_whatsapp_router import meta_whatsapp_router
 from routers.meta_messenger_router import meta_messenger_router
 from services.aliana_conversation_service import AlianaConversationService
+from services.scheduling_service import SchedulingService
+from services.setmore_service import SetmoreService
 
 # ----------------- Environment & Configuration -----------------
 ROOT_DIR = Path(__file__).parent
@@ -91,6 +93,11 @@ async def lifespan(app: FastAPI):
         # Seed default therapists if missing
         await TherapistService.seed_defaults_if_empty(db)
         logging.info("MongoDB indexes verified and therapists seeded.")
+
+        if SchedulingService.provider() == "setmore" and SetmoreService.configured():
+            synced = await SetmoreService.reconcile_pending_bookings(db)
+            if synced:
+                logging.warning("SETMORE_SYNC stage=startup_backfill synced=%s", synced)
     except Exception as e:
         logging.warning(f"Database startup indexing note: {e}")
     reminder_task = asyncio.create_task(WhatsAppReminderDispatcher.run_forever(db))

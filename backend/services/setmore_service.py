@@ -418,6 +418,196 @@ class SetmoreService:
         return str(key)
 
     @classmethod
+    async def customers(
+        cls,
+        first_name: str,
+        email: Optional[str] = None,
+        phone: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {"firstname": first_name}
+        if email:
+            params["email"] = email
+        if phone:
+            params["phone"] = phone
+        payload = await cls._api("GET", "/customer", params=params)
+        data = payload.get("data") or {}
+        rows = data.get("customer") or data.get("customers") or []
+        if isinstance(rows, dict):
+            return [rows]
+        return rows if isinstance(rows, list) else []
+
+    @classmethod
+    async def resolve_customer_key(cls, db: AsyncIOMotorDatabase, client: Any) -> str:
+        def client_value(field: str):
+            return client.get(field) if isinstance(client, dict) else getattr(client, field, None)
+
+        client_id = str(client_value("id") or "")
+        first_name = str(client_value("first_name") or "").strip()
+        last_name = str(client_value("last_name") or "").strip()
+        email = str(client_value("email") or "").strip()
+        phone = str(client_value("phone") or "").strip()
+
+        client_doc = await db.crm_clients.find_one({"id": client_id}, {"_id": 0})
+        explicit = (client_doc or {}).get("setmore_customer_key")
+        if explicit:
+            return str(explicit)
+
+        rows = await cls.customers(first_name, email=email or None)
+        email_matches = [
+            row for row in rows
+            if email and str(row.get("email_id") or "").strip().lower() == email.lower()
+        ]
+        phone_matches = [
+            row for row in rows
+            if phone and str(row.get("cell_phone") or "").strip() == phone
+        ]
+        matches = email_matches or phone_matches
+        if not matches and len(rows) == 1:
+            matches = rows
+
+        customer_key = None
+        if len(matches) == 1:
+            customer_key = cls._key(matches[0])
+
+        if not customer_key:
+            body: Dict[str, Any] = {
+                "first_name": first_name or "FCA Client",
+                "contact_type": "Customer",
+            }
+            if last_name:
+                body["last_name"] = last_name
+            if email:
+                body["email_id"] = email
+            if phone:
+                body["cell_phone"] = phone
+            payload = await cls._api("POST", "/customer/create", json=body)
+            customer = ((payload.get("data") or {}).get("customer") or {})
+            customer_key = cls._key(customer) if isinstance(customer, dict) else None
+
+        if not customer_key:
+            raise SetmoreError("Setmore customer resolution returned no customer key")
+
+        await db.crm_clients.update_one(
+            {"id": client_id},
+            {"$set": {"setmore_customer_key": str(customer_key), "updated_at": datetime.utcnow().isoformat()}},
+        )
+        return str(customer_key)
+
+    @classmethod
+    async def create_appointment_for_booking(
+        cls,
+        db: AsyncIOMotorDatabase,
+        booking: Any,
+        client: Any,
+    ) -> Dict[str, Any]:
+        def value(obj: Any, field: str):
+            return getattr(obj, field, None) if not isinstance(obj, dict) else obj.get(field)
+
+        booking_id = str(value(booking, "id"))
+        existing = await db.bookings.find_one({"id": booking_id}, {"_id": 0, "setmore_appointment_id": 1})
+        if existing and existing.get("setmore_appointment_id"):
+            return {
+                "appointment_id": str(existing["setmore_appointment_id"]),
+                "staff_key": str(existing.get("setmore_staff_key") or ""),
+                "service_key": str(existing.get("setmore_service_key") or ""),
+                "customer_key": str(existing.get("setmore_customer_key") or ""),
+            }
+
+        therapist_id = str(value(booking, "therapist_id"))
+        session_type = str(value(booking, "session_type"))
+        session_mode = str(value(booking, "session_mode"))
+        staff_key, service_key, customer_key = await asyncio.gather(
+            cls.resolve_staff_key(db, therapist_id),
+            cls.resolve_service_key(db, session_type, session_mode),
+            cls.resolve_customer_key(db, client),
+        )
+
+        tz = ZoneInfo(cls.timezone())
+        start_dt = datetime.fromisoformat(str(value(booking, "starts_at")).replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(str(value(booking, "ends_at")).replace("Z", "+00:00"))
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=tz)
+        else:
+            start_dt = start_dt.astimezone(tz)
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=tz)
+        else:
+            end_dt = end_dt.astimezone(tz)
+
+        payload = await cls._api(
+            "POST",
+            "/appointment/create",
+            json={
+                "staff_key": staff_key,
+                "service_key": service_key,
+                "customer_key": customer_key,
+                "start_time": start_dt.strftime("%Y-%m-%dT%H:%M"),
+                "end_time": end_dt.strftime("%Y-%m-%dT%H:%M"),
+            },
+        )
+        appointment = ((payload.get("data") or {}).get("appointment") or {})
+        appointment_id = cls._key(appointment) if isinstance(appointment, dict) else None
+        if not appointment_id:
+            raise SetmoreError("Setmore appointment creation returned no appointment key")
+
+        sync_fields = {
+            "setmore_appointment_id": str(appointment_id),
+            "setmore_staff_key": str(staff_key),
+            "setmore_service_key": str(service_key),
+            "setmore_customer_key": str(customer_key),
+            "setmore_sync_status": "synced",
+            "setmore_synced_at": datetime.utcnow().isoformat(),
+            "setmore_sync_error": None,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        await db.bookings.update_one({"id": booking_id}, {"$set": sync_fields})
+        logging.warning(
+            "SETMORE_SYNC stage=appointment_created booking_id=%s appointment_id=%s",
+            booking_id,
+            appointment_id,
+        )
+        return {
+            "appointment_id": str(appointment_id),
+            "staff_key": str(staff_key),
+            "service_key": str(service_key),
+            "customer_key": str(customer_key),
+        }
+
+    @classmethod
+    async def reconcile_pending_bookings(cls, db: AsyncIOMotorDatabase, limit: int = 20) -> int:
+        docs = await db.bookings.find(
+            {"status": "confirmed", "setmore_sync_status": "pending_backfill"},
+            {"_id": 0},
+        ).sort("created_at", 1).limit(limit).to_list(limit)
+        synced = 0
+        for booking in docs:
+            client = await db.crm_clients.find_one({"id": booking.get("client_id")}, {"_id": 0})
+            if not client:
+                await db.bookings.update_one(
+                    {"id": booking.get("id")},
+                    {"$set": {"setmore_sync_status": "failed", "setmore_sync_error": "client_not_found"}},
+                )
+                continue
+            try:
+                await cls.create_appointment_for_booking(db, booking, client)
+                synced += 1
+            except Exception as exc:
+                await db.bookings.update_one(
+                    {"id": booking.get("id")},
+                    {"$set": {
+                        "setmore_sync_status": "failed",
+                        "setmore_sync_error": exc.__class__.__name__,
+                        "updated_at": datetime.utcnow().isoformat(),
+                    }},
+                )
+                logging.error(
+                    "SETMORE_SYNC stage=backfill_failed booking_id=%s error=%s",
+                    booking.get("id"),
+                    exc.__class__.__name__,
+                )
+        return synced
+
+    @classmethod
     async def available_slots(
         cls,
         db: AsyncIOMotorDatabase,
