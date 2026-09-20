@@ -216,7 +216,7 @@ class SetmoreService:
         tz = ZoneInfo(cls.timezone())
         first = datetime.strptime(start_date, "%Y-%m-%d").date()
         output: List[Dict[str, Any]] = []
-        logging.info("Setmore availability query therapist_id=%s staff_key=%s service_key=%s type=%s mode=%s start_date=%s days=%s timezone=%s", therapist_id, staff_key, service_key, session_type, session_mode, start_date, days_ahead, cls.timezone())
+        logging.warning("SETMORE_TRACE stage=query therapist_id=%s service_key=%s type=%s mode=%s start_date=%s days=%s timezone=%s", therapist_id, service_key, session_type, session_mode, start_date, days_ahead, cls.timezone())
         for offset in range(days_ahead):
             day = first + timedelta(days=offset)
             payload = await cls._api(
@@ -236,7 +236,7 @@ class SetmoreService:
             times = slots_map.get(day.isoformat(), []) if isinstance(slots_map, dict) else []
             if not isinstance(times, list):
                 times = []
-            logging.info("Setmore slots result therapist_id=%s date=%s slot_count=%s returned_dates=%s", therapist_id, day.isoformat(), len(times), list(slots_map.keys())[:10] if isinstance(slots_map, dict) else [])
+            logging.warning("SETMORE_TRACE stage=day therapist_id=%s date=%s slot_count=%s returned_dates=%s", therapist_id, day.isoformat(), len(times), list(slots_map.keys())[:10] if isinstance(slots_map, dict) else [])
             for display in times:
                 try:
                     local_start = datetime.strptime(
@@ -257,5 +257,5 @@ class SetmoreService:
                     "setmore_staff_key": staff_key,
                     "setmore_service_key": service_key,
                 })
-        logging.info("Setmore availability complete therapist_id=%s usable_slots=%s", therapist_id, len(output))
+        logging.warning("SETMORE_TRACE stage=complete therapist_id=%s usable_slots=%s", therapist_id, len(output))
         return output
