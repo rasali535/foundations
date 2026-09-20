@@ -10,7 +10,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from models import BookingCreateRequest, now_iso
 from services.booking_service import BookingService
-from services.therapist_service import TherapistService
+from services.whatsapp_booking_bot_fast_slots import fast_slot_options
 
 
 CAT_TZ = ZoneInfo("Africa/Gaborone")
@@ -212,43 +212,8 @@ class WhatsAppBookingBotService:
     async def _slot_options(
         db: AsyncIOMotorDatabase, client_doc: Dict[str, Any], session_mode: str
     ) -> List[Dict[str, Any]]:
-        therapists = await TherapistService.list_therapists(
-            db, active_only=True, session_mode=session_mode
-        )
-        if not therapists:
-            return []
-
-        today = datetime.now(CAT_TZ).date().isoformat()
-        now_utc = datetime.now(timezone.utc)
-        candidates: List[Dict[str, Any]] = []
-        for therapist in therapists:
-            slots = await TherapistService.get_available_slots(
-                db, therapist.id, today, days_ahead=30
-            )
-            for slot in slots:
-                if not slot.get("is_available"):
-                    continue
-                try:
-                    start_dt = _parse_iso(slot["starts_at"])
-                except Exception:
-                    continue
-                if start_dt <= now_utc:
-                    continue
-                _, _, remaining = await WhatsAppBookingBotService._monthly_usage(
-                    db, client_doc, start_dt
-                )
-                if remaining <= 0:
-                    continue
-                candidates.append(
-                    {
-                        "therapist_id": therapist.id,
-                        "therapist_name": therapist.name,
-                        "starts_at": slot["starts_at"],
-                        "ends_at": slot["ends_at"],
-                    }
-                )
-        candidates.sort(key=lambda item: item["starts_at"])
-        return candidates[:MAX_SLOT_OPTIONS]
+        """Use the single scheduling gateway for WhatsApp self-service availability."""
+        return await fast_slot_options(db, client_doc, session_mode)
 
     @staticmethod
     def _render_slots(slots: List[Dict[str, Any]]) -> str:
