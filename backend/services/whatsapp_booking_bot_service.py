@@ -11,6 +11,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from models import BookingCreateRequest, now_iso
 from services.booking_service import BookingService
 from services.whatsapp_booking_bot_fast_slots import fast_slot_options
+from services.corporate_entitlement_service import CorporateEntitlementService
 
 
 CAT_TZ = ZoneInfo("Africa/Gaborone")
@@ -335,10 +336,28 @@ class WhatsAppBookingBotService:
                     "For now, reply 6 to speak to FCA or MENU to continue."
                 )
             if text == "5":
+                month_name = datetime.now(CAT_TZ).strftime("%B %Y")
+                if client_doc.get("organisation_id"):
+                    entitlement = await CorporateEntitlementService.remaining_for_client(
+                        db, client_doc, reference=datetime.now(CAT_TZ)
+                    )
+                    if not entitlement or entitlement["limit"] <= 0:
+                        return (
+                            "Your corporate email is not linked to an active employee roster entry. "
+                            "Please contact your organisation or FCA.\n\nSend MENU for more options."
+                        )
+                    return (
+                        f"{month_name} corporate session balance:\n"
+                        f"Used / reserved: {entitlement['used']} of {entitlement['limit']}\n"
+                        f"Remaining: {entitlement['remaining']}\n\n"
+                        "Corporate allocation is 4 sessions per month, maximum one session per calendar week. "
+                        "Therapist-approved extra sessions apply only to the approved month.\n\n"
+                        "Send MENU for more options."
+                    )
+
                 limit, used, remaining = await WhatsAppBookingBotService._monthly_usage(
                     db, client_doc, datetime.now(timezone.utc)
                 )
-                month_name = datetime.now(CAT_TZ).strftime("%B %Y")
                 return (
                     f"{month_name} session balance:\n"
                     f"Used / reserved: {used} of {limit}\n"
