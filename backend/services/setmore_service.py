@@ -438,11 +438,14 @@ class SetmoreService:
 
     @classmethod
     async def resolve_customer_key(cls, db: AsyncIOMotorDatabase, client: Any) -> str:
-        client_id = str(getattr(client, "id", None) or client.get("id"))
-        first_name = str(getattr(client, "first_name", None) or client.get("first_name") or "").strip()
-        last_name = str(getattr(client, "last_name", None) or client.get("last_name") or "").strip()
-        email = str(getattr(client, "email", None) or client.get("email") or "").strip()
-        phone = str(getattr(client, "phone", None) or client.get("phone") or "").strip()
+        def client_value(field: str):
+            return client.get(field) if isinstance(client, dict) else getattr(client, field, None)
+
+        client_id = str(client_value("id") or "")
+        first_name = str(client_value("first_name") or "").strip()
+        last_name = str(client_value("last_name") or "").strip()
+        email = str(client_value("email") or "").strip()
+        phone = str(client_value("phone") or "").strip()
 
         client_doc = await db.crm_clients.find_one({"id": client_id}, {"_id": 0})
         explicit = (client_doc or {}).get("setmore_customer_key")
