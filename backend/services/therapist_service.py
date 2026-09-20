@@ -101,12 +101,21 @@ class TherapistService:
             inserted = 0
             reconciled = 0
             for template in to_seed:
-                existing = await db.therapists.find_one({
+                # Prefer the canonical, non-archived record for a clinician. If duplicates
+                # exist, keep the record already linked to Setmore rather than reviving an
+                # older duplicate during default reconciliation.
+                candidates = await db.therapists.find({
                     "$or": [
                         {"id": template["id"]},
                         {"name": {"$regex": f"^{template['name']}$", "$options": "i"}}
-                    ]
-                })
+                    ],
+                    "archived_at": {"$exists": False}
+                }).to_list(20)
+                existing = next((row for row in candidates if row.get("setmore_staff_key")), None)
+                if not existing:
+                    existing = next((row for row in candidates if row.get("id") == template["id"]), None)
+                if not existing and candidates:
+                    existing = candidates[0]
 
                 if existing:
                     # Preserve existing ID, contacts, schedule, location and meeting links.
