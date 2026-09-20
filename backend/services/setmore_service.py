@@ -121,8 +121,7 @@ class SetmoreService:
             {"provider": "setmore", "session_type": session_type, "session_mode": session_mode},
             {"_id": 0},
         )
-        if mapping and mapping.get("service_key"):
-            return str(mapping["service_key"])
+        mapped_key = str(mapping.get("service_key")) if mapping and mapping.get("service_key") else None
 
         rows = await cls.services()
         if not rows:
@@ -157,14 +156,23 @@ class SetmoreService:
             if type_score:
                 scored.append((type_score + mode_score, mode_score, row))
 
+        mapped_row = next((row for row in rows if cls._key(row) == mapped_key), None) if mapped_key else None
+
         if scored:
             scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
             best_score = scored[0][0]
             best = [item[2] for item in scored if item[0] == best_score]
             if len(best) == 1:
                 matches = best
+            elif mapped_row in best:
+                matches = [mapped_row]
             else:
                 matches = []
+        elif mapped_row is not None:
+            # Keep an existing valid mapping only when no better FCA-specific
+            # service exists. This lets accounts move off bootstrap generic
+            # services without manually clearing Mongo mappings.
+            matches = [mapped_row]
         else:
             # Fresh Setmore accounts commonly start with generic duration services.
             # FCA counselling appointments are currently 60 minutes, so a single
@@ -191,10 +199,28 @@ class SetmoreService:
             raise SetmoreError(
                 f"Setmore service mapping missing for {session_type}/{session_mode}"
             )
-        key = cls._key(matches[0])
+        selected = matches[0]
+        key = cls._key(selected)
+        selected_name = str(selected.get("service_name") or selected.get("name") or selected.get("title") or "").strip()
+        selected_duration = selected.get("duration") or selected.get("duration_minutes") or selected.get("service_duration")
+        if mapped_key and mapped_key != key:
+            logging.warning(
+                "SETMORE_TRACE stage=service_remap type=%s mode=%s old_key=%s new_key=%s new_name=%s",
+                session_type, session_mode, mapped_key, key, selected_name[:80]
+            )
+        else:
+            logging.warning(
+                "SETMORE_TRACE stage=service_selected type=%s mode=%s key=%s name=%s",
+                session_type, session_mode, key, selected_name[:80]
+            )
         await db.scheduling_service_mappings.update_one(
             {"provider": "setmore", "session_type": session_type, "session_mode": session_mode},
-            {"$set": {"service_key": key, "updated_at": datetime.utcnow().isoformat()}},
+            {"$set": {
+                "service_key": key,
+                "service_name": selected_name,
+                "service_duration": selected_duration,
+                "updated_at": datetime.utcnow().isoformat(),
+            }},
             upsert=True,
         )
         return str(key)
