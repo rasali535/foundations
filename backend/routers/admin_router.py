@@ -332,11 +332,14 @@ async def approve_extra_sessions(
     if not contact:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corporate roster member not found.")
 
-    new_extra = int(contact.get("extra_sessions_approved") or 0) + int(payload.extra_sessions)
+    month_key = payload.month or CorporateEntitlementService.month_key()
+    monthly_map = contact.get("extra_sessions_by_month") or {}
+    new_extra = int(monthly_map.get(month_key) or 0) + int(payload.extra_sessions)
     now = now_iso()
     await db.organisation_contacts.update_one(
         {"id": contact_id, "organisation_id": org_id},
         {"$set": {
+            f"extra_sessions_by_month.{month_key}": new_extra,
             "extra_sessions_approved": new_extra,
             "extra_sessions_approved_by": user.get("therapist_id") or user.get("user_id"),
             "extra_sessions_approved_by_name": user.get("name"),
@@ -356,10 +359,11 @@ async def approve_extra_sessions(
             "contact_id": contact_id,
             "extra_sessions_added": payload.extra_sessions,
             "new_extra_session_total": new_extra,
+            "month": month_key,
         }
     )
-    pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id)
-    return {"status": "approved", "extra_sessions_approved": new_extra, "pool": pool}
+    pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id, reference=f"{month_key}-01T00:00:00+02:00")
+    return {"status": "approved", "extra_sessions_approved": new_extra, "month": month_key, "pool": pool}
 
 
 # ==================== Invoice Identity / Company Profile ====================
@@ -458,11 +462,14 @@ async def approve_client_extra_sessions(
             detail="This corporate client is not linked to an active employee roster entry."
         )
 
-    new_extra = int(contact.get("extra_sessions_approved") or 0) + int(payload.extra_sessions)
+    month_key = payload.month or CorporateEntitlementService.month_key()
+    monthly_map = contact.get("extra_sessions_by_month") or {}
+    new_extra = int(monthly_map.get(month_key) or 0) + int(payload.extra_sessions)
     now = now_iso()
     await db.organisation_contacts.update_one(
         {"id": contact["id"], "organisation_id": client["organisation_id"]},
         {"$set": {
+            f"extra_sessions_by_month.{month_key}": new_extra,
             "extra_sessions_approved": new_extra,
             "extra_sessions_approved_by": user.get("therapist_id") or user.get("user_id"),
             "extra_sessions_approved_by_name": user.get("name"),
@@ -483,7 +490,10 @@ async def approve_client_extra_sessions(
             "contact_id": contact["id"],
             "extra_sessions_added": payload.extra_sessions,
             "new_extra_session_total": new_extra,
+            "month": month_key,
         }
     )
-    entitlement = await CorporateEntitlementService.remaining_for_client(db, client)
-    return {"status": "approved", "entitlement": entitlement}
+    entitlement = await CorporateEntitlementService.remaining_for_client(
+        db, client, reference=f"{month_key}-01T00:00:00+02:00"
+    )
+    return {"status": "approved", "month": month_key, "entitlement": entitlement}
