@@ -75,7 +75,15 @@ async def fast_slot_options(
     therapists = await TherapistService.list_therapists(
         db, active_only=True, session_mode=session_mode
     )
+    logging.warning(
+        "WA_SCHED_TRACE stage=therapists mode=%s type=%s count=%s provider=%s",
+        session_mode, session_type, len(therapists), SchedulingService.provider()
+    )
     if not therapists:
+        logging.warning(
+            "WA_SCHED_TRACE stage=short_circuit reason=no_therapists mode=%s type=%s",
+            session_mode, session_type
+        )
         return []
 
     today = datetime.now(CAT_TZ).date().isoformat()
@@ -119,6 +127,10 @@ async def fast_slot_options(
                 }
             )
 
+    logging.warning(
+        "WA_SCHED_TRACE stage=candidates mode=%s type=%s count=%s",
+        session_mode, session_type, len(candidates)
+    )
     if not candidates:
         return []
 
