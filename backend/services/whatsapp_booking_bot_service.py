@@ -210,10 +210,10 @@ class WhatsAppBookingBotService:
 
     @staticmethod
     async def _slot_options(
-        db: AsyncIOMotorDatabase, client_doc: Dict[str, Any], session_mode: str
+        db: AsyncIOMotorDatabase, client_doc: Dict[str, Any], session_mode: str, session_type: str = "individual"
     ) -> List[Dict[str, Any]]:
         """Use the single scheduling gateway for WhatsApp self-service availability."""
-        return await fast_slot_options(db, client_doc, session_mode)
+        return await fast_slot_options(db, client_doc, session_mode, session_type)
 
     @staticmethod
     def _render_slots(slots: List[Dict[str, Any]]) -> str:
@@ -382,7 +382,7 @@ class WhatsAppBookingBotService:
                 await WhatsAppBookingBotService._save_session(db, sender, client_id, "menu", {})
                 return WhatsAppBookingBotService.main_menu(first_name)
 
-            slots = await WhatsAppBookingBotService._slot_options(db, client_doc, mode)
+            slots = await WhatsAppBookingBotService._slot_options(db, client_doc, mode, type_map[text])
             if not slots:
                 await WhatsAppBookingBotService._save_session(db, sender, client_id, "menu", {})
                 return WhatsAppBookingBotService._render_slots([])
@@ -421,7 +421,7 @@ class WhatsAppBookingBotService:
         if state == "confirm_booking":
             if text == "2":
                 slots = await WhatsAppBookingBotService._slot_options(
-                    db, client_doc, context.get("session_mode")
+                    db, client_doc, context.get("session_mode"), context.get("session_type", "individual")
                 )
                 context["slots"] = slots
                 context.pop("selected_slot", None)
