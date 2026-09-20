@@ -165,10 +165,23 @@ class SetmoreService:
                 matches = best
             else:
                 matches = []
-        elif len(rows) == 1 and cls._key(rows[0]):
-            matches = rows
         else:
-            matches = []
+            # Fresh Setmore accounts commonly start with generic duration services.
+            # FCA counselling appointments are currently 60 minutes, so a single
+            # unambiguous one-hour service is the safe bootstrap mapping until the
+            # account is renamed/configured with FCA-specific service names.
+            hour_aliases = {"1 hour meeting", "60 minute meeting", "60 minutes meeting", "1 hour"}
+            hour_matches = [
+                row for row in rows
+                if norm(row.get("service_name") or row.get("name") or row.get("title")) in hour_aliases
+                and cls._key(row)
+            ]
+            if len(hour_matches) == 1:
+                matches = hour_matches
+            elif len(rows) == 1 and cls._key(rows[0]):
+                matches = rows
+            else:
+                matches = []
 
         if len(matches) != 1:
             logging.error(
