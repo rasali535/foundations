@@ -12,7 +12,9 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
-  Info
+  Info,
+  Save,
+  Receipt
 } from 'lucide-react';
 import { formatSessionDateTime } from '../AdminConstants';
 
@@ -25,19 +27,24 @@ const AdminSettings = () => {
   const [auditLimit] = useState(25);
   const [actionFilter, setActionFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  const [invoiceProfile, setInvoiceProfile] = useState(null);
+  const [invoiceProfileSaving, setInvoiceProfileSaving] = useState(false);
+  const [invoiceProfileMessage, setInvoiceProfileMessage] = useState('');
 
   const fetchData = React.useCallback(async () => {
     setLoading(true);
     try {
-      const [cfgRes, notifRes, auditRes] = await Promise.all([
+      const [cfgRes, notifRes, auditRes, invoiceProfileRes] = await Promise.all([
         api.get('/admin-ops/notifications/config'),
         api.get('/admin-ops/notifications?limit=50'),
-        api.get('/admin-ops/audit/logs', { params: { page: auditPage, limit: auditLimit, action: actionFilter || undefined } })
+        api.get('/admin-ops/audit/logs', { params: { page: auditPage, limit: auditLimit, action: actionFilter || undefined } }),
+        api.get('/admin-ops/invoice-profile')
       ]);
       setConfig(cfgRes.data);
       setNotifications(notifRes.data || []);
       setAuditLogs(auditRes.data.logs || []);
       setAuditTotal(auditRes.data.total || 0);
+      setInvoiceProfile(invoiceProfileRes.data);
     } catch (err) {
       console.error('Error fetching admin settings/logs:', err);
     } finally {
@@ -49,6 +56,26 @@ const AdminSettings = () => {
     fetchData();
   }, [fetchData]);
 
+  const updateInvoiceProfileField = (field, value) => {
+    setInvoiceProfile(prev => ({ ...(prev || {}), [field]: value }));
+    setInvoiceProfileMessage('');
+  };
+
+  const saveInvoiceProfile = async () => {
+    if (!invoiceProfile) return;
+    setInvoiceProfileSaving(true);
+    setInvoiceProfileMessage('');
+    try {
+      const res = await api.put('/admin-ops/invoice-profile', invoiceProfile);
+      setInvoiceProfile(res.data);
+      setInvoiceProfileMessage('Invoice company profile saved.');
+    } catch (err) {
+      setInvoiceProfileMessage(err.response?.data?.detail || 'Could not save invoice company profile.');
+    } finally {
+      setInvoiceProfileSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
@@ -59,6 +86,49 @@ const AdminSettings = () => {
             Notification engines (Email & WhatsApp Cloud API), delivery logs, and immutable audit trails
           </p>
         </div>
+      </div>
+
+      {/* Invoice Company Profile */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+              <Receipt className="w-5 h-5 text-emerald-700" />
+              Invoice Company Profile
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Company identity and payment instructions printed on newly generated corporate invoices.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={saveInvoiceProfile}
+            disabled={!invoiceProfile || invoiceProfileSaving}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg"
+          >
+            <Save className="w-4 h-4" />
+            {invoiceProfileSaving ? 'Saving...' : 'Save Invoice Profile'}
+          </button>
+        </div>
+
+        {invoiceProfile && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <input value={invoiceProfile.legal_name || ''} onChange={(e) => updateInvoiceProfileField('legal_name', e.target.value)} placeholder="Legal company name" className="px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+            <input value={invoiceProfile.trading_name || ''} onChange={(e) => updateInvoiceProfileField('trading_name', e.target.value)} placeholder="Trading name" className="px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+            <input value={invoiceProfile.registration_number || ''} onChange={(e) => updateInvoiceProfileField('registration_number', e.target.value)} placeholder="Registration number" className="px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+            <input value={invoiceProfile.tax_number || ''} onChange={(e) => updateInvoiceProfileField('tax_number', e.target.value)} placeholder="Tax / VAT number" className="px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+            <input value={invoiceProfile.email || ''} onChange={(e) => updateInvoiceProfileField('email', e.target.value)} placeholder="Invoice email" className="px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+            <input value={invoiceProfile.phone || ''} onChange={(e) => updateInvoiceProfileField('phone', e.target.value)} placeholder="Phone" className="px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+            <input value={invoiceProfile.website || ''} onChange={(e) => updateInvoiceProfileField('website', e.target.value)} placeholder="Website" className="px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+            <textarea value={invoiceProfile.address || ''} onChange={(e) => updateInvoiceProfileField('address', e.target.value)} placeholder="Business address" rows="2" className="sm:col-span-2 px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+            <textarea value={invoiceProfile.payment_instructions || ''} onChange={(e) => updateInvoiceProfileField('payment_instructions', e.target.value)} placeholder="Payment instructions shown on invoice" rows="2" className="sm:col-span-2 lg:col-span-3 px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+            <textarea value={invoiceProfile.footer_note || ''} onChange={(e) => updateInvoiceProfileField('footer_note', e.target.value)} placeholder="Invoice footer note" rows="2" className="sm:col-span-2 lg:col-span-3 px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+          </div>
+        )}
+
+        {invoiceProfileMessage && (
+          <div className="text-xs font-semibold text-slate-600">{invoiceProfileMessage}</div>
+        )}
       </div>
 
       {/* Provider Status Cards */}
