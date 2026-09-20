@@ -4,21 +4,14 @@ import {
   Building2,
   Plus,
   Users,
-  Calendar,
-  Layers,
   Key,
   Edit2,
   X,
-  Check,
   AlertCircle,
   Link2,
   Copy,
   ExternalLink,
   Upload,
-  UserRound,
-  Mail,
-  Phone,
-  Briefcase,
   Receipt
 } from 'lucide-react';
 
@@ -288,6 +281,30 @@ const AdminOrganisations = () => {
         };
       })
       .filter(row => row.email && row.email.includes('@'));
+  };
+
+  const handleRosterStatus = async (contact) => {
+    if (!selectedOrgForRoster) return;
+    try {
+      const nextActive = contact.active === false;
+      const res = await api.patch(
+        `/admin-ops/organisations/${selectedOrgForRoster.id}/contacts/${contact.id}/status`,
+        null,
+        { params: { active: nextActive } }
+      );
+      setOrgContacts(prev => ({
+        ...prev,
+        [selectedOrgForRoster.id]: (prev[selectedOrgForRoster.id] || []).map(item =>
+          item.id === contact.id ? { ...item, active: nextActive } : item
+        )
+      }));
+      if (res.data?.pool) {
+        setOrgPools(prev => ({ ...prev, [selectedOrgForRoster.id]: res.data.pool }));
+      }
+      await fetchOrganisations();
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Could not update roster member status.');
+    }
   };
 
   const handleBulkRosterSave = async () => {
@@ -574,11 +591,12 @@ const AdminOrganisations = () => {
                         <th className="px-4 py-2">Phone</th>
                         <th className="px-4 py-2">Department / Role</th>
                         <th className="px-4 py-2 text-center">Allocation</th>
+                        <th className="px-4 py-2 text-right">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {(orgContacts[selectedOrgForRoster.id] || []).length === 0 ? (
-                        <tr><td colSpan="5" className="px-4 py-8 text-center text-slate-400">No employees added yet.</td></tr>
+                        <tr><td colSpan="6" className="px-4 py-8 text-center text-slate-400">No employees added yet.</td></tr>
                       ) : (
                         (orgContacts[selectedOrgForRoster.id] || []).map(contact => (
                           <tr key={contact.id} className={contact.active === false ? 'opacity-50' : ''}>
@@ -593,6 +611,17 @@ const AdminOrganisations = () => {
                               {contact.extra_sessions_approved > 0 && (
                                 <span className="block text-[9px] text-emerald-700">+{contact.extra_sessions_approved} approved</span>
                               )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleRosterStatus(contact)}
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition ${contact.active === false
+                                  ? 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-emerald-50 hover:text-emerald-700'
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-rose-50 hover:text-rose-700'}`}
+                              >
+                                {contact.active === false ? 'Reactivate' : 'Active'}
+                              </button>
                             </td>
                           </tr>
                         ))
@@ -613,7 +642,7 @@ const AdminOrganisations = () => {
       {/* Organisation Modal */}
       {orgModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+          <div className="bg-white w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl border border-slate-200">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-bold text-slate-900 text-base">
                 {editingOrg ? 'Edit Corporate Organisation' : 'Add Corporate Organisation'}
