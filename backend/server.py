@@ -85,6 +85,7 @@ async def lifespan(app: FastAPI):
         await db.crm_intake_submissions.create_index([("client_id", 1)])
         await db.crm_intake_submissions.create_index([("organisation_id", 1), ("created_at", -1)])
         await db.organisations.create_index([("code", 1)], unique=True)
+        await db.staff_users.create_index([("user_id", 1)], unique=True)
         await db.organisation_contacts.create_index(
             [("organisation_id", 1), ("email_normalized", 1)],
             unique=True,
@@ -384,15 +385,25 @@ async def login(request: Request, payload: Optional[LoginRequest] = None, userna
 
     if user_key not in USERS_DB and target_db is not None:
         try:
-            db_user = await target_db.organisation_users.find_one({"user_id": user_key})
+            db_user = await target_db.staff_users.find_one({"user_id": user_key, "active": {"$ne": False}})
             if db_user and db_user.get("password_hash"):
                 USERS_DB[user_key] = {
                     "password_hash": db_user["password_hash"],
-                    "role": db_user.get("role", "hr_admin"),
+                    "role": db_user.get("role", "staff"),
                     "name": db_user.get("name", user_key),
                     "organisation_id": db_user.get("organisation_id"),
-                    "therapist_id": None
+                    "therapist_id": db_user.get("therapist_id")
                 }
+            else:
+                db_user = await target_db.organisation_users.find_one({"user_id": user_key})
+                if db_user and db_user.get("password_hash"):
+                    USERS_DB[user_key] = {
+                        "password_hash": db_user["password_hash"],
+                        "role": db_user.get("role", "hr_admin"),
+                        "name": db_user.get("name", user_key),
+                        "organisation_id": db_user.get("organisation_id"),
+                        "therapist_id": db_user.get("therapist_id")
+                    }
         except Exception:
             pass
 
