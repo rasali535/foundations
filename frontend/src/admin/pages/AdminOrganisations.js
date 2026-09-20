@@ -13,7 +13,13 @@ import {
   AlertCircle,
   Link2,
   Copy,
-  ExternalLink
+  ExternalLink,
+  Upload,
+  UserRound,
+  Mail,
+  Phone,
+  Briefcase,
+  Receipt
 } from 'lucide-react';
 
 const AdminOrganisations = () => {
@@ -30,9 +36,22 @@ const AdminOrganisations = () => {
     status: 'active',
     contract_start: '',
     contract_end: '',
-    allocated_sessions: '',
     contact_person: '',
     contact_email: '',
+    contact_phone: '',
+    billing_contact_name: '',
+    billing_email: '',
+    billing_phone: '',
+    billing_address: '',
+    registration_number: '',
+    tax_number: '',
+    purchase_order_reference: '',
+    billing_currency: 'BWP',
+    payment_terms_days: '30',
+    rate_individual: '',
+    rate_couple: '',
+    rate_family: '',
+    invoice_notes: '',
     notes: ''
   });
 
@@ -66,19 +85,30 @@ const AdminOrganisations = () => {
     }
   };
 
-  // Organisation Users View
+  // Organisation Users & Corporate Roster View
   const [orgUsers, setOrgUsers] = useState({});
+  const [orgContacts, setOrgContacts] = useState({});
+  const [orgPools, setOrgPools] = useState({});
+  const [rosterModalOpen, setRosterModalOpen] = useState(false);
+  const [selectedOrgForRoster, setSelectedOrgForRoster] = useState(null);
+  const [bulkRosterText, setBulkRosterText] = useState('');
+  const [rosterLoading, setRosterLoading] = useState(false);
 
   const fetchOrganisations = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.get('/admin-ops/organisations');
       setOrganisations(res.data || []);
-      // fetch users for each org
+      // Fetch portal users and corporate roster/pool for each organisation.
       for (const org of res.data || []) {
         try {
-          const uRes = await api.get(`/admin-ops/organisations/${org.id}/users`);
+          const [uRes, cRes] = await Promise.all([
+            api.get(`/admin-ops/organisations/${org.id}/users`),
+            api.get(`/admin-ops/organisations/${org.id}/contacts`)
+          ]);
           setOrgUsers(prev => ({ ...prev, [org.id]: uRes.data || [] }));
+          setOrgContacts(prev => ({ ...prev, [org.id]: cRes.data?.contacts || [] }));
+          setOrgPools(prev => ({ ...prev, [org.id]: cRes.data?.pool || null }));
         } catch (e) {}
       }
     } catch (err) {
@@ -100,9 +130,22 @@ const AdminOrganisations = () => {
       status: 'active',
       contract_start: '',
       contract_end: '',
-      allocated_sessions: '',
       contact_person: '',
       contact_email: '',
+      contact_phone: '',
+      billing_contact_name: '',
+      billing_email: '',
+      billing_phone: '',
+      billing_address: '',
+      registration_number: '',
+      tax_number: '',
+      purchase_order_reference: '',
+      billing_currency: 'BWP',
+      payment_terms_days: '30',
+      rate_individual: '',
+      rate_couple: '',
+      rate_family: '',
+      invoice_notes: '',
       notes: ''
     });
     setActionError('');
@@ -117,9 +160,22 @@ const AdminOrganisations = () => {
       status: org.status,
       contract_start: org.contract_start || '',
       contract_end: org.contract_end || '',
-      allocated_sessions: org.allocated_sessions != null ? org.allocated_sessions.toString() : '',
       contact_person: org.contact_person || '',
       contact_email: org.contact_email || '',
+      contact_phone: org.contact_phone || '',
+      billing_contact_name: org.billing_contact_name || '',
+      billing_email: org.billing_email || '',
+      billing_phone: org.billing_phone || '',
+      billing_address: org.billing_address || '',
+      registration_number: org.registration_number || '',
+      tax_number: org.tax_number || '',
+      purchase_order_reference: org.purchase_order_reference || '',
+      billing_currency: org.billing_currency || 'BWP',
+      payment_terms_days: String(org.payment_terms_days ?? 30),
+      rate_individual: org.rate_individual != null ? String(org.rate_individual) : '',
+      rate_couple: org.rate_couple != null ? String(org.rate_couple) : '',
+      rate_family: org.rate_family != null ? String(org.rate_family) : '',
+      invoice_notes: org.invoice_notes || '',
       notes: org.notes || ''
     });
     setActionError('');
@@ -137,9 +193,22 @@ const AdminOrganisations = () => {
         status: orgForm.status,
         contract_start: orgForm.contract_start || null,
         contract_end: orgForm.contract_end || null,
-        allocated_sessions: orgForm.allocated_sessions ? parseInt(orgForm.allocated_sessions, 10) : null,
         contact_person: orgForm.contact_person.trim() || null,
         contact_email: orgForm.contact_email.trim() || null,
+        contact_phone: orgForm.contact_phone.trim() || null,
+        billing_contact_name: orgForm.billing_contact_name.trim() || null,
+        billing_email: orgForm.billing_email.trim() || null,
+        billing_phone: orgForm.billing_phone.trim() || null,
+        billing_address: orgForm.billing_address.trim() || null,
+        registration_number: orgForm.registration_number.trim() || null,
+        tax_number: orgForm.tax_number.trim() || null,
+        purchase_order_reference: orgForm.purchase_order_reference.trim() || null,
+        billing_currency: (orgForm.billing_currency || 'BWP').trim().toUpperCase(),
+        payment_terms_days: parseInt(orgForm.payment_terms_days || '30', 10),
+        rate_individual: orgForm.rate_individual ? parseFloat(orgForm.rate_individual) : null,
+        rate_couple: orgForm.rate_couple ? parseFloat(orgForm.rate_couple) : null,
+        rate_family: orgForm.rate_family ? parseFloat(orgForm.rate_family) : null,
+        invoice_notes: orgForm.invoice_notes.trim() || null,
         notes: orgForm.notes.trim() || null
       };
 
@@ -191,6 +260,61 @@ const AdminOrganisations = () => {
     }
   };
 
+  const handleOpenRoster = (org) => {
+    setSelectedOrgForRoster(org);
+    setBulkRosterText('');
+    setActionError('');
+    setRosterModalOpen(true);
+  };
+
+  const parseRosterText = (text) => {
+    return text
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => {
+        const delimiter = line.includes('\t') ? '\t' : ',';
+        const parts = line.split(delimiter).map(value => value.trim());
+        if (parts.length === 1 && parts[0].includes('@')) {
+          return { name: '', email: parts[0], phone: '', department: '', job_title: '', contact_type: 'employee' };
+        }
+        return {
+          name: parts[0] || '',
+          email: parts[1] || '',
+          phone: parts[2] || '',
+          department: parts[3] || '',
+          job_title: parts[4] || '',
+          contact_type: parts[5] || 'employee'
+        };
+      })
+      .filter(row => row.email && row.email.includes('@'));
+  };
+
+  const handleBulkRosterSave = async () => {
+    if (!selectedOrgForRoster) return;
+    const contacts = parseRosterText(bulkRosterText);
+    if (!contacts.length) {
+      setActionError('Add at least one valid email. Use: Name, Email, Phone, Department, Job Title.');
+      return;
+    }
+    setRosterLoading(true);
+    setActionError('');
+    try {
+      const res = await api.post(
+        `/admin-ops/organisations/${selectedOrgForRoster.id}/contacts/bulk`,
+        { contacts }
+      );
+      setOrgContacts(prev => ({ ...prev, [selectedOrgForRoster.id]: res.data?.contacts || [] }));
+      setOrgPools(prev => ({ ...prev, [selectedOrgForRoster.id]: res.data?.pool || null }));
+      setBulkRosterText('');
+      await fetchOrganisations();
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Failed to import corporate contacts.');
+    } finally {
+      setRosterLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -233,6 +357,12 @@ const AdminOrganisations = () => {
         <div className="grid grid-cols-1 gap-4">
           {organisations.map((org) => {
             const usersList = orgUsers[org.id] || [];
+            const contactsList = orgContacts[org.id] || [];
+            const pool = orgPools[org.id] || {
+              member_count: contactsList.filter(c => c.active !== false && c.email).length,
+              allocated_sessions: org.allocated_sessions || 0,
+              approved_extra_sessions: 0
+            };
             return (
               <div key={org.id} className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
@@ -258,7 +388,14 @@ const AdminOrganisations = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => handleOpenRoster(org)}
+                      className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-lg border border-emerald-200 transition inline-flex items-center gap-1.5"
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      <span>Employee Roster</span>
+                    </button>
                     <button
                       onClick={() => handleOpenCreateUser(org)}
                       className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold rounded-lg border border-teal-200 transition inline-flex items-center gap-1.5"
@@ -280,7 +417,11 @@ const AdminOrganisations = () => {
                   <div className="p-3 bg-slate-50 rounded-xl">
                     <span className="text-[10px] text-slate-400 block font-semibold">Allocated Pool</span>
                     <span className="font-bold text-slate-900 text-sm">
-                      {org.allocated_sessions != null ? `${org.allocated_sessions} sessions` : 'Unlimited / Not set'}
+                      {pool.allocated_sessions} sessions
+                    </span>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">
+                      {pool.member_count} people × 4
+                      {pool.approved_extra_sessions > 0 ? ` + ${pool.approved_extra_sessions} therapist-approved` : ''}
                     </span>
                   </div>
                   <div className="p-3 bg-slate-50 rounded-xl">
@@ -357,6 +498,118 @@ const AdminOrganisations = () => {
         </div>
       )}
 
+      {/* Corporate Employee Roster Modal */}
+      {rosterModalOpen && selectedOrgForRoster && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl border border-slate-200">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Corporate Employee Roster</h3>
+                <span className="text-[11px] text-emerald-700 font-semibold">{selectedOrgForRoster.name}</span>
+              </div>
+              <button onClick={() => setRosterModalOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-4 bg-slate-50 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Active People</span>
+                  <p className="text-xl font-black text-slate-900">{orgPools[selectedOrgForRoster.id]?.member_count || 0}</p>
+                </div>
+                <div className="p-4 bg-slate-50 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Base Allocation</span>
+                  <p className="text-xl font-black text-slate-900">{(orgPools[selectedOrgForRoster.id]?.member_count || 0) * 4}</p>
+                  <span className="text-[10px] text-slate-500">4 sessions per person</span>
+                </div>
+                <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+                  <span className="text-[10px] uppercase font-bold text-emerald-700">Total Pool</span>
+                  <p className="text-xl font-black text-emerald-800">{orgPools[selectedOrgForRoster.id]?.allocated_sessions || 0}</p>
+                  <span className="text-[10px] text-emerald-700">Includes approved extras</span>
+                </div>
+              </div>
+
+              {actionError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs">{actionError}</div>
+              )}
+
+              <div className="p-4 border border-slate-200 rounded-xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <Upload className="w-4 h-4 text-emerald-700" />
+                  <h4 className="text-sm font-bold text-slate-900">Bulk add / update people</h4>
+                </div>
+                <p className="text-[11px] text-slate-500 mb-3">
+                  Paste from Excel or CSV. One person per line: <b>Name, Email, Phone, Department, Job Title</b>. Email is required and acts as the unique roster key.
+                </p>
+                <textarea
+                  rows="7"
+                  value={bulkRosterText}
+                  onChange={(e) => setBulkRosterText(e.target.value)}
+                  placeholder={"Jane Doe, jane@company.com, +267..., Finance, Manager\nJohn Doe, john@company.com, +267..., Operations, Officer"}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono"
+                />
+                <div className="flex justify-end mt-3">
+                  <button
+                    type="button"
+                    onClick={handleBulkRosterSave}
+                    disabled={rosterLoading}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg"
+                  >
+                    {rosterLoading ? 'Importing...' : 'Import / Update Roster'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-700">
+                  Current Roster
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="text-slate-400 uppercase bg-white border-b border-slate-100">
+                      <tr>
+                        <th className="px-4 py-2">Person</th>
+                        <th className="px-4 py-2">Email</th>
+                        <th className="px-4 py-2">Phone</th>
+                        <th className="px-4 py-2">Department / Role</th>
+                        <th className="px-4 py-2 text-center">Allocation</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(orgContacts[selectedOrgForRoster.id] || []).length === 0 ? (
+                        <tr><td colSpan="5" className="px-4 py-8 text-center text-slate-400">No employees added yet.</td></tr>
+                      ) : (
+                        (orgContacts[selectedOrgForRoster.id] || []).map(contact => (
+                          <tr key={contact.id} className={contact.active === false ? 'opacity-50' : ''}>
+                            <td className="px-4 py-3 font-semibold text-slate-800">{contact.name || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">{contact.email}</td>
+                            <td className="px-4 py-3 text-slate-600">{contact.phone || '—'}</td>
+                            <td className="px-4 py-3 text-slate-600">
+                              {[contact.department, contact.job_title].filter(Boolean).join(' • ') || '—'}
+                            </td>
+                            <td className="px-4 py-3 text-center font-bold text-slate-800">
+                              {(contact.base_session_allocation || 4) + (contact.extra_sessions_approved || 0)}
+                              {contact.extra_sessions_approved > 0 && (
+                                <span className="block text-[9px] text-emerald-700">+{contact.extra_sessions_approved} approved</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-500">
+                Employee roster data is operational entitlement data. Corporate HR dashboards still receive aggregate utilisation only and do not expose individual counselling activity.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Organisation Modal */}
       {orgModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
@@ -422,15 +675,11 @@ const AdminOrganisations = () => {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Contract Allocated Sessions Pool</label>
-                <input
-                  type="number"
-                  value={orgForm.allocated_sessions}
-                  onChange={(e) => setOrgForm({ ...orgForm, allocated_sessions: e.target.value })}
-                  placeholder="e.g. 300"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs"
-                />
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100 text-xs text-emerald-900">
+                <strong>Session allocation is automatic.</strong>
+                <p className="mt-1 text-emerald-800">
+                  Every active employee email in the corporate roster receives 4 sessions. Extra sessions only increase the pool after therapist or clinical-lead approval.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -453,6 +702,45 @@ const AdminOrganisations = () => {
                     placeholder="hr@company.com"
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs"
                   />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Main Contact Phone</label>
+                <input
+                  type="text"
+                  value={orgForm.contact_phone}
+                  onChange={(e) => setOrgForm({ ...orgForm, contact_phone: e.target.value })}
+                  placeholder="+267 ..."
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100">
+                <div className="flex items-center gap-2 mb-3">
+                  <Receipt className="w-4 h-4 text-emerald-700" />
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Corporate Billing Profile</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input type="text" value={orgForm.billing_contact_name} onChange={(e) => setOrgForm({ ...orgForm, billing_contact_name: e.target.value })} placeholder="Billing contact name" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+                  <input type="email" value={orgForm.billing_email} onChange={(e) => setOrgForm({ ...orgForm, billing_email: e.target.value })} placeholder="Billing email" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+                  <input type="text" value={orgForm.billing_phone} onChange={(e) => setOrgForm({ ...orgForm, billing_phone: e.target.value })} placeholder="Billing phone" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+                  <input type="text" value={orgForm.purchase_order_reference} onChange={(e) => setOrgForm({ ...orgForm, purchase_order_reference: e.target.value })} placeholder="Default PO / reference" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+                  <input type="text" value={orgForm.registration_number} onChange={(e) => setOrgForm({ ...orgForm, registration_number: e.target.value })} placeholder="Registration number" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+                  <input type="text" value={orgForm.tax_number} onChange={(e) => setOrgForm({ ...orgForm, tax_number: e.target.value })} placeholder="Tax / VAT number" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+                  <textarea value={orgForm.billing_address} onChange={(e) => setOrgForm({ ...orgForm, billing_address: e.target.value })} placeholder="Billing address" rows="2" className="sm:col-span-2 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Contract Billing Rules</span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
+                  <input type="text" value={orgForm.billing_currency} onChange={(e) => setOrgForm({ ...orgForm, billing_currency: e.target.value })} placeholder="Currency" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs uppercase" />
+                  <input type="number" min="0" value={orgForm.payment_terms_days} onChange={(e) => setOrgForm({ ...orgForm, payment_terms_days: e.target.value })} placeholder="Payment terms days" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+                  <input type="number" min="0" step="0.01" value={orgForm.rate_individual} onChange={(e) => setOrgForm({ ...orgForm, rate_individual: e.target.value })} placeholder="Individual rate" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+                  <input type="number" min="0" step="0.01" value={orgForm.rate_couple} onChange={(e) => setOrgForm({ ...orgForm, rate_couple: e.target.value })} placeholder="Couple rate" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+                  <input type="number" min="0" step="0.01" value={orgForm.rate_family} onChange={(e) => setOrgForm({ ...orgForm, rate_family: e.target.value })} placeholder="Family rate" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+                  <textarea value={orgForm.invoice_notes} onChange={(e) => setOrgForm({ ...orgForm, invoice_notes: e.target.value })} placeholder="Default invoice note" rows="2" className="col-span-2 sm:col-span-3 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
                 </div>
               </div>
 
