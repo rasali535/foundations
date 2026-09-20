@@ -442,11 +442,43 @@ class SetmoreService:
                     "timezone": cls.timezone(),
                 },
             )
-            slots_map = ((payload.get("data") or {}).get("slots") or {})
-            times = slots_map.get(day.isoformat(), []) if isinstance(slots_map, dict) else []
+            data = payload.get("data") or {}
+            slots_present = isinstance(data, dict) and "slots" in data
+            slots_map = data.get("slots") if isinstance(data, dict) else None
+
+            # Setmore documents HTTP 200 as a union of a successful slots payload
+            # and a validation payload. Do not silently turn a validation response
+            # into "zero availability"; surface safe metadata so the real cause can
+            # be diagnosed.
+            if not slots_present or not isinstance(slots_map, dict):
+                safe_msg = (
+                    payload.get("msg")
+                    or payload.get("message")
+                    or (data.get("msg") if isinstance(data, dict) else None)
+                    or (data.get("message") if isinstance(data, dict) else None)
+                    or "validation response"
+                )
+                safe_code = (
+                    payload.get("code")
+                    or payload.get("status")
+                    or (data.get("code") if isinstance(data, dict) else None)
+                    or (data.get("status") if isinstance(data, dict) else None)
+                )
+                logging.warning(
+                    "SETMORE_TRACE stage=slots_validation date=%s response=%s code=%s msg=%s top_keys=%s data_keys=%s",
+                    day.isoformat(),
+                    payload.get("response"),
+                    safe_code,
+                    str(safe_msg)[:160],
+                    sorted(payload.keys()),
+                    sorted(data.keys()) if isinstance(data, dict) else [],
+                )
+                raise SetmoreError(f"Setmore slots validation response: {str(safe_msg)[:120]}")
+
+            times = slots_map.get(day.isoformat(), [])
             if not isinstance(times, list):
                 times = []
-            logging.warning("SETMORE_TRACE stage=day therapist_id=%s date=%s slot_count=%s returned_dates=%s", therapist_id, day.isoformat(), len(times), list(slots_map.keys())[:10] if isinstance(slots_map, dict) else [])
+            logging.warning("SETMORE_TRACE stage=day therapist_id=%s date=%s slot_count=%s returned_dates=%s", therapist_id, day.isoformat(), len(times), list(slots_map.keys())[:10])
             for display in times:
                 try:
                     local_start = datetime.strptime(
