@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 from zoneinfo import ZoneInfo
@@ -94,6 +95,10 @@ async def fast_slot_options(
     candidates: List[Dict[str, Any]] = []
     for therapist, slots in zip(therapists, availability_results):
         if isinstance(slots, Exception):
+            logging.error(
+                "Scheduling availability failed provider=%s therapist_id=%s mode=%s type=%s error=%s",
+                SchedulingService.provider(), therapist.id, session_mode, session_type, str(slots)
+            )
             continue
         for slot in slots:
             if not slot.get("is_available"):
