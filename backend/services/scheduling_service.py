@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from services.therapist_service import TherapistService
+from services.setmore_service import SetmoreService
 
 
 class SchedulingService:
@@ -31,12 +32,16 @@ class SchedulingService:
         if provider not in {"internal", "setmore"}:
             raise RuntimeError(f"Unsupported scheduling provider: {provider}")
 
-        # Setmore remains deliberately fail-closed until FCA receives its Pro API
-        # refresh token and therapist/service keys are mapped. We do not silently
-        # mix two calendars, because that can create double bookings.
         if provider == "setmore":
-            raise RuntimeError(
-                "Setmore scheduling is selected but API access/mapping is not configured yet."
+            if not SetmoreService.configured():
+                raise RuntimeError("Setmore scheduling is selected but SETMORE_REFRESH_TOKEN is missing.")
+            return await SetmoreService.available_slots(
+                db,
+                therapist_id=therapist_id,
+                start_date=start_date,
+                days_ahead=days_ahead,
+                session_type=session_type,
+                session_mode=session_mode,
             )
 
         return await TherapistService.get_available_slots(

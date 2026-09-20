@@ -123,7 +123,7 @@ def install_day_first_flow(service_cls) -> None:
                 await service_cls._save_session(db, sender, client_id, "menu", {})
                 return service_cls.main_menu(first_name)
 
-            slots = await service_cls._slot_options(db, client_doc, mode)
+            slots = await service_cls._slot_options(db, client_doc, mode, type_map[upper_text])
             if not slots:
                 await service_cls._save_session(db, sender, client_id, "menu", {})
                 return (

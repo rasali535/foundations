@@ -61,6 +61,7 @@ async def fast_slot_options(
     db: AsyncIOMotorDatabase,
     client_doc: Dict[str, Any],
     session_mode: str,
+    session_type: str = "individual",
 ) -> List[Dict[str, Any]]:
     """Return all eligible bookable slots from the next seven days.
 
@@ -83,7 +84,7 @@ async def fast_slot_options(
         *(
             SchedulingService.get_available_slots(
                 db, therapist.id, today, days_ahead=AVAILABILITY_DAYS,
-                session_mode=session_mode
+                session_mode=session_mode, session_type=session_type
             )
             for therapist in therapists
         ),
