@@ -16,6 +16,7 @@ from services.audit_service import AuditService
 from services.meta_whatsapp_template_service import MetaWhatsAppTemplateService
 from services.scheduling_service import SchedulingService
 from services.setmore_service import SetmoreService
+from services.corporate_entitlement_service import CorporateEntitlementService
 
 
 def parse_iso(dt_str: str) -> datetime:
@@ -24,6 +25,36 @@ def parse_iso(dt_str: str) -> datetime:
 
 
 class BookingService:
+    @staticmethod
+    async def check_corporate_entitlement(
+        db: AsyncIOMotorDatabase,
+        client: CRMClient,
+        requested_sessions: int = 1,
+    ) -> Tuple[bool, Optional[str]]:
+        """Enforce roster-derived corporate session allocation.
+
+        Private clients are not affected. Corporate clients receive four sessions
+        per active roster member by default; extra sessions only become available
+        after therapist/clinical-lead approval has been recorded.
+        """
+        if not getattr(client, "organisation_id", None):
+            return True, None
+
+        entitlement = await CorporateEntitlementService.remaining_for_client(db, client)
+        if entitlement is None:
+            return True, None
+        if entitlement["limit"] <= 0:
+            return False, (
+                "Your corporate email is not currently linked to an active FCA employee roster entry. "
+                "Please contact your organisation or FCA before booking."
+            )
+        if entitlement["remaining"] < requested_sessions:
+            return False, (
+                f"Your corporate session allocation has {entitlement['remaining']} session(s) remaining. "
+                "Additional sessions require therapist approval."
+            )
+        return True, None
+
     # ==================== Conflict / Double-Booking Validator ====================
     @staticmethod
     async def check_therapist_conflict(
@@ -157,6 +188,12 @@ class BookingService:
                 "phone": request.client_phone or "",
             }
             client, _ = await CRMService.find_or_create_client(db, client_dict, actor_id=actor_id, actor_name=actor_name)
+
+        entitlement_ok, entitlement_error = await BookingService.check_corporate_entitlement(
+            db, client, requested_sessions=1
+        )
+        if not entitlement_ok:
+            return None, entitlement_error
 
         # 2. Validate Session Type and Session Mode
         valid_types = ["individual", "couple", "family"]
@@ -329,6 +366,12 @@ class BookingService:
 
         session_type = request.session_type.lower()
         session_mode = request.session_mode.lower()
+
+        entitlement_ok, entitlement_error = await BookingService.check_corporate_entitlement(
+            db, client, requested_sessions=len(request.slots)
+        )
+        if not entitlement_ok:
+            return None, entitlement_error
 
         # 2. Route & Validate Therapist
         therapist, err = await TherapistService.validate_and_route_therapist(
