@@ -101,7 +101,14 @@ async def lifespan(app: FastAPI):
         await TherapistService.seed_defaults_if_empty(db)
         logging.info("MongoDB indexes verified and therapists seeded.")
 
-        if SchedulingService.provider() == "setmore" and SetmoreService.configured():
+        scheduling_provider = SchedulingService.provider()
+        setmore_configured = SetmoreService.configured()
+        logging.info(
+            "SETMORE_HEALTH stage=startup_config provider=%s configured=%s",
+            scheduling_provider,
+            setmore_configured,
+        )
+        if scheduling_provider == "setmore" and setmore_configured:
             try:
                 setmore_staff = await SetmoreService.staffs()
                 logging.info(
