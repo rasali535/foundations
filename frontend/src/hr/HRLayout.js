@@ -12,7 +12,8 @@ import {
   Menu,
   X,
   Lock,
-  Receipt
+  Receipt,
+  ReceiptText
 } from 'lucide-react';
 
 const HRLayout = () => {
@@ -59,8 +60,11 @@ const HRLayout = () => {
     { label: 'Contract Overview', path: '/hr/contract', icon: FileCheck2 },
     { label: 'Utilisation Trends', path: '/hr/utilisation', icon: TrendingUp },
     { label: 'Aggregate Reports', path: '/hr/reports', icon: BarChart3 },
+    { label: 'Booking Ledger', path: '/hr/booking-ledger', icon: ReceiptText, roles: ['hr_admin', 'super_admin', 'admin'] },
     { label: 'Invoices', path: '/hr/invoices', icon: Receipt }
   ];
+
+  const visibleNavItems = navItems.filter((item) => !item.roles || item.roles.includes(user.role));
 
   const handleLogout = async () => {
     await logout();
@@ -125,7 +129,7 @@ const HRLayout = () => {
         {/* Desktop Navigation Row */}
         <div className="hidden md:block bg-slate-50/80 border-t border-slate-100 px-4 sm:px-6 lg:px-8">
           <div className="max-w-7xl mx-auto flex items-center gap-1 py-1">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon;
               return (
                 <NavLink
@@ -155,7 +159,7 @@ const HRLayout = () => {
               <span className="font-bold text-slate-800">{user.organisation_name}</span>
             </div>
             <div className="space-y-1">
-              {navItems.map((item) => {
+              {visibleNavItems.map((item) => {
                 const Icon = item.icon;
                 return (
                   <NavLink
