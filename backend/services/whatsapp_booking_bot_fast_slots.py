@@ -12,7 +12,7 @@ from services.corporate_entitlement_service import CorporateEntitlementService
 
 
 CAT_TZ = ZoneInfo("Africa/Gaborone")
-AVAILABILITY_DAYS = 7
+AVAILABILITY_DAYS = 35
 CORPORATE_AVAILABILITY_DAYS = 35
 MAX_WEEKLY_SLOTS = 100
 ENTITLEMENT_STATUSES = ["pending", "confirmed", "completed", "late_cancelled_billable", "no_show"]
@@ -20,6 +20,10 @@ ENTITLEMENT_STATUSES = ["pending", "confirmed", "completed", "late_cancelled_bil
 
 class MonthlySessionLimitReached(RuntimeError):
     """Raised when calendar slots exist but the client has no monthly entitlement left."""
+
+
+class SchedulingAvailabilityError(RuntimeError):
+    """Raised when all eligible therapist availability lookups fail."""
 
 
 
@@ -71,13 +75,13 @@ async def fast_slot_options(
     session_mode: str,
     session_type: str = "individual",
 ) -> List[Dict[str, Any]]:
-    """Return all eligible bookable slots from the next seven days.
+    """Return eligible bookable slots from the active self-service horizon.
 
-    WhatsApp now presents available days first and only shows times after a client
-    chooses a day. The full weekly slot set is therefore retained in bot state so
-    the selected day's times can be rendered without a second expensive calendar
-    scan. Therapist availability is still searched week-by-week, while the separate
-    FCA entitlement policy remains monthly (default four sessions per month).
+    WhatsApp presents available days first and only shows times after a client
+    chooses a day. The full slot set is retained in bot state so the selected day's
+    times can be rendered without a second expensive calendar scan. FCA now searches
+    up to 35 days for ordinary clients as well as corporate clients so a valid
+    Caroline slot beyond the first week is not incorrectly reported as unavailable.
     """
     therapists = await TherapistService.list_therapists(
         db, active_only=True, session_mode=session_mode
@@ -109,8 +113,10 @@ async def fast_slot_options(
     )
 
     candidates: List[Dict[str, Any]] = []
+    availability_failures = 0
     for therapist, slots in zip(therapists, availability_results):
         if isinstance(slots, Exception):
+            availability_failures += 1
             logging.error(
                 "Scheduling availability failed provider=%s therapist_id=%s mode=%s type=%s error=%s",
                 SchedulingService.provider(), therapist.id, session_mode, session_type, str(slots)
@@ -136,9 +142,13 @@ async def fast_slot_options(
             )
 
     logging.warning(
-        "WA_SCHED_TRACE stage=candidates mode=%s type=%s count=%s",
-        session_mode, session_type, len(candidates)
+        "WA_SCHED_TRACE stage=candidates mode=%s type=%s count=%s failures=%s horizon_days=%s",
+        session_mode, session_type, len(candidates), availability_failures, days_ahead
     )
+    if availability_failures == len(therapists):
+        raise SchedulingAvailabilityError(
+            "Live scheduling availability could not be retrieved."
+        )
     if not candidates:
         return []
 
