@@ -8,6 +8,7 @@ import os
 import logging
 import time
 import asyncio
+import re
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 import bcrypt
@@ -215,13 +216,66 @@ USERS_DB: Dict[str, Dict[str, Any]] = {}
 
 # No separate bootstrap super-admin account is created. Privileged access is
 # assigned explicitly to persistent staff users in MongoDB.
-def get_current_user_session(request: Request) -> Dict:
-    user_id = request.session.get('user_id')
-    if not user_id or user_id not in USERS_DB:
+async def _load_persistent_user(target_db, user_key: str) -> Optional[Dict[str, Any]]:
+    """Load a staff or organisation user from MongoDB and refresh the process cache."""
+    normalized = str(user_key or "").strip().lower()
+    if not normalized or target_db is None:
+        return None
+
+    exact_ci = {"$regex": f"^{re.escape(normalized)}$", "$options": "i"}
+    try:
+        db_user = await target_db.staff_users.find_one(
+            {"user_id": exact_ci, "active": {"$ne": False}}
+        )
+        if db_user and db_user.get("password_hash"):
+            cached = {
+                "password_hash": db_user["password_hash"],
+                "role": db_user.get("role", "staff"),
+                "name": db_user.get("name", normalized),
+                "organisation_id": db_user.get("organisation_id"),
+                "therapist_id": db_user.get("therapist_id"),
+            }
+            USERS_DB[normalized] = cached
+            return cached
+
+        db_user = await target_db.organisation_users.find_one({"user_id": exact_ci})
+        if db_user and db_user.get("password_hash"):
+            cached = {
+                "password_hash": db_user["password_hash"],
+                "role": db_user.get("role", "hr_admin"),
+                "name": db_user.get("name", normalized),
+                "organisation_id": db_user.get("organisation_id"),
+                "therapist_id": db_user.get("therapist_id"),
+            }
+            USERS_DB[normalized] = cached
+            return cached
+    except Exception as exc:
+        logging.exception(
+            "AUTH_REHYDRATE_FAILED user=%s error=%s",
+            normalized,
+            exc.__class__.__name__,
+        )
+    return None
+
+
+async def get_current_user_session(request: Request) -> Dict:
+    raw_user_id = request.session.get('user_id')
+    if not raw_user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
-    user_info = USERS_DB[user_id].copy()
-    user_info['user_id'] = user_id
-    return user_info
+
+    user_id = str(raw_user_id).strip().lower()
+    user_info = USERS_DB.get(user_id)
+    if not user_info:
+        target_db = request.app.state.db if hasattr(request.app.state, 'db') else db
+        user_info = await _load_persistent_user(target_db, user_id)
+
+    if not user_info:
+        request.session.clear()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+
+    hydrated = user_info.copy()
+    hydrated['user_id'] = user_id
+    return hydrated
 
 def require_role(allowed_roles: List[str]):
     def role_checker(user: Dict = Depends(get_current_user_session)):
@@ -386,34 +440,12 @@ async def login(request: Request, payload: Optional[LoginRequest] = None, userna
     if not user_key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
 
-    if user_key not in USERS_DB and target_db is not None:
-        try:
-            db_user = await target_db.staff_users.find_one({"user_id": user_key, "active": {"$ne": False}})
-            if db_user and db_user.get("password_hash"):
-                USERS_DB[user_key] = {
-                    "password_hash": db_user["password_hash"],
-                    "role": db_user.get("role", "staff"),
-                    "name": db_user.get("name", user_key),
-                    "organisation_id": db_user.get("organisation_id"),
-                    "therapist_id": db_user.get("therapist_id")
-                }
-            else:
-                db_user = await target_db.organisation_users.find_one({"user_id": user_key})
-                if db_user and db_user.get("password_hash"):
-                    USERS_DB[user_key] = {
-                        "password_hash": db_user["password_hash"],
-                        "role": db_user.get("role", "hr_admin"),
-                        "name": db_user.get("name", user_key),
-                        "organisation_id": db_user.get("organisation_id"),
-                        "therapist_id": db_user.get("therapist_id")
-                    }
-        except Exception:
-            pass
+    user = USERS_DB.get(user_key)
+    if not user:
+        user = await _load_persistent_user(target_db, user_key)
 
-    if user_key not in USERS_DB:
+    if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
-    
-    user = USERS_DB[user_key]
     if not bcrypt.checkpw(user_pass.encode(), user["password_hash"].encode()):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
     
