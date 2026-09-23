@@ -102,6 +102,18 @@ async def lifespan(app: FastAPI):
         logging.info("MongoDB indexes verified and therapists seeded.")
 
         if SchedulingService.provider() == "setmore" and SetmoreService.configured():
+            try:
+                setmore_staff = await SetmoreService.staffs()
+                logging.info(
+                    "SETMORE_HEALTH stage=startup_connectivity status=ok staff_count=%s timezone=%s",
+                    len(setmore_staff),
+                    SetmoreService.timezone(),
+                )
+            except Exception as exc:
+                logging.error(
+                    "SETMORE_HEALTH stage=startup_connectivity status=failed error=%s",
+                    exc.__class__.__name__,
+                )
             synced = await SetmoreService.reconcile_pending_bookings(db)
             if synced:
                 logging.warning("SETMORE_SYNC stage=startup_backfill synced=%s", synced)
