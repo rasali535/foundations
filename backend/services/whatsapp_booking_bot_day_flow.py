@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from services.whatsapp_booking_bot_service import normalize_sender
-from services.whatsapp_booking_bot_fast_slots import MonthlySessionLimitReached
+from services.whatsapp_booking_bot_fast_slots import MonthlySessionLimitReached, SchedulingAvailabilityError
 from services.corporate_entitlement_service import CorporateEntitlementService
 from services.booking_service import BookingService
 from models import BookingCreateRequest, MultiBookingCreateRequest, SingleBookingSlot
@@ -37,7 +37,7 @@ def _time_label(slot: Dict[str, Any]) -> str:
 def _render_days(day_keys: List[str]) -> str:
     if not day_keys:
         return (
-            "No self-service appointment days are available in the next 7 days. "
+            "No self-service appointment days are available in the next 35 days. "
             "Reply 6 to speak to FCA or MENU to return to the main menu."
         )
 
@@ -192,11 +192,17 @@ def install_day_first_flow(service_cls) -> None:
                     "Reply 6 to speak to FCA if you need help with another appointment, "
                     "or MENU to return to the main menu."
                 )
+            except SchedulingAvailabilityError:
+                await service_cls._save_session(db, sender, client_id, "menu", {})
+                return (
+                    "Live appointment availability could not be retrieved from the scheduling calendar right now. "
+                    "Reply 6 to speak to FCA or MENU to return to the main menu."
+                )
 
             if not slots:
                 await service_cls._save_session(db, sender, client_id, "menu", {})
                 return (
-                    "No self-service appointment days are available in the next 7 days. "
+                    "No self-service appointment days are available in the next 35 days. "
                     "Reply 6 to speak to FCA or MENU to return to the main menu."
                 )
 
