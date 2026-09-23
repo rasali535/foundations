@@ -10,7 +10,6 @@ import {
   Building2,
   ShieldCheck,
   AlertCircle,
-  HelpCircle
 } from 'lucide-react';
 
 const HRDashboard = () => {
@@ -40,7 +39,7 @@ const HRDashboard = () => {
   if (loading) {
     return (
       <div className="py-16 flex flex-col items-center justify-center gap-3">
-        <div className="w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-8 h-8 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
         <p className="text-xs text-slate-500 font-medium">Aggregating corporate utilisation data...</p>
       </div>
     );
@@ -58,11 +57,11 @@ const HRDashboard = () => {
   const { total_sessions, completed, cancelled, no_show, session_types, session_modes, contract } = data;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       {/* Top Welcome & Period Filter */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-          <span className="text-[11px] font-bold text-teal-700 uppercase tracking-wider block">
+          <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider block">
             Wellness Programme Engagement
           </span>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 mt-0.5">
@@ -86,7 +85,7 @@ const HRDashboard = () => {
               onClick={() => setPeriod(p.key)}
               className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
                 period === p.key
-                  ? 'bg-white text-teal-800 shadow-sm'
+                  ? 'bg-white text-emerald-700 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -99,15 +98,15 @@ const HRDashboard = () => {
       {/* Primary Utilisation Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Sessions */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500">Total Utilisation</span>
-            <div className="w-8 h-8 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center font-bold">
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
               <Users className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-2xl sm:text-3xl font-black text-slate-900">
+            <div className="text-2xl font-black text-slate-900">
               {total_sessions.display}
             </div>
             <span className="text-[11px] text-slate-400 mt-1 block">
@@ -117,7 +116,7 @@ const HRDashboard = () => {
         </div>
 
         {/* Completed */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500">Sessions Completed</span>
             <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold">
@@ -125,7 +124,7 @@ const HRDashboard = () => {
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-2xl sm:text-3xl font-black text-emerald-700">
+            <div className="text-2xl font-black text-emerald-700">
               {completed.display}
             </div>
             <span className="text-[11px] text-slate-400 mt-1 block">
@@ -135,7 +134,7 @@ const HRDashboard = () => {
         </div>
 
         {/* Cancelled */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500">Cancelled</span>
             <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
@@ -143,7 +142,7 @@ const HRDashboard = () => {
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-2xl sm:text-3xl font-black text-amber-700">
+            <div className="text-2xl font-black text-amber-700">
               {cancelled.display}
             </div>
             <span className="text-[11px] text-slate-400 mt-1 block">
@@ -153,7 +152,7 @@ const HRDashboard = () => {
         </div>
 
         {/* No-Shows */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500">No-Shows</span>
             <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-700 flex items-center justify-center font-bold">
@@ -161,7 +160,7 @@ const HRDashboard = () => {
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-2xl sm:text-3xl font-black text-rose-700">
+            <div className="text-2xl font-black text-rose-700">
               {no_show.display}
             </div>
             <span className="text-[11px] text-slate-400 mt-1 block">
@@ -178,7 +177,7 @@ const HRDashboard = () => {
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <FileCheck2 className="w-4 h-4 text-teal-700" />
+                <FileCheck2 className="w-4 h-4 text-emerald-600" />
                 <h3 className="font-bold text-slate-900 text-sm">Contract Pool</h3>
               </div>
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
@@ -208,7 +207,7 @@ const HRDashboard = () => {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-slate-500">Sessions Utilised</span>
-                <span className="font-bold text-teal-700 text-sm">{contract.sessions_used}</span>
+                <span className="font-bold text-emerald-600 text-sm">{contract.sessions_used}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-slate-500">Sessions Remaining</span>
@@ -225,7 +224,7 @@ const HRDashboard = () => {
                   </div>
                   <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-gradient-to-r from-teal-500 to-emerald-600 rounded-full transition-all duration-500"
+                      className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-full transition-all duration-500"
                       style={{ width: `${Math.min(contract.utilisation_percentage, 100)}%` }}
                     />
                   </div>
@@ -306,7 +305,7 @@ const HRDashboard = () => {
           <div className="mt-4 space-y-4 text-xs">
             <div className="p-4 bg-slate-50 rounded-xl flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center font-bold">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold">
                   <Building2 className="w-5 h-5" />
                 </div>
                 <div>
@@ -348,11 +347,11 @@ const HRDashboard = () => {
       </div>
 
       {/* Privacy Notice Banner */}
-      <div className="p-4 bg-teal-50/60 border border-teal-200/70 rounded-2xl flex items-start gap-3 text-xs text-teal-900">
-        <ShieldCheck className="w-5 h-5 text-teal-700 shrink-0 mt-0.5" />
+      <div className="p-4 bg-emerald-50/60 border border-emerald-200/70 rounded-2xl flex items-start gap-3 text-xs text-emerald-900">
+        <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
         <div>
           <strong className="block font-bold">Privacy-Preserving Reporting Model:</strong>
-          <p className="text-teal-800/90 mt-0.5 leading-relaxed">
+          <p className="text-emerald-700/90 mt-0.5 leading-relaxed">
             {data.privacy_notice} Individual employee records, reasons for seeking counselling, intake questionnaire answers, and therapist identities are strictly sealed and cannot be accessed from this portal.
           </p>
         </div>
