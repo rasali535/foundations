@@ -925,3 +925,134 @@ async def test_organisation_contact_data_privacy(hr_test_app):
         assert "contact_person" not in contract_json
         assert "contact_email" not in contract_json
         assert "fca.internal.staff" not in contract_res.text
+
+
+@pytest.mark.asyncio
+async def test_hr_booking_ledger_is_accounts_only_and_tenant_scoped(hr_test_app):
+    test_app, mock_db = hr_test_app
+    transport = ASGITransport(app=test_app)
+
+    await mock_db.organisations.insert_one({
+        "id": "org-ledger",
+        "name": "Ledger Corp",
+        "code": "LEDGER",
+        "billing_currency": "BWP",
+        "rate_individual": 450,
+        "rate_couple": 700,
+        "rate_family": 850,
+        "status": "active",
+    })
+    await mock_db.organisations.insert_one({
+        "id": "org-other",
+        "name": "Other Corp",
+        "code": "OTHER",
+        "status": "active",
+    })
+    await mock_db.crm_clients.insert_many([
+        {
+            "id": "client-ledger-1",
+            "organisation_id": "org-ledger",
+            "first_name": "Private",
+            "last_name": "Employee",
+            "email": "employee@example.com",
+            "phone": "70000000",
+        },
+        {
+            "id": "client-other-1",
+            "organisation_id": "org-other",
+            "first_name": "Other",
+            "last_name": "Employee",
+        },
+    ])
+    await mock_db.bookings.insert_many([
+        {
+            "id": "booking-ledger-12345678",
+            "client_id": "client-ledger-1",
+            "therapist_id": "therapist-secret",
+            "session_type": "individual",
+            "session_mode": "virtual",
+            "starts_at": "2026-09-10T09:00:00+00:00",
+            "status": "completed",
+            "reason": "must never leave backend",
+            "active_invoice_id": "invoice-ledger",
+        },
+        {
+            "id": "booking-other-99999999",
+            "client_id": "client-other-1",
+            "therapist_id": "therapist-other",
+            "session_type": "family",
+            "session_mode": "in_person",
+            "starts_at": "2026-09-11T10:00:00+00:00",
+            "status": "completed",
+        },
+    ])
+    await mock_db.invoices.insert_one({
+        "id": "invoice-ledger",
+        "invoice_number": "FCA-INV-2026-0100",
+        "organisation_id": "org-ledger",
+        "status": "issued",
+    })
+
+    USERS_DB["ledger_hr"] = {
+        "password_hash": bcrypt.hashpw(b"ledgerpass", bcrypt.gensalt()).decode(),
+        "role": "hr_admin",
+        "name": "Ledger HR",
+        "organisation_id": "org-ledger",
+        "therapist_id": None,
+    }
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.post("/api/login", json={"username": "ledger_hr", "password": "ledgerpass"})
+        res = await ac.get("/api/hr/booking-ledger?period=all_time")
+        assert res.status_code == 200
+        payload = res.json()
+
+        assert payload["organisation_id"] == "org-ledger"
+        assert payload["total_bookings"] == 1
+        assert payload["billable_bookings"] == 1
+        assert payload["invoiced_bookings"] == 1
+        assert payload["estimated_total"] == 450.0
+
+        row = payload["bookings"][0]
+        assert row["booking_reference"] == "FCA-12345678"
+        assert row["booking_date"] == "2026-09-10"
+        assert row["invoice_number"] == "FCA-INV-2026-0100"
+        assert row["unit_rate"] == 450.0
+
+        serialized = str(payload).lower()
+        assert "private" not in serialized
+        assert "employee@example.com" not in serialized
+        assert "70000000" not in serialized
+        assert "therapist-secret" not in serialized
+        assert "must never leave backend" not in serialized
+        assert "client-ledger-1" not in serialized
+        assert "booking-ledger-12345678" not in serialized
+        assert "booking-other-99999999" not in serialized
+
+        tamper = await ac.get("/api/hr/booking-ledger?period=all_time&organisation_id=org-other")
+        assert tamper.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_hr_viewer_cannot_access_booking_ledger(hr_test_app):
+    test_app, mock_db = hr_test_app
+    transport = ASGITransport(app=test_app)
+
+    await mock_db.organisations.insert_one({
+        "id": "org-viewer",
+        "name": "Viewer Corp",
+        "code": "VIEW",
+        "status": "active",
+    })
+    USERS_DB["ledger_viewer"] = {
+        "password_hash": bcrypt.hashpw(b"viewerpass", bcrypt.gensalt()).decode(),
+        "role": "hr_viewer",
+        "name": "Viewer",
+        "organisation_id": "org-viewer",
+        "therapist_id": None,
+    }
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.post("/api/login", json={"username": "ledger_viewer", "password": "viewerpass"})
+        res = await ac.get("/api/hr/booking-ledger?period=all_time")
+        assert res.status_code == 403
