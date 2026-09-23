@@ -57,12 +57,13 @@ async def test_available_slots_use_setmore_50_minute_duration(monkeypatch):
     async def fake_staff_key(cls, db_arg, therapist_id):
         return "staff-caroline"
 
-    async def fake_service_key(cls, db_arg, session_type, session_mode):
+    async def fake_service_key(cls, db_arg, session_type, session_mode, funding_scope="private"):
         await db_arg.scheduling_service_mappings.update_one(
             {
                 "provider": "setmore",
                 "session_type": session_type,
                 "session_mode": session_mode,
+                "funding_scope": funding_scope,
             },
             {
                 "$set": {
