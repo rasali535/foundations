@@ -3,8 +3,9 @@ import pytest_asyncio
 import bcrypt
 from httpx import AsyncClient, ASGITransport
 from mongomock_motor import AsyncMongoMockClient
-from server import app, USERS_DB
+from server import app, USERS_DB, ALLOWED_ORIGINS
 from models import Therapist
+from services.scheduling_service import SchedulingService
 
 TEST_THERAPIST_IN_PERSON = {
     "id": "test-therapist-inperson",
@@ -197,3 +198,38 @@ async def test_authenticated_admin_workflow(test_app):
         kpis = dash_res.json()["kpis"]
         assert kpis["total_clients"] >= 1
         assert kpis["cancellations_count"] >= 1
+
+
+# ==================== Public Booking CORS / Provider Failure Regression ====================
+def test_production_origins_are_always_allowed():
+    assert "https://academyfoundations.com" in ALLOWED_ORIGINS
+    assert "https://www.academyfoundations.com" in ALLOWED_ORIGINS
+
+
+@pytest.mark.asyncio
+async def test_public_availability_provider_failure_returns_cors_503(test_app, monkeypatch):
+    async def fail_slots(*args, **kwargs):
+        raise RuntimeError("simulated scheduling provider failure")
+
+    monkeypatch.setattr(SchedulingService, "get_available_slots", staticmethod(fail_slots))
+
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"Origin": "https://academyfoundations.com"},
+    ) as ac:
+        res = await ac.get(
+            "/api/bookings/public/availability",
+            params={
+                "session_mode": "in_person",
+                "start_date": "2026-09-23",
+                "days_ahead": 14,
+            },
+        )
+
+    assert res.status_code == 503
+    assert res.json()["detail"] == (
+        "Live booking availability is temporarily unavailable. Please try again shortly."
+    )
+    assert res.headers.get("access-control-allow-origin") == "https://academyfoundations.com"
