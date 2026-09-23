@@ -58,6 +58,7 @@ async def test_therapist_configurations(test_app):
 
     caroline = next((t for t in therapists if t["name"] == "Caroline Sithole"), None)
     assert caroline is not None, "Caroline Sithole must exist in therapists"
+    assert caroline["active"] is True
     assert caroline["supports_in_person"] is True
     assert caroline["supports_virtual"] is True
     assert caroline["working_days"] == [0, 1, 2, 3, 4]
@@ -66,13 +67,23 @@ async def test_therapist_configurations(test_app):
     assert caroline["slot_duration_minutes"] == 60
 
     alpheaus = next((t for t in therapists if t["name"] == "Alpheaus Chiwaze"), None)
-    assert alpheaus is not None, "Alpheaus Chiwaze must exist in therapists"
+    assert alpheaus is not None, "Alpheaus Chiwaze must remain preserved in therapists"
+    assert alpheaus["active"] is False
     assert alpheaus["supports_in_person"] is False
     assert alpheaus["supports_virtual"] is False
     assert alpheaus["working_days"] == [0, 1, 2, 3, 4]
     assert alpheaus["working_hours_start"] == "08:00"
     assert alpheaus["working_hours_end"] == "17:00"
     assert alpheaus["slot_duration_minutes"] == 60
+
+    active_in_person = await TherapistService.list_therapists(
+        db, active_only=True, session_mode="in_person"
+    )
+    active_virtual = await TherapistService.list_therapists(
+        db, active_only=True, session_mode="virtual"
+    )
+    assert [t.id for t in active_in_person] == ["therapist-caroline-sithole"]
+    assert [t.id for t in active_virtual] == ["therapist-caroline-sithole"]
 
 
 @pytest.mark.asyncio
