@@ -364,7 +364,7 @@ const IntakeForm = () => {
         setSelectedSlot(null);
         try {
             const today = new Date().toISOString().slice(0, 10);
-            const res = await fetch(`${API}/bookings/public/availability?session_mode=${mode}&start_date=${today}&days_ahead=14`);
+            const res = await fetch(`${API}/bookings/public/availability?session_mode=${mode}&start_date=${today}&days_ahead=14&client_id=${encodeURIComponent(intakeResult.client_id)}`);
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Could not load appointment availability.');
             setBookingSlots(data.slots || []);

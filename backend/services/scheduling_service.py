@@ -27,6 +27,7 @@ class SchedulingService:
         days_ahead: int,
         session_type: str = "individual",
         session_mode: str = "virtual",
+        funding_scope: str = "private",
     ) -> List[Dict[str, Any]]:
         provider = SchedulingService.provider()
         if provider not in {"internal", "setmore"}:
@@ -42,6 +43,7 @@ class SchedulingService:
                 days_ahead=days_ahead,
                 session_type=session_type,
                 session_mode=session_mode,
+                funding_scope=funding_scope,
             )
 
         return await TherapistService.get_available_slots(

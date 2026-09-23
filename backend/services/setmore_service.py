@@ -201,9 +201,21 @@ class SetmoreService:
         return str(key)
 
     @classmethod
-    async def resolve_service_key(cls, db: AsyncIOMotorDatabase, session_type: str, session_mode: str) -> str:
+    async def resolve_service_key(
+        cls,
+        db: AsyncIOMotorDatabase,
+        session_type: str,
+        session_mode: str,
+        funding_scope: str = "private",
+    ) -> str:
+        funding_scope = "organisation" if funding_scope == "organisation" else "private"
         mapping = await db.scheduling_service_mappings.find_one(
-            {"provider": "setmore", "session_type": session_type, "session_mode": session_mode},
+            {
+                "provider": "setmore",
+                "session_type": session_type,
+                "session_mode": session_mode,
+                "funding_scope": funding_scope,
+            },
             {"_id": 0},
         )
         mapped_key = str(mapping.get("service_key")) if mapping and mapping.get("service_key") else None
@@ -215,13 +227,11 @@ class SetmoreService:
         def norm(value: Any) -> str:
             return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
 
-        exact_service_names = {
+        private_service_names = {
             ("individual", "virtual"): {"virtual counseling sessions", "virtual counselling sessions"},
             ("individual", "in_person"): {
                 "one on one counseling session",
                 "one on one counselling session",
-                "one-on-one counseling session",
-                "one-on-one counselling session",
             },
             ("couple", "in_person"): {
                 "couples counselling",
@@ -230,6 +240,20 @@ class SetmoreService:
                 "couple s counseling",
             },
         }
+        organisation_service_names = {
+            ("individual", "virtual"): {"eap virtual counselling", "eap virtual counseling"},
+            ("individual", "in_person"): {
+                "eap one on one in person counselling",
+                "eap one on one in person counseling",
+            },
+            ("couple", "virtual"): {"eap counselling for couples", "eap counseling for couples"},
+            ("couple", "in_person"): {"eap counselling for couples", "eap counseling for couples"},
+            ("family", "virtual"): {"eap family counselling", "eap family counseling"},
+            ("family", "in_person"): {"eap family counselling", "eap family counseling"},
+        }
+        exact_service_names = (
+            organisation_service_names if funding_scope == "organisation" else private_service_names
+        )
 
         type_aliases = {
             # Keep these aliases specific to the session type. Generic values such
@@ -405,7 +429,8 @@ class SetmoreService:
                     matches = []
 
         logging.warning(
-            "SETMORE_TRACE stage=service_catalog type=%s mode=%s categories=%s services=%s",
+            "SETMORE_TRACE stage=service_catalog funding=%s type=%s mode=%s categories=%s services=%s",
+            funding_scope,
             session_type,
             session_mode,
             list(category_names.values())[:10],
@@ -414,11 +439,11 @@ class SetmoreService:
 
         if len(matches) != 1:
             logging.error(
-                "Setmore service auto-mapping failed session_type=%s session_mode=%s available_services=%s",
-                session_type, session_mode, safe_titles
+                "Setmore service auto-mapping failed funding=%s session_type=%s session_mode=%s available_services=%s",
+                funding_scope, session_type, session_mode, safe_titles
             )
             raise SetmoreError(
-                f"Setmore service mapping missing for {session_type}/{session_mode}"
+                f"Setmore service mapping missing for {funding_scope}/{session_type}/{session_mode}"
             )
         selected = matches[0]
         key = cls._key(selected)
@@ -439,16 +464,21 @@ class SetmoreService:
         )
         if mapped_key and mapped_key != key:
             logging.warning(
-                "SETMORE_TRACE stage=service_remap type=%s mode=%s old_key=%s new_key=%s new_name=%s",
-                session_type, session_mode, mapped_key, key, selected_name[:80]
+                "SETMORE_TRACE stage=service_remap funding=%s type=%s mode=%s old_key=%s new_key=%s new_name=%s",
+                funding_scope, session_type, session_mode, mapped_key, key, selected_name[:80]
             )
         else:
             logging.warning(
-                "SETMORE_TRACE stage=service_selected type=%s mode=%s key=%s name=%s",
-                session_type, session_mode, key, selected_name[:80]
+                "SETMORE_TRACE stage=service_selected funding=%s type=%s mode=%s key=%s name=%s",
+                funding_scope, session_type, session_mode, key, selected_name[:80]
             )
         await db.scheduling_service_mappings.update_one(
-            {"provider": "setmore", "session_type": session_type, "session_mode": session_mode},
+            {
+                "provider": "setmore",
+                "session_type": session_type,
+                "session_mode": session_mode,
+                "funding_scope": funding_scope,
+            },
             {"$set": {
                 "service_key": key,
                 "service_name": selected_name,
@@ -558,9 +588,12 @@ class SetmoreService:
         therapist_id = str(value(booking, "therapist_id"))
         session_type = str(value(booking, "session_type"))
         session_mode = str(value(booking, "session_mode"))
+        funding_scope = "organisation" if (
+            (client.get("organisation_id") if isinstance(client, dict) else getattr(client, "organisation_id", None))
+        ) else "private"
         staff_key, service_key, customer_key = await asyncio.gather(
             cls.resolve_staff_key(db, therapist_id),
-            cls.resolve_service_key(db, session_type, session_mode),
+            cls.resolve_service_key(db, session_type, session_mode, funding_scope=funding_scope),
             cls.resolve_customer_key(db, client),
         )
 
@@ -577,7 +610,12 @@ class SetmoreService:
             end_dt = end_dt.astimezone(tz)
 
         service_mapping = await db.scheduling_service_mappings.find_one(
-            {"provider": "setmore", "session_type": session_type, "session_mode": session_mode},
+            {
+                "provider": "setmore",
+                "session_type": session_type,
+                "session_mode": session_mode,
+                "funding_scope": funding_scope,
+            },
             {"_id": 0, "service_duration": 1},
         )
         try:
@@ -669,13 +707,20 @@ class SetmoreService:
         days_ahead: int,
         session_type: str,
         session_mode: str,
+        funding_scope: str = "private",
     ) -> List[Dict[str, Any]]:
+        funding_scope = "organisation" if funding_scope == "organisation" else "private"
         staff_key, service_key = await asyncio.gather(
             cls.resolve_staff_key(db, therapist_id),
-            cls.resolve_service_key(db, session_type, session_mode),
+            cls.resolve_service_key(db, session_type, session_mode, funding_scope=funding_scope),
         )
         mapping = await db.scheduling_service_mappings.find_one(
-            {"provider": "setmore", "session_type": session_type, "session_mode": session_mode},
+            {
+                "provider": "setmore",
+                "session_type": session_type,
+                "session_mode": session_mode,
+                "funding_scope": funding_scope,
+            },
             {"_id": 0, "service_duration": 1, "service_name": 1},
         )
         try:
@@ -688,7 +733,7 @@ class SetmoreService:
         tz = ZoneInfo(cls.timezone())
         first = datetime.strptime(start_date, "%Y-%m-%d").date()
         output: List[Dict[str, Any]] = []
-        logging.warning("SETMORE_TRACE stage=query therapist_id=%s service_key=%s type=%s mode=%s start_date=%s days=%s timezone=%s", therapist_id, service_key, session_type, session_mode, start_date, days_ahead, cls.timezone())
+        logging.warning("SETMORE_TRACE stage=query funding=%s therapist_id=%s service_key=%s type=%s mode=%s start_date=%s days=%s timezone=%s", funding_scope, therapist_id, service_key, session_type, session_mode, start_date, days_ahead, cls.timezone())
         for offset in range(days_ahead):
             day = first + timedelta(days=offset)
             payload = await cls._api(

@@ -110,6 +110,7 @@ async def public_booking_availability(
     session_mode: str = Query(...),
     start_date: str = Query(...),
     days_ahead: int = Query(14, ge=1, le=30),
+    client_id: Optional[str] = Query(None),
 ):
     """Public, privacy-safe slot discovery for the post-intake booking step."""
     mode = session_mode.lower()
@@ -117,6 +118,13 @@ async def public_booking_availability(
         raise HTTPException(status_code=400, detail="Invalid session mode")
 
     db = get_db(request)
+    client_doc = None
+    funding_scope = "private"
+    if client_id:
+        client_doc = await db.crm_clients.find_one({"id": client_id}, {"_id": 0, "organisation_id": 1})
+        if client_doc and client_doc.get("organisation_id"):
+            funding_scope = "organisation"
+
     therapists = await TherapistService.list_therapists(db, active_only=True, session_mode=mode)
     available = []
     now = datetime.now(timezone.utc)
@@ -125,7 +133,8 @@ async def public_booking_availability(
         try:
             slots = await SchedulingService.get_available_slots(
                 db, therapist_id=therapist.id, start_date=start_date, days_ahead=days_ahead,
-                session_mode=mode
+                session_mode=mode,
+                funding_scope=funding_scope,
             )
         except Exception as exc:
             scheduling_errors.append(exc)
@@ -161,7 +170,7 @@ async def public_booking_availability(
         )
 
     available.sort(key=lambda x: x["starts_at"])
-    return {"session_mode": mode, "slots": available}
+    return {"session_mode": mode, "funding_scope": funding_scope, "slots": available}
 
 
 @booking_router.post("/public", response_model=Booking)

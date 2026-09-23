@@ -105,7 +105,9 @@ async def fast_slot_options(
         *(
             SchedulingService.get_available_slots(
                 db, therapist.id, today, days_ahead=days_ahead,
-                session_mode=session_mode, session_type=session_type
+                session_mode=session_mode,
+                session_type=session_type,
+                funding_scope="organisation" if client_doc.get("organisation_id") else "private",
             )
             for therapist in therapists
         ),

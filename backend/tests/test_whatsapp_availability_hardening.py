@@ -35,7 +35,7 @@ async def test_whatsapp_self_service_searches_35_days(monkeypatch):
 
     observed = {}
 
-    async def fake_slots(db_arg, therapist_id, start_date, days_ahead, session_type="individual", session_mode="virtual"):
+    async def fake_slots(db_arg, therapist_id, start_date, days_ahead, session_type="individual", session_mode="virtual", funding_scope="private"):
         observed["days_ahead"] = days_ahead
         return []
 
