@@ -5,7 +5,7 @@ from httpx import AsyncClient, ASGITransport
 from mongomock_motor import AsyncMongoMockClient
 from server import app, USERS_DB, RATE_LIMIT_STORE
 from models import Therapist
-from services.therapist_service import DEFAULT_THERAPISTS
+from services.therapist_service import DEFAULT_THERAPISTS, TherapistService
 
 @pytest_asyncio.fixture
 async def test_app():
@@ -51,33 +51,44 @@ async def test_app():
 
 @pytest.mark.asyncio
 async def test_therapist_configurations(test_app):
-    """Verify Caroline Sithole and Alpheaus Chiwaze capabilities and temporary Mon-Fri 08:00-17:00 schedules."""
+    """Verify Caroline is sole bookable therapist while Alpheaus remains preserved but inactive."""
     db = test_app.state.db
     therapists = await db.therapists.find({}).to_list(10)
     assert len(therapists) >= 2
 
     caroline = next((t for t in therapists if t["name"] == "Caroline Sithole"), None)
     assert caroline is not None, "Caroline Sithole must exist in therapists"
+    assert caroline["active"] is True
     assert caroline["supports_in_person"] is True
-    assert caroline["supports_virtual"] is False
+    assert caroline["supports_virtual"] is True
     assert caroline["working_days"] == [0, 1, 2, 3, 4]
     assert caroline["working_hours_start"] == "08:00"
     assert caroline["working_hours_end"] == "17:00"
     assert caroline["slot_duration_minutes"] == 60
 
     alpheaus = next((t for t in therapists if t["name"] == "Alpheaus Chiwaze"), None)
-    assert alpheaus is not None, "Alpheaus Chiwaze must exist in therapists"
+    assert alpheaus is not None, "Alpheaus Chiwaze must remain preserved in therapists"
+    assert alpheaus["active"] is False
     assert alpheaus["supports_in_person"] is False
-    assert alpheaus["supports_virtual"] is True
+    assert alpheaus["supports_virtual"] is False
     assert alpheaus["working_days"] == [0, 1, 2, 3, 4]
     assert alpheaus["working_hours_start"] == "08:00"
     assert alpheaus["working_hours_end"] == "17:00"
     assert alpheaus["slot_duration_minutes"] == 60
 
+    active_in_person = await TherapistService.list_therapists(
+        db, active_only=True, session_mode="in_person"
+    )
+    active_virtual = await TherapistService.list_therapists(
+        db, active_only=True, session_mode="virtual"
+    )
+    assert [t.id for t in active_in_person] == ["therapist-caroline-sithole"]
+    assert [t.id for t in active_virtual] == ["therapist-caroline-sithole"]
+
 
 @pytest.mark.asyncio
 async def test_capability_routing_and_rejection(test_app):
-    """Verify Caroline accepts in-person and rejects virtual; Alpheaus accepts virtual and rejects in-person."""
+    """Verify Caroline accepts both modes and inactive Alpheaus cannot receive new bookings."""
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # Login as Admin
@@ -106,7 +117,7 @@ async def test_capability_routing_and_rejection(test_app):
         assert c_in_person.json()["therapist_id"] == "therapist-caroline-sithole"
         assert c_in_person.json()["session_mode"] == "in_person"
 
-        # 2. Caroline + Virtual -> REJECTED (400 Bad Request)
+        # 2. Caroline + Virtual -> SUCCESS
         c_virtual = await ac.post("/api/bookings", json={
             "client_id": client_id,
             "therapist_id": "therapist-caroline-sithole",
@@ -115,10 +126,11 @@ async def test_capability_routing_and_rejection(test_app):
             "starts_at": "2026-10-06T08:00:00Z",
             "send_notifications": False
         })
-        assert c_virtual.status_code == 400
-        assert "does not support virtual" in c_virtual.json()["detail"].lower()
+        assert c_virtual.status_code == 200
+        assert c_virtual.json()["therapist_id"] == "therapist-caroline-sithole"
+        assert c_virtual.json()["session_mode"] == "virtual"
 
-        # 3. Alpheaus + Virtual -> SUCCESS
+        # 3. Alpheaus + Virtual -> REJECTED while parked/inactive
         a_virtual = await ac.post("/api/bookings", json={
             "client_id": client_id,
             "therapist_id": "therapist-alpheaus-chiwaze",
@@ -127,12 +139,10 @@ async def test_capability_routing_and_rejection(test_app):
             "starts_at": "2026-10-07T08:00:00Z",
             "send_notifications": False
         })
-        assert a_virtual.status_code == 200
-        assert a_virtual.json()["therapist_id"] == "therapist-alpheaus-chiwaze"
-        assert a_virtual.json()["session_mode"] == "virtual"
-        # Meeting links are optional until a verified therapist/provider link is configured.
+        assert a_virtual.status_code == 400
+        assert "inactive" in a_virtual.json()["detail"].lower()
 
-        # 4. Alpheaus + In-Person -> REJECTED (400 Bad Request)
+        # 4. Alpheaus + In-Person -> REJECTED while parked/inactive
         a_in_person = await ac.post("/api/bookings", json={
             "client_id": client_id,
             "therapist_id": "therapist-alpheaus-chiwaze",
@@ -142,12 +152,12 @@ async def test_capability_routing_and_rejection(test_app):
             "send_notifications": False
         })
         assert a_in_person.status_code == 400
-        assert "does not support in-person" in a_in_person.json()["detail"].lower()
+        assert "inactive" in a_in_person.json()["detail"].lower()
 
 
 @pytest.mark.asyncio
 async def test_four_session_monthly_bookings(test_app):
-    """Verify booking 4 monthly sessions with Caroline (in-person) and 4 with Alpheaus (virtual)."""
+    """Verify Caroline can own both in-person and virtual monthly booking plans."""
     transport = ASGITransport(app=test_app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         await ac.post("/api/login", json={"username": "admin", "password": "adminpass123"})
@@ -178,7 +188,7 @@ async def test_four_session_monthly_bookings(test_app):
         assert caroline_multi.status_code == 200
         assert len(caroline_multi.json()["bookings"]) == 4
 
-        # Client 2 for Alpheaus
+        # Client 2 for Caroline virtual
         c2_res = await ac.post("/api/crm/clients", json={
             "first_name": "Tebogo",
             "last_name": "Khumalo",
@@ -187,10 +197,10 @@ async def test_four_session_monthly_bookings(test_app):
         })
         c2_id = c2_res.json()["id"]
 
-        # Multi-booking request for Alpheaus (4 Tuesdays)
-        alpheaus_multi = await ac.post("/api/bookings/multi", json={
+        # Multi-booking request for Caroline virtual (4 Tuesdays)
+        caroline_virtual_multi = await ac.post("/api/bookings/multi", json={
             "client_id": c2_id,
-            "therapist_id": "therapist-alpheaus-chiwaze",
+            "therapist_id": "therapist-caroline-sithole",
             "session_type": "individual",
             "session_mode": "virtual",
             "slots": [
@@ -201,8 +211,8 @@ async def test_four_session_monthly_bookings(test_app):
             ],
             "send_notifications": False
         })
-        assert alpheaus_multi.status_code == 200
-        assert len(alpheaus_multi.json()["bookings"]) == 4
+        assert caroline_virtual_multi.status_code == 200
+        assert len(caroline_virtual_multi.json()["bookings"]) == 4
 
 
 @pytest.mark.asyncio

@@ -177,9 +177,20 @@ class SetmoreService:
             row_name = " ".join(str(row.get(k) or "").strip() for k in ("first_name", "last_name")).strip().lower()
             if (email and row_email == email) or (name and row_name == name):
                 matches.append(row)
-        if not matches and len(rows) == 1:
-            matches = rows
+
+        # Never assign the sole Setmore staff member by position alone. FCA can
+        # legitimately have more internal therapists than the connected Setmore
+        # account exposes. A one-row fallback would silently map an unmapped
+        # clinician (for example Alpheaus) onto Caroline's Setmore calendar.
         if len(matches) != 1 or not cls._key(matches[0]):
+            logging.error(
+                "SETMORE_TRACE stage=staff_mapping_failed therapist_id=%s therapist_name=%s "
+                "staff_count=%s exact_matches=%s",
+                therapist_id,
+                str(therapist.get("name") or "")[:80],
+                len(rows),
+                len(matches),
+            )
             raise SetmoreError("Setmore staff mapping is missing or ambiguous")
         key = cls._key(matches[0])
         await db.therapists.update_one({"id": therapist_id}, {"$set": {"setmore_staff_key": key}})

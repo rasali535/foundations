@@ -46,17 +46,20 @@ class TherapistRecord(BaseModel):
     updated_at: str = Field(default_factory=now_iso)
 
 
-# Required FCA clinicians for initial capability routing.
-# Temporary test availability: Mon-Fri 08:00-17:00, editable via Admin portal.
-# Contact details, clinic address and meeting URLs are intentionally omitted until verified.
+# Required FCA clinician registry.
+# Caroline is the sole currently bookable clinician and handles both in-person and
+# virtual sessions while the connected Setmore account exposes only her calendar.
+# Alpheaus remains preserved in the registry but inactive until his Setmore staff
+# record is available. Contact details, clinic address and meeting URLs are
+# intentionally omitted until verified.
 DEFAULT_THERAPISTS: List[Dict[str, Any]] = [
     {
         "id": "therapist-caroline-sithole",
         "name": "Caroline Sithole",
         "active": True,
         "supports_in_person": True,
-        "supports_virtual": False,
-        "specializations": ["In-Person Individual Counselling", "Couple Therapy", "Family Systems"],
+        "supports_virtual": True,
+        "specializations": ["Individual Counselling", "Virtual Counselling", "Couple Therapy", "Family Systems"],
         "working_days": [0, 1, 2, 3, 4],
         "working_hours_start": "08:00",
         "working_hours_end": "17:00",
@@ -67,9 +70,9 @@ DEFAULT_THERAPISTS: List[Dict[str, Any]] = [
     {
         "id": "therapist-alpheaus-chiwaze",
         "name": "Alpheaus Chiwaze",
-        "active": True,
+        "active": False,
         "supports_in_person": False,
-        "supports_virtual": True,
+        "supports_virtual": False,
         "specializations": ["Virtual Individual Counselling", "Corporate Wellness", "Digital Resilience"],
         "working_days": [0, 1, 2, 3, 4],
         "working_hours_start": "08:00",
