@@ -133,7 +133,7 @@ async def test_capability_routing_and_rejection(test_app):
         # 3. Alpheaus + Virtual -> REJECTED while parked/inactive
         a_virtual = await ac.post("/api/bookings", json={
             "client_id": client_id,
-            "therapist_id": "therapist-caroline-sithole",
+            "therapist_id": "therapist-alpheaus-chiwaze",
             "session_type": "individual",
             "session_mode": "virtual",
             "starts_at": "2026-10-07T08:00:00Z",
@@ -198,9 +198,9 @@ async def test_four_session_monthly_bookings(test_app):
         c2_id = c2_res.json()["id"]
 
         # Multi-booking request for Caroline virtual (4 Tuesdays)
-        alpheaus_multi = await ac.post("/api/bookings/multi", json={
+        caroline_virtual_multi = await ac.post("/api/bookings/multi", json={
             "client_id": c2_id,
-            "therapist_id": "therapist-alpheaus-chiwaze",
+            "therapist_id": "therapist-caroline-sithole",
             "session_type": "individual",
             "session_mode": "virtual",
             "slots": [
@@ -211,8 +211,8 @@ async def test_four_session_monthly_bookings(test_app):
             ],
             "send_notifications": False
         })
-        assert alpheaus_multi.status_code == 200
-        assert len(alpheaus_multi.json()["bookings"]) == 4
+        assert caroline_virtual_multi.status_code == 200
+        assert len(caroline_virtual_multi.json()["bookings"]) == 4
 
 
 @pytest.mark.asyncio
