@@ -332,6 +332,24 @@ async def get_hr_booking_ledger(
         ).to_list(50000)
         invoice_map = {row.get("id"): row for row in invoice_docs if row.get("id")}
 
+    service_mapping_docs = await db.scheduling_service_mappings.find(
+        {"provider": "setmore", "funding_scope": "organisation"},
+        {"_id": 0, "session_type": 1, "session_mode": 1, "service_name": 1}
+    ).to_list(100)
+    service_name_map = {
+        (str(row.get("session_type") or ""), str(row.get("session_mode") or "")): str(row.get("service_name") or "")
+        for row in service_mapping_docs
+        if row.get("session_type") and row.get("session_mode") and row.get("service_name")
+    }
+    eap_service_fallbacks = {
+        ("individual", "virtual"): "EAP- Virtual Counselling",
+        ("individual", "in_person"): "EAP- One-on-one in person counselling",
+        ("couple", "virtual"): "EAP- Counselling for Couples",
+        ("couple", "in_person"): "EAP- Counselling for Couples",
+        ("family", "virtual"): "EAP- Family Counselling",
+        ("family", "in_person"): "EAP- Family Counselling",
+    }
+
     safe_rows = []
     billable_count = 0
     invoiced_count = 0
@@ -354,11 +372,18 @@ async def get_hr_booking_ledger(
             invoiced_count += 1
 
         starts_at = str(booking.get("starts_at") or "")
+        session_mode = str(booking.get("session_mode") or "")
+        service_name = (
+            service_name_map.get((session_type, session_mode))
+            or eap_service_fallbacks.get((session_type, session_mode))
+            or f"EAP- {session_type.replace('_', ' ').title()} Counselling"
+        )
         safe_rows.append({
             "booking_reference": f"FCA-{booking_id[-8:].upper()}" if booking_id else "FCA-UNKNOWN",
             "booking_date": starts_at[:10] if len(starts_at) >= 10 else None,
+            "service_name": service_name,
             "session_type": session_type,
-            "session_mode": booking.get("session_mode"),
+            "session_mode": session_mode,
             "status": booking_status,
             "billable": billable,
             "unit_rate": unit_rate,
