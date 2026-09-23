@@ -17,8 +17,23 @@ export const HRAuthProvider = ({ children }) => {
 
   const checkAuth = async () => {
     try {
-      const res = await hrApi.get('/hr/me');
-      setUser(res.data);
+      // First resolve the base authenticated identity. /hr/me requires an
+      // organisation scope for admins/super-admins and should not be used as a
+      // generic session probe.
+      const base = await hrApi.get('/me');
+      const role = base.data?.role;
+
+      if (role === 'hr_admin' || role === 'hr_viewer') {
+        const scoped = await hrApi.get('/hr/me');
+        setUser(scoped.data);
+      } else if (role === 'super_admin') {
+        // Super-admins may enter the HR area before selecting an organisation.
+        // Keep the authenticated identity and let organisation-scoped pages ask
+        // for the target organisation explicitly.
+        setUser(base.data);
+      } else {
+        setUser(null);
+      }
     } catch (err) {
       setUser(null);
     } finally {

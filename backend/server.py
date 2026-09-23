@@ -100,7 +100,39 @@ async def lifespan(app: FastAPI):
         
         # Seed default therapists if missing
         await TherapistService.seed_defaults_if_empty(db)
-        logging.info("MongoDB indexes verified and therapists seeded.")
+
+        # Persist the Render-provisioned bootstrap administrator. These credentials
+        # are the production recovery path and must survive process restarts instead
+        # of existing only in the in-memory USERS_DB cache.
+        bootstrap_email = (os.environ.get("FCA_BOOTSTRAP_ADMIN_EMAIL") or "").strip().lower()
+        bootstrap_password = (os.environ.get("FCA_BOOTSTRAP_ADMIN_PASSWORD") or "").strip()
+        if bootstrap_email and bootstrap_password:
+            bootstrap_hash = bcrypt.hashpw(
+                bootstrap_password.encode("utf-8"), bcrypt.gensalt()
+            ).decode()
+            await db.staff_users.update_one(
+                {"user_id": {"$regex": f"^{re.escape(bootstrap_email)}$", "$options": "i"}},
+                {
+                    "$set": {
+                        "user_id": bootstrap_email,
+                        "password_hash": bootstrap_hash,
+                        "role": "super_admin",
+                        "name": "System Administrator",
+                        "active": True,
+                        "organisation_id": None,
+                        "therapist_id": None,
+                        "updated_at": now_iso(),
+                    },
+                    "$setOnInsert": {"created_at": now_iso()},
+                },
+                upsert=True,
+            )
+            USERS_DB.pop(bootstrap_email, None)
+            logging.warning("AUTH_BOOTSTRAP status=ready role=super_admin")
+        elif bootstrap_email or bootstrap_password:
+            logging.error("AUTH_BOOTSTRAP status=incomplete")
+
+        logging.info("MongoDB indexes verified, therapists seeded, and auth bootstrap checked.")
 
         scheduling_provider = SchedulingService.provider()
         setmore_configured = SetmoreService.configured()
