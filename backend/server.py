@@ -103,7 +103,7 @@ async def lifespan(app: FastAPI):
 
         scheduling_provider = SchedulingService.provider()
         setmore_configured = SetmoreService.configured()
-        logging.info(
+        logging.warning(
             "SETMORE_HEALTH stage=startup_config provider=%s configured=%s",
             scheduling_provider,
             setmore_configured,
@@ -111,7 +111,7 @@ async def lifespan(app: FastAPI):
         if scheduling_provider == "setmore" and setmore_configured:
             try:
                 setmore_staff = await SetmoreService.staffs()
-                logging.info(
+                logging.warning(
                     "SETMORE_HEALTH stage=startup_connectivity status=ok staff_count=%s timezone=%s",
                     len(setmore_staff),
                     SetmoreService.timezone(),
