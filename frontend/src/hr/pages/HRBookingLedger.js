@@ -168,7 +168,10 @@ const HRBookingLedger = () => {
                       <tr key={row.booking_reference} className="hover:bg-slate-50/70">
                         <td className="px-5 py-3 font-mono font-bold text-slate-700">{row.booking_reference}</td>
                         <td className="px-5 py-3 text-slate-600">{row.booking_date || '—'}</td>
-                        <td className="px-5 py-3 font-semibold text-slate-800">{labelize(row.session_type)}</td>
+                        <td className="px-5 py-3">
+                          <div className="font-semibold text-slate-800">{row.service_name || labelize(row.session_type)}</div>
+                          <div className="text-[10px] text-slate-400">{labelize(row.session_type)} counselling</div>
+                        </td>
                         <td className="px-5 py-3 text-slate-600">{labelize(row.session_mode)}</td>
                         <td className="px-5 py-3">
                           <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-700 font-semibold">
