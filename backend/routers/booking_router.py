@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import os
+import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 
@@ -119,11 +120,23 @@ async def public_booking_availability(
     therapists = await TherapistService.list_therapists(db, active_only=True, session_mode=mode)
     available = []
     now = datetime.now(timezone.utc)
+    scheduling_errors = []
     for therapist in therapists:
-        slots = await SchedulingService.get_available_slots(
-            db, therapist_id=therapist.id, start_date=start_date, days_ahead=days_ahead,
-            session_mode=mode
-        )
+        try:
+            slots = await SchedulingService.get_available_slots(
+                db, therapist_id=therapist.id, start_date=start_date, days_ahead=days_ahead,
+                session_mode=mode
+            )
+        except Exception as exc:
+            scheduling_errors.append(exc)
+            logging.exception(
+                "PUBLIC_BOOKING_AVAILABILITY_FAILED therapist_id=%s mode=%s provider=%s",
+                therapist.id,
+                mode,
+                SchedulingService.provider(),
+            )
+            continue
+
         for slot in slots:
             if not slot.get("is_available"):
                 continue
@@ -140,6 +153,13 @@ async def public_booking_availability(
                 "date": slot["date"],
                 "time_display": slot["time_display"],
             })
+
+    if therapists and len(scheduling_errors) == len(therapists):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Live booking availability is temporarily unavailable. Please try again shortly.",
+        )
+
     available.sort(key=lambda x: x["starts_at"])
     return {"session_mode": mode, "slots": available}
 

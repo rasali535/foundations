@@ -159,6 +159,17 @@ _CORS_ENV = os.environ.get(
     'https://academyfoundations.com,https://www.academyfoundations.com,http://localhost:3000,http://127.0.0.1:3000'
 )
 ALLOWED_ORIGINS = [o.strip() for o in _CORS_ENV.split(',') if o.strip()]
+
+# Production web origins are mandatory even if a stale Render CORS_ORIGINS value
+# is present. Environment configuration may add origins, but must not accidentally
+# remove the canonical FCA sites and break public booking/intake requests.
+for _required_origin in [
+    'https://academyfoundations.com',
+    'https://www.academyfoundations.com',
+]:
+    if _required_origin not in ALLOWED_ORIGINS:
+        ALLOWED_ORIGINS.append(_required_origin)
+
 # Always include localhost for local development if not already present
 for _local in ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:8000', 'http://127.0.0.1:8000']:
     if _local not in ALLOWED_ORIGINS:
