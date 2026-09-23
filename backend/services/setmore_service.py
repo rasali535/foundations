@@ -215,6 +215,22 @@ class SetmoreService:
         def norm(value: Any) -> str:
             return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
 
+        exact_service_names = {
+            ("individual", "virtual"): {"virtual counseling sessions", "virtual counselling sessions"},
+            ("individual", "in_person"): {
+                "one on one counseling session",
+                "one on one counselling session",
+                "one-on-one counseling session",
+                "one-on-one counselling session",
+            },
+            ("couple", "in_person"): {
+                "couples counselling",
+                "couples counseling",
+                "couple s counselling",
+                "couple s counseling",
+            },
+        }
+
         type_aliases = {
             # Keep these aliases specific to the session type. Generic values such
             # as "counselling" make Individual/Couples/Family categories all match
@@ -232,6 +248,7 @@ class SetmoreService:
 
         scored = []
         safe_titles = []
+        exact_matches = []
 
         # Setmore accounts can model FCA's session type as a service category
         # (Individual/Couples/Family) and the mode as the service name
@@ -282,6 +299,11 @@ class SetmoreService:
                 continue
             descriptor = " ".join(part for part in (category, title) if part)
             safe_titles.append(descriptor[:100])
+
+            preferred_names = exact_service_names.get((session_type, session_mode), set())
+            if title in preferred_names:
+                exact_matches.append(row)
+
             type_score = max(
                 (4 if category == alias else 3 if alias in category else 2 if alias in descriptor else 0)
                 for alias in wanted_types
@@ -295,7 +317,11 @@ class SetmoreService:
 
         mapped_row = next((row for row in rows if cls._key(row) == mapped_key), None) if mapped_key else None
 
-        if scored:
+        if len(exact_matches) == 1:
+            matches = exact_matches
+        elif len(exact_matches) > 1:
+            matches = [mapped_row] if mapped_row in exact_matches else []
+        elif scored:
             scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
             best_score = scored[0][0]
             best_mode_score = scored[0][1]
@@ -398,6 +424,11 @@ class SetmoreService:
         key = cls._key(selected)
         selected_name = str(selected.get("service_name") or selected.get("name") or selected.get("title") or "").strip()
         selected_duration = selected.get("duration") or selected.get("duration_minutes") or selected.get("service_duration")
+        try:
+            selected_duration = int(float(selected_duration)) if selected_duration is not None else None
+        except (TypeError, ValueError):
+            duration_match = re.search(r"\b(\d{1,3})\b", str(selected_duration or ""))
+            selected_duration = int(duration_match.group(1)) if duration_match else None
         logging.warning(
             "SETMORE_TRACE stage=service_shape fields=%s key_field=%s service_key_field=%s category_key_field=%s category_name=%s",
             sorted(selected.keys()),
@@ -545,6 +576,17 @@ class SetmoreService:
         else:
             end_dt = end_dt.astimezone(tz)
 
+        service_mapping = await db.scheduling_service_mappings.find_one(
+            {"provider": "setmore", "session_type": session_type, "session_mode": session_mode},
+            {"_id": 0, "service_duration": 1},
+        )
+        try:
+            service_duration = int((service_mapping or {}).get("service_duration") or 0)
+        except (TypeError, ValueError):
+            service_duration = 0
+        if service_duration > 0:
+            end_dt = start_dt + timedelta(minutes=service_duration)
+
         payload = await cls._api(
             "POST",
             "/appointment/create",
@@ -632,6 +674,17 @@ class SetmoreService:
             cls.resolve_staff_key(db, therapist_id),
             cls.resolve_service_key(db, session_type, session_mode),
         )
+        mapping = await db.scheduling_service_mappings.find_one(
+            {"provider": "setmore", "session_type": session_type, "session_mode": session_mode},
+            {"_id": 0, "service_duration": 1, "service_name": 1},
+        )
+        try:
+            service_duration = int((mapping or {}).get("service_duration") or 50)
+        except (TypeError, ValueError):
+            service_duration = 50
+        if service_duration <= 0 or service_duration > 240:
+            service_duration = 50
+
         tz = ZoneInfo(cls.timezone())
         first = datetime.strptime(start_date, "%Y-%m-%d").date()
         output: List[Dict[str, Any]] = []
@@ -707,9 +760,7 @@ class SetmoreService:
                     ).replace(tzinfo=tz)
                 except ValueError:
                     continue
-                # FCA currently models counselling slots as 60 minutes. Appointment
-                # creation will use the Setmore service duration when wired next.
-                local_end = local_start + timedelta(minutes=60)
+                local_end = local_start + timedelta(minutes=service_duration)
                 output.append({
                     "date": day.isoformat(),
                     "starts_at": local_start.isoformat(),
