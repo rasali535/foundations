@@ -5,7 +5,7 @@ from httpx import AsyncClient, ASGITransport
 from mongomock_motor import AsyncMongoMockClient
 from server import app, USERS_DB, RATE_LIMIT_STORE
 from models import Therapist
-from services.therapist_service import DEFAULT_THERAPISTS
+from services.therapist_service import DEFAULT_THERAPISTS, TherapistService
 
 @pytest_asyncio.fixture
 async def test_app():
