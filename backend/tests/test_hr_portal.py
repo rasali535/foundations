@@ -1016,6 +1016,7 @@ async def test_hr_booking_ledger_is_accounts_only_and_tenant_scoped(hr_test_app)
         row = payload["bookings"][0]
         assert row["booking_reference"] == "FCA-12345678"
         assert row["booking_date"] == "2026-09-10"
+        assert row["service_name"] == "EAP- Virtual Counselling"
         assert row["invoice_number"] == "FCA-INV-2026-0100"
         assert row["unit_rate"] == 450.0
 
