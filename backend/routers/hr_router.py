@@ -236,3 +236,156 @@ async def export_safe_hr_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=fca_corporate_utilisation_aggregate.csv"}
     )
+
+
+@hr_router.get("/booking-ledger")
+async def get_hr_booking_ledger(
+    request: Request,
+    period: str = Query("current_month", description="current_month, previous_month, quarter, year, all_time"),
+    user: Dict = Depends(get_current_hr_user),
+    org_id: str = Depends(require_hr_scoped_org)
+):
+    """
+    Accounts-only booking ledger.
+
+    Returns one row per organisation booking with financial/reconciliation metadata only.
+    It intentionally excludes employee identity, contact data, therapist identity,
+    clinical reasons, intake data and notes.
+    """
+    if user.get("role") not in ["hr_admin", "super_admin", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accounts booking ledger requires HR Admin access."
+        )
+
+    db = get_db(request)
+    client_docs = await db.crm_clients.find(
+        {"organisation_id": org_id},
+        {"_id": 0, "id": 1}
+    ).to_list(50000)
+    client_ids = [row.get("id") for row in client_docs if row.get("id")]
+
+    if not client_ids:
+        return {
+            "organisation_id": org_id,
+            "period": period,
+            "currency": "BWP",
+            "total_bookings": 0,
+            "billable_bookings": 0,
+            "invoiced_bookings": 0,
+            "estimated_total": 0.0,
+            "bookings": [],
+        }
+
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    if period == "current_month":
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = now
+    elif period == "previous_month":
+        this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = this_month - timedelta(seconds=1)
+        start = end.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    elif period == "quarter":
+        quarter_start_month = ((now.month - 1) // 3) * 3 + 1
+        start = now.replace(month=quarter_start_month, day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = now
+    elif period == "year":
+        start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = now
+    else:
+        start = None
+        end = None
+
+    query: Dict[str, Any] = {"client_id": {"$in": client_ids}}
+    if start is not None and end is not None:
+        query["starts_at"] = {"$gte": start.isoformat(), "$lte": end.isoformat()}
+
+    bookings = await db.bookings.find(
+        query,
+        {
+            "_id": 0,
+            "id": 1,
+            "session_type": 1,
+            "session_mode": 1,
+            "starts_at": 1,
+            "status": 1,
+            "cancellation_billing_status": 1,
+            "active_invoice_id": 1,
+        }
+    ).sort("starts_at", -1).to_list(50000)
+
+    org = await db.organisations.find_one({"id": org_id}, {"_id": 0}) or {}
+    rates = {
+        "individual": float(org.get("rate_individual") if org.get("rate_individual") is not None else 400),
+        "couple": float(org.get("rate_couple") if org.get("rate_couple") is not None else 500),
+        "family": float(org.get("rate_family") if org.get("rate_family") is not None else 600),
+    }
+    currency = str(org.get("billing_currency") or "BWP").upper()
+
+    invoice_ids = list({b.get("active_invoice_id") for b in bookings if b.get("active_invoice_id")})
+    invoice_map = {}
+    if invoice_ids:
+        invoice_docs = await db.invoices.find(
+            {"id": {"$in": invoice_ids}, "organisation_id": org_id},
+            {"_id": 0, "id": 1, "invoice_number": 1, "status": 1}
+        ).to_list(50000)
+        invoice_map = {row.get("id"): row for row in invoice_docs if row.get("id")}
+
+    safe_rows = []
+    billable_count = 0
+    invoiced_count = 0
+    estimated_total = 0.0
+    for booking in bookings:
+        booking_id = str(booking.get("id") or "")
+        session_type = str(booking.get("session_type") or "individual")
+        booking_status = str(booking.get("status") or "")
+        billable = (
+            booking_status in ["completed", "late_cancelled_billable"]
+            or booking.get("cancellation_billing_status") == "billable"
+        )
+        unit_rate = rates.get(session_type, 0.0) if billable else 0.0
+        invoice = invoice_map.get(booking.get("active_invoice_id"))
+
+        if billable:
+            billable_count += 1
+            estimated_total += unit_rate
+        if invoice:
+            invoiced_count += 1
+
+        starts_at = str(booking.get("starts_at") or "")
+        safe_rows.append({
+            "booking_reference": f"FCA-{booking_id[-8:].upper()}" if booking_id else "FCA-UNKNOWN",
+            "booking_date": starts_at[:10] if len(starts_at) >= 10 else None,
+            "session_type": session_type,
+            "session_mode": booking.get("session_mode"),
+            "status": booking_status,
+            "billable": billable,
+            "unit_rate": unit_rate,
+            "currency": currency,
+            "invoice_number": invoice.get("invoice_number") if invoice else None,
+            "invoice_status": invoice.get("status") if invoice else "not_invoiced",
+        })
+
+    await AuditService.log_activity(
+        db,
+        action="hr_booking_ledger_viewed",
+        actor_user_id=user["user_id"],
+        actor_name=user["name"],
+        metadata={"organisation_id": org_id, "period": period, "rows": len(safe_rows)}
+    )
+
+    return {
+        "organisation_id": org_id,
+        "period": period,
+        "currency": currency,
+        "total_bookings": len(safe_rows),
+        "billable_bookings": billable_count,
+        "invoiced_bookings": invoiced_count,
+        "estimated_total": round(estimated_total, 2),
+        "bookings": safe_rows,
+        "privacy_notice": (
+            "Accounts-only reconciliation view. Employee identities, therapist identities, "
+            "clinical reasons, intake information and notes are never included."
+        ),
+    }

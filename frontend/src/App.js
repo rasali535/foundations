@@ -52,6 +52,7 @@ import HRContract from "@/hr/pages/HRContract";
 import HRUtilisation from "@/hr/pages/HRUtilisation";
 import HRReports from "@/hr/pages/HRReports";
 import HRInvoices from "@/hr/pages/HRInvoices";
+import HRBookingLedger from "@/hr/pages/HRBookingLedger";
 
 function App() {
   return (
@@ -68,6 +69,7 @@ function App() {
               <Route path="utilisation" element={<HRUtilisation />} />
               <Route path="reports" element={<HRReports />} />
               <Route path="invoices" element={<HRInvoices />} />
+              <Route path="booking-ledger" element={<HRBookingLedger />} />
             </Route>
 
             {/* ================= Protected Admin CRM & Booking Routes ================= */}
