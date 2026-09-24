@@ -68,7 +68,7 @@ const HRDashboard = () => {
             {data.organisation_name}
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Period: <strong className="text-slate-800">{data.period}</strong> • Reporting minimum threshold: 5 sessions
+            Period: <strong className="text-slate-800">{data.period}</strong>
           </p>
         </div>
 
@@ -110,7 +110,7 @@ const HRDashboard = () => {
               {total_sessions.display}
             </div>
             <span className="text-[11px] text-slate-400 mt-1 block">
-              {total_sessions.suppressed ? 'Masked (<5 sessions)' : 'Total appointments booked'}
+              {'Total appointments booked'}
             </span>
           </div>
         </div>
@@ -128,7 +128,7 @@ const HRDashboard = () => {
               {completed.display}
             </div>
             <span className="text-[11px] text-slate-400 mt-1 block">
-              {completed.suppressed ? 'Masked (<5 sessions)' : 'Successfully attended'}
+              {'Successfully attended'}
             </span>
           </div>
         </div>
@@ -146,7 +146,7 @@ const HRDashboard = () => {
               {cancelled.display}
             </div>
             <span className="text-[11px] text-slate-400 mt-1 block">
-              {cancelled.suppressed ? 'Masked (<5 sessions)' : 'Prior notice cancellations'}
+              {'Prior notice cancellations'}
             </span>
           </div>
         </div>
@@ -164,7 +164,7 @@ const HRDashboard = () => {
               {no_show.display}
             </div>
             <span className="text-[11px] text-slate-400 mt-1 block">
-              {no_show.suppressed ? 'Masked (<5 sessions)' : 'Missed appointments'}
+              {'Missed appointments'}
             </span>
           </div>
         </div>
@@ -257,9 +257,7 @@ const HRDashboard = () => {
                 <span className="text-sm font-black text-slate-900">
                   {session_types.individual?.display || '0'}
                 </span>
-                {session_types.individual?.suppressed && (
-                  <span className="text-[9px] text-amber-600 block font-semibold">Masked</span>
-                )}
+                
               </div>
             </div>
 
@@ -272,9 +270,7 @@ const HRDashboard = () => {
                 <span className="text-sm font-black text-slate-900">
                   {session_types.couple?.display || '0'}
                 </span>
-                {session_types.couple?.suppressed && (
-                  <span className="text-[9px] text-amber-600 block font-semibold">Masked</span>
-                )}
+                
               </div>
             </div>
 
@@ -287,9 +283,7 @@ const HRDashboard = () => {
                 <span className="text-sm font-black text-slate-900">
                   {session_types.family?.display || '0'}
                 </span>
-                {session_types.family?.suppressed && (
-                  <span className="text-[9px] text-amber-600 block font-semibold">Masked</span>
-                )}
+                
               </div>
             </div>
           </div>
@@ -317,9 +311,7 @@ const HRDashboard = () => {
                 <span className="text-base font-black text-slate-900">
                   {session_modes.in_person?.display || '0'}
                 </span>
-                {session_modes.in_person?.suppressed && (
-                  <span className="text-[9px] text-amber-600 block font-semibold">Masked</span>
-                )}
+                
               </div>
             </div>
 
@@ -337,9 +329,7 @@ const HRDashboard = () => {
                 <span className="text-base font-black text-slate-900">
                   {session_modes.virtual?.display || '0'}
                 </span>
-                {session_modes.virtual?.suppressed && (
-                  <span className="text-[9px] text-amber-600 block font-semibold">Masked</span>
-                )}
+                
               </div>
             </div>
           </div>

@@ -200,7 +200,7 @@ const HRReports = () => {
           {/* Privacy Footnote */}
           <div className="pt-4 border-t border-slate-100 text-[11px] text-slate-400 flex items-center justify-between">
             <span>Foundations Counselling & Advisory • Protected Corporate HR Reporting</span>
-            <span>All values &lt;5 suppressed by privacy protocol</span>
+            <span>Exact aggregate counts shown; individual records remain confidential</span>
           </div>
         </div>
       )}

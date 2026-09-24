@@ -246,95 +246,37 @@ async def test_aggregate_metrics_and_contract_calculations(hr_test_app):
         assert data["total_sessions"]["display"] == "8"
         assert data["total_sessions"]["suppressed"] is False
 
-        # Attendance: Cancelled = 1 (< 5), Completed = 5
-        # Complementary suppression protects Cancelled from being derived via 8 - 5 - 2 (confirmed) = 1
-        assert data["cancelled"]["count"] is None
-        assert data["cancelled"]["display"] == "<5"
-        assert data["cancelled"]["suppressed"] is True
-        assert data["completed"]["count"] is None
-        assert data["completed"]["display"] == "<5"
-        assert data["completed"]["suppressed"] is True
+        # Attendance: exact aggregate counts are shown at every volume.
+        assert data["cancelled"]["count"] == 1
+        assert data["cancelled"]["display"] == "1"
+        assert data["cancelled"]["suppressed"] is False
+        assert data["completed"]["count"] == 5
+        assert data["completed"]["display"] == "5"
+        assert data["completed"]["suppressed"] is False
 
-        # Session Types: Individual = 6, Couple = 2 (< 5).
-        # Complementary suppression protects Couple from being derived via 8 - 6 - 0 = 2
-        assert data["session_types"]["couple"]["display"] == "<5"
-        assert data["session_types"]["couple"]["count"] is None
-        assert data["session_types"]["couple"]["percentage"] is None
-        assert data["session_types"]["couple"]["suppressed"] is True
-        assert data["session_types"]["individual"]["display"] == "<5"
-        assert data["session_types"]["individual"]["count"] is None
-        assert data["session_types"]["individual"]["percentage"] is None
-        assert data["session_types"]["individual"]["suppressed"] is True
+        # Session Types: exact aggregate counts and percentages are shown.
+        assert data["session_types"]["couple"]["display"] == "2"
+        assert data["session_types"]["couple"]["count"] == 2
+        assert data["session_types"]["couple"]["percentage"] == 25.0
+        assert data["session_types"]["couple"]["suppressed"] is False
+        assert data["session_types"]["individual"]["display"] == "6"
+        assert data["session_types"]["individual"]["count"] == 6
+        assert data["session_types"]["individual"]["percentage"] == 75.0
+        assert data["session_types"]["individual"]["suppressed"] is False
 
-        # Session Modes: 5 In-Person, 3 Virtual (< 5).
-        # Two-category rule: Both are suppressed to prevent derivation
-        assert data["session_modes"]["virtual"]["display"] == "<5"
-        assert data["session_modes"]["virtual"]["count"] is None
-        assert data["session_modes"]["virtual"]["percentage"] is None
-        assert data["session_modes"]["in_person"]["display"] == "<5"
-        assert data["session_modes"]["in_person"]["count"] is None
-        assert data["session_modes"]["in_person"]["percentage"] is None
+        # Session Modes: exact aggregate counts are shown.
+        assert data["session_modes"]["virtual"]["display"] == "3"
+        assert data["session_modes"]["virtual"]["count"] == 3
+        assert data["session_modes"]["virtual"]["percentage"] == 37.5
+        assert data["session_modes"]["in_person"]["display"] == "5"
+        assert data["session_modes"]["in_person"]["count"] == 5
+        assert data["session_modes"]["in_person"]["percentage"] == 62.5
 
         # Contract: Allocated 200, Used 7 (5 completed + 2 confirmed), Remaining 193, Utilisation = 3.5%
         assert data["contract"]["allocated_sessions"] == 200
         assert data["contract"]["sessions_used"] == 7
         assert data["contract"]["sessions_remaining"] == 193
         assert data["contract"]["utilisation_percentage"] == 3.5
-
-
-@pytest.mark.asyncio
-async def test_privacy_threshold_suppression_comprehensive(hr_test_app):
-    """Verify privacy threshold masking across dashboard, session types, session modes, and utilisation trends."""
-    test_app, mock_db = hr_test_app
-    transport = ASGITransport(app=test_app)
-
-    org_id = "org-small"
-    await mock_db.organisations.insert_one(Organisation(id=org_id, name="Small Startup Ltd", code="SML").model_dump())
-    USERS_DB["small_hr"] = {
-        "password_hash": bcrypt.hashpw(b"pass", bcrypt.gensalt()).decode(),
-        "role": "hr_viewer",
-        "name": "HR Small",
-        "organisation_id": org_id,
-        "therapist_id": None
-    }
-
-    # 1 client with only 3 sessions (< 5 total)
-    client = CRMClient(id="client-small", first_name="A", last_name="B", email="a@sml.com", phone="+26771111000", client_number="FCA-SML", organisation_id=org_id)
-    await mock_db.crm_clients.insert_one(client.model_dump())
-
-    for i in range(3):
-        b = Booking(
-            client_id="client-small",
-            therapist_id="therapist-caroline-sithole",
-            session_type="individual",
-            session_mode="in_person",
-            status="completed",
-            starts_at=f"2026-09-0{i+1}T08:00:00Z",
-            ends_at=f"2026-09-0{i+1}T09:00:00Z"
-        )
-        await mock_db.bookings.insert_one(b.model_dump())
-
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        await ac.post("/api/login", json={"username": "small_hr", "password": "pass"})
-
-        # Dashboard: Total sessions = 3 < 5 -> suppressed
-        dash = await ac.get("/api/hr/dashboard")
-        assert dash.status_code == 200
-        assert dash.json()["total_sessions"]["display"] == "<5"
-        assert dash.json()["total_sessions"]["suppressed"] is True
-
-        # Session Types: individual = 3 < 5 -> suppressed
-        st = await ac.get("/api/hr/session-types")
-        assert st.status_code == 200
-        assert st.json()["types"]["individual"]["metric"]["display"] == "<5"
-        assert st.json()["types"]["individual"]["metric"]["suppressed"] is True
-
-        # Utilisation Trends: 2026-09 has 3 sessions -> suppressed
-        trends = await ac.get("/api/hr/utilisation")
-        assert trends.status_code == 200
-        point = trends.json()["trends"][0]
-        assert point["total_sessions"]["display"] == "<5"
-        assert point["total_sessions"]["suppressed"] is True
 
 
 @pytest.mark.asyncio
@@ -480,344 +422,69 @@ async def test_safe_aggregate_csv_export_and_audit_logging(hr_test_app):
 
 
 @pytest.mark.asyncio
-async def test_privacy_case_a_session_type_complementary_suppression(hr_test_app):
-    """
-    Case A: Total = 7, Individual = 5, Couple = 2, Family = 0.
-    Expected: Couple = 2 must not be derivable via Total - Individual - Family.
-    Individual and Couple must both be suppressed (<5, count=None, percentage=None).
-    """
+async def test_exact_aggregate_counts_are_not_masked_below_five(hr_test_app):
     test_app, mock_db = hr_test_app
     transport = ASGITransport(app=test_app)
 
-    org_id = "org-case-a"
-    await mock_db.organisations.insert_one(Organisation(id=org_id, name="Case A Corp", code="CS-A").model_dump())
-    USERS_DB["user_case_a"] = {
-        "password_hash": bcrypt.hashpw(b"passA", bcrypt.gensalt()).decode(),
+    org_id = "org-exact"
+    await mock_db.organisations.insert_one(
+        Organisation(id=org_id, name="Exact Counts Corp", code="EXACT").model_dump()
+    )
+    USERS_DB["hr_exact"] = {
+        "password_hash": bcrypt.hashpw(b"pass", bcrypt.gensalt()).decode(),
         "role": "hr_admin",
-        "name": "HR Case A",
+        "name": "HR Exact",
         "organisation_id": org_id,
-        "therapist_id": None
+        "therapist_id": None,
     }
 
-    client = CRMClient(id="client-case-a", first_name="Synthetic", last_name="A", email="a@casea.com", phone="+26771000001", client_number="FCA-A", organisation_id=org_id)
-    await mock_db.crm_clients.insert_one(client.model_dump())
-
-    # 5 Individual, 2 Couple, 0 Family
-    for i in range(5):
-        b = Booking(client_id="client-case-a", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-09-0{i+1}T08:00:00Z", ends_at=f"2026-09-0{i+1}T09:00:00Z")
-        await mock_db.bookings.insert_one(b.model_dump())
-    for i in range(2):
-        b = Booking(client_id="client-case-a", therapist_id="therapist-caroline-sithole", session_type="couple", session_mode="in_person", status="completed", starts_at=f"2026-09-1{i+1}T08:00:00Z", ends_at=f"2026-09-1{i+1}T09:00:00Z")
-        await mock_db.bookings.insert_one(b.model_dump())
-
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        await ac.post("/api/login", json={"username": "user_case_a", "password": "passA"})
-
-        dash_res = await ac.get("/api/hr/dashboard?period=current_month")
-        assert dash_res.status_code == 200
-        dash = dash_res.json()
-
-        assert dash["total_sessions"]["count"] == 7
-        assert dash["total_sessions"]["display"] == "7"
-
-        # Complementary suppression: Couple (<5) must NOT be derivable from Total (7) - Individual (5)
-        # Therefore, Individual MUST ALSO be suppressed
-        st = dash["session_types"]
-        assert st["couple"]["display"] == "<5"
-        assert st["couple"]["count"] is None
-        assert st["couple"]["percentage"] is None
-        assert st["couple"]["suppressed"] is True
-
-        assert st["individual"]["display"] == "<5"
-        assert st["individual"]["count"] is None
-        assert st["individual"]["percentage"] is None
-        assert st["individual"]["suppressed"] is True
-
-        assert st["family"]["display"] == "0"
-        assert st["family"]["count"] == 0
-        assert st["family"]["suppressed"] is False
-
-        # Endpoint /api/hr/session-types must return identical protection
-        types_res = await ac.get("/api/hr/session-types")
-        assert types_res.status_code == 200
-        t_data = types_res.json()["types"]
-        assert t_data["couple"]["metric"]["display"] == "<5"
-        assert t_data["couple"]["metric"]["count"] is None
-        assert t_data["couple"]["percentage"] is None
-        assert t_data["individual"]["metric"]["display"] == "<5"
-        assert t_data["individual"]["metric"]["count"] is None
-        assert t_data["individual"]["percentage"] is None
-
-
-@pytest.mark.asyncio
-async def test_privacy_case_b_session_mode_two_category_suppression(hr_test_app):
-    """
-    Case B: Total = 10, In-Person = 8, Virtual = 2.
-    Expected: In a 2-category breakdown, exposing one side exposes the other side (10 - 8 = 2).
-    Both sides must be suppressed (<5, count=None, percentage=None).
-    """
-    test_app, mock_db = hr_test_app
-    transport = ASGITransport(app=test_app)
-
-    org_id = "org-case-b"
-    await mock_db.organisations.insert_one(Organisation(id=org_id, name="Case B Corp", code="CS-B").model_dump())
-    USERS_DB["user_case_b"] = {
-        "password_hash": bcrypt.hashpw(b"passB", bcrypt.gensalt()).decode(),
-        "role": "hr_admin",
-        "name": "HR Case B",
-        "organisation_id": org_id,
-        "therapist_id": None
-    }
-
-    client = CRMClient(id="client-case-b", first_name="Synthetic", last_name="B", email="b@caseb.com", phone="+26771000002", client_number="FCA-B", organisation_id=org_id)
-    await mock_db.crm_clients.insert_one(client.model_dump())
-
-    # 8 In-Person, 2 Virtual
-    for i in range(8):
-        b = Booking(client_id="client-case-b", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-09-0{i+1}T08:00:00Z" if i < 9 else "2026-09-10T08:00:00Z", ends_at="2026-09-10T09:00:00Z")
-        await mock_db.bookings.insert_one(b.model_dump())
-    for i in range(2):
-        b = Booking(client_id="client-case-b", therapist_id="therapist-alpheaus-chiwaze", session_type="individual", session_mode="virtual", status="completed", starts_at=f"2026-09-2{i+1}T08:00:00Z", ends_at="2026-09-21T09:00:00Z")
-        await mock_db.bookings.insert_one(b.model_dump())
+    for idx in range(3):
+        client_id = f"exact-client-{idx}"
+        await mock_db.crm_clients.insert_one({
+            "id": client_id,
+            "client_number": f"FCA-EXACT-{idx}",
+            "first_name": "Client",
+            "last_name": str(idx),
+            "email": f"client{idx}@example.com",
+            "phone": f"+2677000000{idx}",
+            "organisation_id": org_id,
+            "status": "active",
+        })
+        await mock_db.bookings.insert_one({
+            "id": f"exact-booking-{idx}",
+            "client_id": client_id,
+            "therapist_id": "therapist-caroline-sithole",
+            "session_type": "individual",
+            "session_mode": "virtual",
+            "status": "completed",
+            "starts_at": f"2026-09-0{idx + 1}T08:00:00Z",
+            "ends_at": f"2026-09-0{idx + 1}T09:00:00Z",
+        })
 
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        await ac.post("/api/login", json={"username": "user_case_b", "password": "passB"})
+        await ac.post("/api/login", json={"username": "hr_exact", "password": "pass"})
 
-        dash_res = await ac.get("/api/hr/dashboard?period=current_month")
-        assert dash_res.status_code == 200
-        dash = dash_res.json()
+        dash = await ac.get("/api/hr/dashboard?period=current_month")
+        assert dash.status_code == 200
+        payload = dash.json()
+        assert payload["total_sessions"]["count"] == 3
+        assert payload["total_sessions"]["display"] == "3"
+        assert payload["total_sessions"]["suppressed"] is False
+        assert payload["completed"]["count"] == 3
+        assert payload["completed"]["display"] == "3"
+        assert payload["session_types"]["individual"]["count"] == 3
+        assert payload["session_modes"]["virtual"]["count"] == 3
 
-        assert dash["total_sessions"]["count"] == 10
-        sm = dash["session_modes"]
-
-        # Neither mode may be exposed to reveal the other
-        assert sm["virtual"]["display"] == "<5"
-        assert sm["virtual"]["count"] is None
-        assert sm["virtual"]["percentage"] is None
-        assert sm["virtual"]["suppressed"] is True
-
-        assert sm["in_person"]["display"] == "<5"
-        assert sm["in_person"]["count"] is None
-        assert sm["in_person"]["percentage"] is None
-        assert sm["in_person"]["suppressed"] is True
-
-        modes_res = await ac.get("/api/hr/session-modes")
-        assert modes_res.status_code == 200
-        m_data = modes_res.json()["modes"]
-        assert m_data["virtual"]["metric"]["display"] == "<5"
-        assert m_data["virtual"]["percentage"] is None
-        assert m_data["in_person"]["metric"]["display"] == "<5"
-        assert m_data["in_person"]["percentage"] is None
-
-
-@pytest.mark.asyncio
-async def test_privacy_case_c_attendance_breakdown_inference_protection(hr_test_app):
-    """
-    Case C: Total = 12, Completed = 9, Cancelled = 2, No Show = 1.
-    Expected: Small attendance buckets (<5) are protected against inference.
-    Completed must be complementarily suppressed to protect Cancelled + No Show from tight bounding.
-    """
-    test_app, mock_db = hr_test_app
-    transport = ASGITransport(app=test_app)
-
-    org_id = "org-case-c"
-    await mock_db.organisations.insert_one(Organisation(id=org_id, name="Case C Corp", code="CS-C").model_dump())
-    USERS_DB["user_case_c"] = {
-        "password_hash": bcrypt.hashpw(b"passC", bcrypt.gensalt()).decode(),
-        "role": "hr_admin",
-        "name": "HR Case C",
-        "organisation_id": org_id,
-        "therapist_id": None
-    }
-
-    client = CRMClient(id="client-case-c", first_name="Synthetic", last_name="C", email="c@casec.com", phone="+26771000003", client_number="FCA-C", organisation_id=org_id)
-    await mock_db.crm_clients.insert_one(client.model_dump())
-
-    # 9 Completed, 2 Cancelled, 1 No-Show
-    for i in range(9):
-        b = Booking(client_id="client-case-c", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-09-0{i+1}T08:00:00Z" if i < 9 else "2026-09-10T08:00:00Z", ends_at="2026-09-10T09:00:00Z")
-        await mock_db.bookings.insert_one(b.model_dump())
-    for i in range(2):
-        b = Booking(client_id="client-case-c", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="cancelled", starts_at=f"2026-09-1{i+1}T08:00:00Z", ends_at="2026-09-11T09:00:00Z")
-        await mock_db.bookings.insert_one(b.model_dump())
-    b = Booking(client_id="client-case-c", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="no_show", starts_at="2026-09-25T08:00:00Z", ends_at="2026-09-25T09:00:00Z")
-    await mock_db.bookings.insert_one(b.model_dump())
-
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        await ac.post("/api/login", json={"username": "user_case_c", "password": "passC"})
-
-        dash_res = await ac.get("/api/hr/dashboard?period=current_month")
-        assert dash_res.status_code == 200
-        dash = dash_res.json()
-
-        assert dash["total_sessions"]["count"] == 12
-
-        # Cancelled and No-Show are < 5, their sum is 3 (< 5).
-        # Completed must be complementarily suppressed to protect them.
-        assert dash["completed"]["display"] == "<5"
-        assert dash["completed"]["count"] is None
-        assert dash["completed"]["percentage"] is None
-        assert dash["completed"]["suppressed"] is True
-
-        assert dash["cancelled"]["display"] == "<5"
-        assert dash["cancelled"]["count"] is None
-        assert dash["cancelled"]["percentage"] is None
-        assert dash["cancelled"]["suppressed"] is True
-
-        assert dash["no_show"]["display"] == "<5"
-        assert dash["no_show"]["count"] is None
-        assert dash["no_show"]["percentage"] is None
-        assert dash["no_show"]["suppressed"] is True
-
-
-@pytest.mark.asyncio
-async def test_privacy_case_d_time_series_longitudinal_privacy(hr_test_app):
-    """
-    Case D: January = 8, February = 2, Quarter Total = 10.
-    Expected: February exact value must not be derivable from Quarter Total - January.
-    In the monthly utilisation trends, both January and February must be suppressed (<5, count=None).
-    """
-    test_app, mock_db = hr_test_app
-    transport = ASGITransport(app=test_app)
-
-    org_id = "org-case-d"
-    await mock_db.organisations.insert_one(Organisation(id=org_id, name="Case D Corp", code="CS-D").model_dump())
-    USERS_DB["user_case_d"] = {
-        "password_hash": bcrypt.hashpw(b"passD", bcrypt.gensalt()).decode(),
-        "role": "hr_admin",
-        "name": "HR Case D",
-        "organisation_id": org_id,
-        "therapist_id": None
-    }
-
-    client = CRMClient(id="client-case-d", first_name="Synthetic", last_name="D", email="d@cased.com", phone="+26771000004", client_number="FCA-D", organisation_id=org_id)
-    await mock_db.crm_clients.insert_one(client.model_dump())
-
-    # 8 sessions in 2026-01
-    for i in range(8):
-        b = Booking(client_id="client-case-d", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-01-0{i+1}T08:00:00Z", ends_at=f"2026-01-0{i+1}T09:00:00Z")
-        await mock_db.bookings.insert_one(b.model_dump())
-    # 2 sessions in 2026-02
-    for i in range(2):
-        b = Booking(client_id="client-case-d", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-02-0{i+1}T08:00:00Z", ends_at=f"2026-02-0{i+1}T09:00:00Z")
-        await mock_db.bookings.insert_one(b.model_dump())
-
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        await ac.post("/api/login", json={"username": "user_case_d", "password": "passD"})
-
-        trends_res = await ac.get("/api/hr/utilisation?granularity=monthly")
-        assert trends_res.status_code == 200
-        trends = trends_res.json()["trends"]
-
-        assert len(trends) == 2
-        jan = next(t for t in trends if t["period"] == "2026-01")
-        feb = next(t for t in trends if t["period"] == "2026-02")
-
-        # February (2) is < 5; January (8) must be complementarily suppressed so Feb is not derivable
-        assert feb["total_sessions"]["display"] == "<5"
-        assert feb["total_sessions"]["count"] is None
-        assert feb["total_sessions"]["suppressed"] is True
-
-        assert jan["total_sessions"]["display"] == "<5"
-        assert jan["total_sessions"]["count"] is None
-        assert jan["total_sessions"]["suppressed"] is True
-
-
-@pytest.mark.asyncio
-async def test_privacy_case_e_api_payload_inspection_zero_hidden_raw_counts(hr_test_app):
-    """
-    Case E: Inspect browser API JSON.
-    Expected: Suppressed field strictly contains count: null, percentage: null, suppressed: true.
-    Exact hidden count must NOT exist anywhere in the JSON response under any alias.
-    """
-    test_app, mock_db = hr_test_app
-    transport = ASGITransport(app=test_app)
-
-    org_id = "org-case-e"
-    await mock_db.organisations.insert_one(Organisation(id=org_id, name="Case E Corp", code="CS-E").model_dump())
-    USERS_DB["user_case_e"] = {
-        "password_hash": bcrypt.hashpw(b"passE", bcrypt.gensalt()).decode(),
-        "role": "hr_admin",
-        "name": "HR Case E",
-        "organisation_id": org_id,
-        "therapist_id": None
-    }
-
-    client = CRMClient(id="client-case-e", first_name="E", last_name="E", email="e@casee.com", phone="+26771000005", client_number="FCA-E", organisation_id=org_id)
-    await mock_db.crm_clients.insert_one(client.model_dump())
-
-    # Create 3 sessions (all suppressed)
-    for i in range(3):
-        b = Booking(client_id="client-case-e", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-09-0{i+1}T08:00:00Z", ends_at=f"2026-09-0{i+1}T09:00:00Z")
-        await mock_db.bookings.insert_one(b.model_dump())
-
-    def verify_no_hidden_raw_counts(obj):
-        if isinstance(obj, dict):
-            # Check prohibited keys
-            prohibited_keys = {"raw_count", "actual_count", "actual", "hidden_count", "real_count", "unmasked"}
-            for k in obj.keys():
-                assert k.lower() not in prohibited_keys, f"Found leaked raw key: {k}"
-            # If suppressed, count and percentage MUST be None
-            if obj.get("suppressed") is True:
-                assert obj.get("count") is None, f"Suppressed object contains non-null count: {obj}"
-                assert obj.get("percentage") is None, f"Suppressed object contains non-null percentage: {obj}"
-                assert obj.get("display") == "<5"
-            for v in obj.values():
-                verify_no_hidden_raw_counts(v)
-        elif isinstance(obj, list):
-            for item in obj:
-                verify_no_hidden_raw_counts(item)
-
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        await ac.post("/api/login", json={"username": "user_case_e", "password": "passE"})
-
-        for ep in ["/api/hr/dashboard", "/api/hr/utilisation", "/api/hr/session-types", "/api/hr/session-modes"]:
-            res = await ac.get(ep)
-            assert res.status_code == 200
-            json_payload = res.json()
-            verify_no_hidden_raw_counts(json_payload)
-
-
-@pytest.mark.asyncio
-async def test_privacy_case_f_csv_export_strict_privacy_policy(hr_test_app):
-    """
-    Case F: CSV export.
-    Expected: No suppressed raw values. Output contains '<5' for all suppressed metrics.
-    """
-    test_app, mock_db = hr_test_app
-    transport = ASGITransport(app=test_app)
-
-    org_id = "org-case-f"
-    await mock_db.organisations.insert_one(Organisation(id=org_id, name="Case F Corp", code="CS-F").model_dump())
-    USERS_DB["user_case_f"] = {
-        "password_hash": bcrypt.hashpw(b"passF", bcrypt.gensalt()).decode(),
-        "role": "hr_admin",
-        "name": "HR Case F",
-        "organisation_id": org_id,
-        "therapist_id": None
-    }
-
-    client = CRMClient(id="client-case-f", first_name="F", last_name="F", email="f@casef.com", phone="+26771000006", client_number="FCA-F", organisation_id=org_id)
-    await mock_db.crm_clients.insert_one(client.model_dump())
-
-    # 3 sessions in 2026-09 (< 5 total)
-    for i in range(3):
-        b = Booking(client_id="client-case-f", therapist_id="therapist-caroline-sithole", session_type="individual", session_mode="in_person", status="completed", starts_at=f"2026-09-0{i+1}T08:00:00Z", ends_at=f"2026-09-0{i+1}T09:00:00Z")
-        await mock_db.bookings.insert_one(b.model_dump())
-
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        await ac.post("/api/login", json={"username": "user_case_f", "password": "passF"})
+        trends = await ac.get("/api/hr/utilisation?granularity=monthly")
+        assert trends.status_code == 200
+        point = trends.json()["trends"][0]
+        assert point["total_sessions"]["count"] == 3
+        assert point["total_sessions"]["display"] == "3"
+        assert point["total_sessions"]["suppressed"] is False
 
         csv_res = await ac.get("/api/hr/export/csv")
         assert csv_res.status_code == 200
-        csv_text = csv_res.text
-        lines = csv_text.strip().split("\n")
-        assert len(lines) == 2
-        header = lines[0]
-        row = lines[1]
-        assert header == "Period,Total Sessions,Completed,Cancelled,No Show"
-        # All columns must be suppressed as <5, NEVER returning 3 or 0
-        assert row == "2026-09,<5,<5,<5,<5"
+        assert "2026-09,3,3,0,0" in csv_res.text
 
 
 @pytest.mark.asyncio
