@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../AdminAuthContext';
+import { api, useAdminAuth } from '../AdminAuthContext';
 import {
   Settings,
   Mail,
@@ -14,11 +14,15 @@ import {
   ChevronRight,
   Info,
   Save,
-  Receipt
+  Receipt,
+  Trash2,
+  UserCog
 } from 'lucide-react';
 import { formatSessionDateTime } from '../AdminConstants';
 
 const AdminSettings = () => {
+  const { user } = useAdminAuth();
+  const isSuperAdmin = user?.role === 'super_admin';
   const [config, setConfig] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
@@ -30,6 +34,8 @@ const AdminSettings = () => {
   const [invoiceProfile, setInvoiceProfile] = useState(null);
   const [invoiceProfileSaving, setInvoiceProfileSaving] = useState(false);
   const [invoiceProfileMessage, setInvoiceProfileMessage] = useState('');
+  const [staffUsers, setStaffUsers] = useState([]);
+  const [staffUserMessage, setStaffUserMessage] = useState('');
 
   const fetchData = React.useCallback(async () => {
     setLoading(true);
@@ -45,12 +51,18 @@ const AdminSettings = () => {
       setAuditLogs(auditRes.data.logs || []);
       setAuditTotal(auditRes.data.total || 0);
       setInvoiceProfile(invoiceProfileRes.data);
+      if (isSuperAdmin) {
+        const staffRes = await api.get('/admin-ops/staff-users');
+        setStaffUsers(staffRes.data || []);
+      } else {
+        setStaffUsers([]);
+      }
     } catch (err) {
       console.error('Error fetching admin settings/logs:', err);
     } finally {
       setLoading(false);
     }
-  }, [auditPage, auditLimit, actionFilter]);
+  }, [auditPage, auditLimit, actionFilter, isSuperAdmin]);
 
   useEffect(() => {
     fetchData();
@@ -73,6 +85,19 @@ const AdminSettings = () => {
       setInvoiceProfileMessage(err.response?.data?.detail || 'Could not save invoice company profile.');
     } finally {
       setInvoiceProfileSaving(false);
+    }
+  };
+
+  const deleteStaffUser = async (account) => {
+    if (!isSuperAdmin) return;
+    if (!window.confirm(`Delete platform account ${account.name || account.user_id} (${account.user_id})?`)) return;
+    setStaffUserMessage('');
+    try {
+      await api.delete(`/admin-ops/staff-users/${encodeURIComponent(account.user_id)}`);
+      setStaffUsers(prev => prev.filter(item => item.user_id !== account.user_id));
+      setStaffUserMessage('Platform user deleted.');
+    } catch (err) {
+      setStaffUserMessage(err.response?.data?.detail || 'Could not delete platform user.');
     }
   };
 
@@ -130,6 +155,79 @@ const AdminSettings = () => {
           <div className="text-xs font-semibold text-slate-600">{invoiceProfileMessage}</div>
         )}
       </div>
+
+      {isSuperAdmin && (
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 space-y-4">
+          <div>
+            <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+              <UserCog className="w-5 h-5 text-purple-600" />
+              Platform Staff & Admin Accounts
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Super-admin-only account management. Your own account and the final active super admin are protected from deletion.
+            </p>
+          </div>
+
+          {staffUserMessage && (
+            <div className="text-xs font-semibold text-slate-600">{staffUserMessage}</div>
+          )}
+
+          <div className="overflow-x-auto border border-slate-200 rounded-xl">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase">
+                <tr>
+                  <th className="py-2.5 px-3">Name</th>
+                  <th className="py-2.5 px-3">Login</th>
+                  <th className="py-2.5 px-3">Role</th>
+                  <th className="py-2.5 px-3">Status</th>
+                  <th className="py-2.5 px-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {staffUsers.length === 0 ? (
+                  <tr><td colSpan="5" className="py-6 text-center text-slate-400">No platform staff accounts found.</td></tr>
+                ) : (
+                  staffUsers.map((account) => {
+                    const isSelf = account.user_id === user?.user_id;
+                    return (
+                      <tr key={account.user_id}>
+                        <td className="py-2.5 px-3 font-semibold text-slate-800">{account.name || '—'}</td>
+                        <td className="py-2.5 px-3 font-mono text-slate-600">{account.user_id}</td>
+                        <td className="py-2.5 px-3">
+                          <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-100 font-semibold">
+                            {account.role}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className={`px-2 py-0.5 rounded font-semibold ${
+                            account.active === false
+                              ? 'bg-slate-100 text-slate-500'
+                              : 'bg-emerald-100 text-emerald-700'
+                          }`}>
+                            {account.active === false ? 'Inactive' : 'Active'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => deleteStaffUser(account)}
+                            disabled={isSelf}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={isSelf ? 'You cannot delete your own account' : 'Delete platform account'}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Provider Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
