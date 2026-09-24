@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAdminAuth } from './AdminAuthContext';
+import InstallPortalButton from '../components/InstallPortalButton';
 import {
   LayoutDashboard,
   Users,
@@ -235,6 +236,9 @@ const AdminLayout = () => {
               </span>
             </div>
             <div className="h-4 w-px bg-slate-200 hidden sm:block"></div>
+            <div className="hidden md:block">
+              <InstallPortalButton label="Install Admin App" />
+            </div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-slate-700 hidden md:inline">{user.name}</span>
               {getRoleBadge(user.role)}
