@@ -79,7 +79,7 @@ const HRUtilisation = () => {
         ) : (
           <div className="space-y-4 pt-2">
             {trends.map((pt) => {
-              const numericCount = pt.total_sessions.count || (pt.total_sessions.suppressed ? 4 : 0);
+              const numericCount = pt.total_sessions.count || 0;
               const maxCount = Math.max(...trends.map(t => t.total_sessions.count || 5), 10);
               const barPercent = Math.min((numericCount / maxCount) * 100, 100);
 
@@ -88,21 +88,13 @@ const HRUtilisation = () => {
                   <div className="flex justify-between text-xs">
                     <span className="font-bold text-slate-800">{pt.period}</span>
                     <div className="flex items-center gap-2">
-                      {pt.total_sessions.suppressed ? (
-                        <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-[10px] font-bold">
-                          Masked (&lt;5 sessions)
-                        </span>
-                      ) : (
-                        <span className="font-black text-slate-900">{pt.total_sessions.display} sessions</span>
-                      )}
+                      <span className="font-black text-slate-900">{pt.total_sessions.display} sessions</span>
                     </div>
                   </div>
                   <div className="w-full h-4 bg-slate-100 rounded-full overflow-hidden p-0.5">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${
-                        pt.total_sessions.suppressed
-                          ? 'bg-amber-400 opacity-60'
-                          : 'bg-teal-600'
+                        'bg-teal-600'
                       }`}
                       style={{ width: `${Math.max(barPercent, 6)}%` }}
                     />
@@ -144,7 +136,7 @@ const HRUtilisation = () => {
                   <tr key={pt.period} className="hover:bg-slate-50/70 transition">
                     <td className="py-3.5 px-5 font-bold text-slate-900">{pt.period}</td>
                     <td className="py-3.5 px-5 font-semibold">
-                      <span className={pt.total_sessions.suppressed ? 'text-amber-700 font-bold' : 'text-slate-900'}>
+                      <span className="text-slate-900">
                         {pt.total_sessions.display}
                       </span>
                     </td>
@@ -165,7 +157,7 @@ const HRUtilisation = () => {
         <div>
           <strong className="block font-bold">Small-Count Protection:</strong>
           <p className="text-teal-800/90 mt-0.5 leading-relaxed">
-            {privacy_notice} This prevents identification of individuals based on calendar activity in low-volume months.
+            {privacy_notice} Individual employee and clinical records remain confidential.
           </p>
         </div>
       </div>
