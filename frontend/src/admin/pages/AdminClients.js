@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../AdminAuthContext';
+import { api, useAdminAuth } from '../AdminAuthContext';
 import {
   Users,
   Search,
@@ -14,11 +14,14 @@ import {
   Building,
   CheckCircle2,
   X,
-  AlertCircle
+  AlertCircle,
+  Trash2
 } from 'lucide-react';
 import { formatSessionDateTime } from '../AdminConstants';
 
 const AdminClients = () => {
+  const { user } = useAdminAuth();
+  const isSuperAdmin = user?.role === 'super_admin';
   const [clients, setClients] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -41,6 +44,8 @@ const AdminClients = () => {
   });
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [deletingClientId, setDeletingClientId] = useState(null);
 
   const fetchClients = React.useCallback(async (pageNum = 1) => {
     setLoading(true);
@@ -94,6 +99,27 @@ const AdminClients = () => {
     }
   };
 
+  const handleDeleteClient = async (client) => {
+    if (!isSuperAdmin) return;
+    const clientNumber = String(client.client_number || '').trim();
+    const confirmation = window.prompt(
+      `This permanently deletes ${client.first_name || ''} ${client.last_name || ''} and linked non-invoiced CRM records. Type ${clientNumber} to confirm.`
+    );
+    if (confirmation !== clientNumber) return;
+
+    setActionError('');
+    setDeletingClientId(client.id);
+    try {
+      await api.delete(`/crm/clients/${client.id}`);
+      const nextPage = clients.length === 1 && page > 1 ? page - 1 : page;
+      await fetchClients(nextPage);
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Failed to delete CRM client.');
+    } finally {
+      setDeletingClientId(null);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
@@ -112,6 +138,13 @@ const AdminClients = () => {
           <span>Register New Client</span>
         </button>
       </div>
+
+      {actionError && (
+        <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{actionError}</span>
+        </div>
+      )}
 
       {/* Filters Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between">
@@ -226,13 +259,27 @@ const AdminClients = () => {
                         {dt.date}
                       </td>
                       <td className="py-3.5 px-4 text-right">
-                        <Link
-                          to={`/admin/crm/clients/${client.id}`}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition"
-                        >
-                          <span>Profile</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </Link>
+                        <div className="inline-flex items-center gap-1.5">
+                          <Link
+                            to={`/admin/crm/clients/${client.id}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition"
+                          >
+                            <span>Profile</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </Link>
+                          {isSuperAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteClient(client)}
+                              disabled={deletingClientId === client.id}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold rounded-lg transition disabled:opacity-50"
+                              title="Delete CRM client"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>{deletingClientId === client.id ? 'Deleting...' : 'Delete'}</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
