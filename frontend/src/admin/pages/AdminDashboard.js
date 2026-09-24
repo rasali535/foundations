@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../AdminAuthContext';
 import {
@@ -18,6 +18,7 @@ import {
   ChevronRight,
   Sparkles
 } from 'lucide-react';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { SESSION_TYPE_COLORS, SESSION_MODE_CONFIG, STATUS_CONFIG, formatSessionDateTime } from '../AdminConstants';
 
 const AdminDashboard = () => {
@@ -26,21 +27,23 @@ const AdminDashboard = () => {
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
-  const fetchDashboard = async () => {
-    setLoading(true);
+  const fetchDashboard = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await api.get('/crm/dashboard');
       setData(res.data);
     } catch (err) {
       setError('Failed to load operational dashboard data.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchDashboard();
-  }, []);
+  }, [fetchDashboard]);
+
+  useAutoRefresh(() => fetchDashboard(true), 30000);
 
   if (loading) {
     return (
