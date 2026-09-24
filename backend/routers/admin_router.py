@@ -414,6 +414,42 @@ async def set_organisation_contact_status(
     return {"status": "updated", "active": active, "pool": pool}
 
 
+@admin_router.delete("/organisations/{org_id}/contacts/{contact_id}")
+async def delete_organisation_contact(
+    org_id: str,
+    contact_id: str,
+    request: Request,
+    user: Dict = Depends(require_super_admin),
+):
+    db = get_db(request)
+    contact = await db.organisation_contacts.find_one(
+        {"id": contact_id, "organisation_id": org_id},
+        {"_id": 0}
+    )
+    if not contact:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corporate roster member not found.")
+
+    await db.organisation_contacts.delete_one({"id": contact_id, "organisation_id": org_id})
+    await db.crm_clients.update_many(
+        {"organisation_id": org_id, "organisation_contact_id": contact_id},
+        {"$unset": {"organisation_contact_id": ""}, "$set": {"updated_at": now_iso()}},
+    )
+
+    await AuditService.log_activity(
+        db,
+        action="organisation_contact_deleted",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "organisation_id": org_id,
+            "contact_id": contact_id,
+            "deleted_email": contact.get("email"),
+        },
+    )
+    pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id)
+    return {"status": "deleted", "pool": pool}
+
+
 def require_therapist_approval_role(request: Request):
     user = get_current_user(request)
     if user.get("role") not in ["therapist", "clinical_admin"]:
