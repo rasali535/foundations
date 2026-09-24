@@ -232,15 +232,14 @@ async def delete_client_profile(
         )
 
     if linked_invoice_ids:
-        issued_or_paid = await db.invoices.count_documents({
-            "id": {"$in": list(linked_invoice_ids)},
-            "status": {"$in": ["issued", "paid"]},
+        linked_invoice_count = await db.invoices.count_documents({
+            "id": {"$in": list(linked_invoice_ids)}
         })
-        if issued_or_paid:
+        if linked_invoice_count:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    "This client has bookings linked to an issued or paid invoice. "
+                    "This client has bookings linked to an invoice. "
                     "Remove or reconcile the invoice before deleting the CRM client."
                 ),
             )
