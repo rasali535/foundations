@@ -135,6 +135,102 @@ async def update_organisation(org_id: str, payload: OrganisationUpdate, request:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found.")
     return updated
 
+
+@admin_router.delete("/organisations/{org_id}")
+async def delete_organisation(
+    org_id: str,
+    request: Request,
+    cascade: bool = Query(False),
+    user: Dict = Depends(require_super_admin),
+):
+    db = get_db(request)
+    org = await db.organisations.find_one({"id": org_id}, {"_id": 0})
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found.")
+
+    client_docs = await db.crm_clients.find(
+        {"organisation_id": org_id}, {"_id": 0, "id": 1}
+    ).to_list(50000)
+    client_ids = [row.get("id") for row in client_docs if row.get("id")]
+    booking_count = await db.bookings.count_documents(
+        {"client_id": {"$in": client_ids}}
+    ) if client_ids else 0
+    invoice_count = await db.invoices.count_documents({"organisation_id": org_id})
+    hr_user_count = await db.organisation_users.count_documents({"organisation_id": org_id})
+    roster_count = await db.organisation_contacts.count_documents({"organisation_id": org_id})
+
+    linked_count = len(client_ids) + booking_count + invoice_count + hr_user_count + roster_count
+    if linked_count and not cascade:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Organisation has linked records. Confirm cascade deletion to continue.",
+                "clients": len(client_ids),
+                "bookings": booking_count,
+                "invoices": invoice_count,
+                "hr_users": hr_user_count,
+                "roster_members": roster_count,
+            },
+        )
+
+    booking_ids = []
+    if client_ids:
+        booking_docs = await db.bookings.find(
+            {"client_id": {"$in": client_ids}}, {"_id": 0, "id": 1}
+        ).to_list(50000)
+        booking_ids = [row.get("id") for row in booking_docs if row.get("id")]
+
+    invoice_docs = await db.invoices.find(
+        {"organisation_id": org_id}, {"_id": 0, "id": 1}
+    ).to_list(50000)
+    invoice_ids = [row.get("id") for row in invoice_docs if row.get("id")]
+
+    if invoice_ids:
+        await db.invoice_items.delete_many({"invoice_id": {"$in": invoice_ids}})
+        await db.invoice_booking_links.delete_many({"invoice_id": {"$in": invoice_ids}})
+    if booking_ids:
+        await db.invoice_booking_links.delete_many({"booking_id": {"$in": booking_ids}})
+    if client_ids:
+        await db.crm_intake_submissions.delete_many({"client_id": {"$in": client_ids}})
+        await db.crm_notes.delete_many({"client_id": {"$in": client_ids}})
+        await db.notification_log.delete_many({"client_id": {"$in": client_ids}})
+        await db.booking_batches.delete_many({"client_id": {"$in": client_ids}})
+        await db.bookings.delete_many({"client_id": {"$in": client_ids}})
+        await db.crm_clients.delete_many({"id": {"$in": client_ids}})
+
+    deleted_hr_users = await db.organisation_users.find(
+        {"organisation_id": org_id}, {"_id": 0, "user_id": 1}
+    ).to_list(5000)
+    await db.invoices.delete_many({"organisation_id": org_id})
+    await db.organisation_users.delete_many({"organisation_id": org_id})
+    await db.organisation_contacts.delete_many({"organisation_id": org_id})
+    await db.organisations.delete_one({"id": org_id})
+
+    from server import USERS_DB
+    for account in deleted_hr_users:
+        cache_key = str(account.get("user_id") or "").strip().lower()
+        if cache_key:
+            USERS_DB.pop(cache_key, None)
+
+    await AuditService.log_activity(
+        db,
+        action="organisation_deleted",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "organisation_id": org_id,
+            "organisation_name": org.get("name"),
+            "cascade": cascade,
+            "deleted_clients": len(client_ids),
+            "deleted_bookings": booking_count,
+            "deleted_invoices": invoice_count,
+            "deleted_hr_users": hr_user_count,
+            "deleted_roster_members": roster_count,
+        },
+    )
+    return {"status": "deleted", "organisation_id": org_id}
+
+
 @admin_router.post("/organisations/{org_id}/users", response_model=OrganisationUser, status_code=status.HTTP_201_CREATED)
 async def create_organisation_user(org_id: str, payload: OrganisationUserCreate, request: Request, user: Dict = Depends(require_admin)):
     db = get_db(request)
