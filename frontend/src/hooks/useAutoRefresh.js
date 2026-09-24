@@ -1,12 +1,18 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 const useAutoRefresh = (callback, intervalMs, enabled = true) => {
+  const callbackRef = useRef(callback);
+
   useEffect(() => {
-    if (!enabled || typeof callback !== 'function' || !intervalMs) return undefined;
+    callbackRef.current = callback;
+  }, [callback]);
+
+  useEffect(() => {
+    if (!enabled || typeof callbackRef.current !== 'function' || !intervalMs) return undefined;
 
     const run = () => {
       if (document.visibilityState === 'visible') {
-        callback();
+        callbackRef.current();
       }
     };
 
@@ -23,7 +29,7 @@ const useAutoRefresh = (callback, intervalMs, enabled = true) => {
       window.removeEventListener('focus', run);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [callback, intervalMs, enabled]);
+  }, [intervalMs, enabled]);
 };
 
 export default useAutoRefresh;
