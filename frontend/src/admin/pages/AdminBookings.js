@@ -19,6 +19,7 @@ import {
   AlertCircle,
   Trash2
 } from 'lucide-react';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { SESSION_TYPE_COLORS, SESSION_MODE_CONFIG, STATUS_CONFIG, formatSessionDateTime } from '../AdminConstants';
 
 const AdminBookings = () => {
@@ -91,8 +92,8 @@ const AdminBookings = () => {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
 
-  const fetchBookings = React.useCallback(async (pageNum = 1) => {
-    setLoading(true);
+  const fetchBookings = React.useCallback(async (pageNum = 1, silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params = { page: pageNum, limit };
       if (statusFilter) params.status = statusFilter;
@@ -108,7 +109,7 @@ const AdminBookings = () => {
     } catch (err) {
       console.error('Error fetching bookings:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [limit, statusFilter, typeFilter, modeFilter, therapistFilter]);
 
@@ -132,6 +133,8 @@ const AdminBookings = () => {
   useEffect(() => {
     fetchBookings(1);
   }, [fetchBookings]);
+
+  useAutoRefresh(() => fetchBookings(page, true), 30000);
 
   // Single Booking Submit
   const handleSingleSubmit = async (e) => {
