@@ -36,6 +36,13 @@ def require_admin(request: Request):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
 
+
+def require_super_admin(request: Request):
+    user = get_current_user(request)
+    if user.get("role") != "super_admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super admin access required")
+    return user
+
 def require_staff_or_above(request: Request):
     user = get_current_user(request)
     if user.get("role") not in ["super_admin", "admin", "staff", "therapist", "clinical_admin"]:
