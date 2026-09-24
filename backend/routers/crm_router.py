@@ -38,6 +38,13 @@ def require_crm_access(request: Request):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to CRM operations")
     return user
 
+
+def require_super_admin(request: Request):
+    user = get_current_user(request)
+    if user.get("role") != "super_admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super admin access required")
+    return user
+
 async def is_therapist_assigned_to_client(db, therapist_id: Optional[str], client_id: str) -> bool:
     if not therapist_id or not client_id:
         return False
@@ -192,6 +199,83 @@ async def create_client_manual(
         actor_name=user.get("name")
     )
     return client
+
+@crm_router.delete("/clients/{client_id}")
+async def delete_client_profile(
+    client_id: str,
+    request: Request,
+    user: Dict = Depends(require_super_admin),
+):
+    db = get_db(request)
+    client = await db.crm_clients.find_one({"id": client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+
+    booking_docs = await db.bookings.find(
+        {"client_id": client_id},
+        {"_id": 0, "id": 1, "active_invoice_id": 1}
+    ).to_list(50000)
+    booking_ids = [row.get("id") for row in booking_docs if row.get("id")]
+
+    linked_invoice_ids = {
+        row.get("active_invoice_id")
+        for row in booking_docs
+        if row.get("active_invoice_id")
+    }
+    if booking_ids:
+        link_docs = await db.invoice_booking_links.find(
+            {"booking_id": {"$in": booking_ids}},
+            {"_id": 0, "invoice_id": 1}
+        ).to_list(50000)
+        linked_invoice_ids.update(
+            row.get("invoice_id") for row in link_docs if row.get("invoice_id")
+        )
+
+    if linked_invoice_ids:
+        issued_or_paid = await db.invoices.count_documents({
+            "id": {"$in": list(linked_invoice_ids)},
+            "status": {"$in": ["issued", "paid"]},
+        })
+        if issued_or_paid:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This client has bookings linked to an issued or paid invoice. "
+                    "Remove or reconcile the invoice before deleting the CRM client."
+                ),
+            )
+
+    await AuditService.log_activity(
+        db,
+        action="crm_client_deleted",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "deleted_client_id": client_id,
+            "deleted_client_number": client.get("client_number"),
+            "deleted_name": " ".join(
+                part for part in [client.get("first_name"), client.get("last_name")] if part
+            ).strip() or None,
+            "deleted_booking_count": len(booking_ids),
+            "organisation_id": client.get("organisation_id"),
+        },
+    )
+
+    if booking_ids:
+        await db.invoice_booking_links.delete_many({"booking_id": {"$in": booking_ids}})
+    await db.booking_batches.delete_many({"client_id": client_id})
+    await db.bookings.delete_many({"client_id": client_id})
+    await db.crm_intake_submissions.delete_many({"client_id": client_id})
+    await db.crm_notes.delete_many({"client_id": client_id})
+    await db.notification_log.delete_many({"client_id": client_id})
+    await db.crm_clients.delete_one({"id": client_id})
+
+    return {
+        "status": "deleted",
+        "client_id": client_id,
+        "client_number": client.get("client_number"),
+    }
+
 
 @crm_router.get("/clients/{client_id}")
 async def get_client_profile(
