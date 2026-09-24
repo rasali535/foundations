@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useHRAuth } from './HRAuthContext';
+import InstallPortalButton from '../components/InstallPortalButton';
 import {
   LayoutDashboard,
   FileCheck2,
@@ -216,6 +217,9 @@ const HRLayout = () => {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
+            <div className="hidden md:block">
+              <InstallPortalButton label="Install HR Portal" />
+            </div>
             <button
               onClick={() => setMobileOpen(true)}
               className="lg:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100"
