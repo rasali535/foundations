@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { hrApi, useHRAuth } from '../HRAuthContext';
 import {
   Users,
@@ -19,8 +20,8 @@ const HRDashboard = () => {
   const [error, setError] = useState('');
   const [period, setPeriod] = useState('current_month');
 
-  const fetchDashboard = useCallback(async () => {
-    setLoading(true);
+  const fetchDashboard = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError('');
     try {
       const res = await hrApi.get(`/hr/dashboard?period=${period}`);
@@ -28,13 +29,15 @@ const HRDashboard = () => {
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to load corporate dashboard metrics.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [period]);
 
   useEffect(() => {
     fetchDashboard();
   }, [fetchDashboard]);
+
+  useAutoRefresh(() => fetchDashboard(true), 60000);
 
   if (loading) {
     return (
