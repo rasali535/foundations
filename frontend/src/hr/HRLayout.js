@@ -272,7 +272,17 @@ const HRLayout = () => {
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-          <Outlet />
+          {user.role === 'super_admin' && !organisationId ? (
+            <div className="max-w-3xl mx-auto bg-white border border-slate-200 rounded-2xl shadow-sm p-8 text-center">
+              <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+              <h2 className="text-lg font-bold text-slate-900">No organisation selected</h2>
+              <p className="text-sm text-slate-500 mt-2">
+                Add a corporate organisation from the Foundations admin portal first. Once an organisation exists, select it here to inspect its HR dashboard securely.
+              </p>
+            </div>
+          ) : (
+            <Outlet key={organisationId || user.organisation_id || 'hr-scope'} />
+          )}
         </main>
 
         <footer className="bg-white border-t border-slate-200 py-3 px-4 sm:px-6 text-[10px] sm:text-[11px] text-slate-500">
