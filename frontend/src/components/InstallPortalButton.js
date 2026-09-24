@@ -14,33 +14,39 @@ const InstallPortalButton = ({ label = 'Install App', compact = false }) => {
       event.preventDefault();
       setInstallPrompt(event);
     };
+
     const onInstalled = () => {
       setInstalled(true);
       setInstallPrompt(null);
     };
 
+    const displayMode = window.matchMedia?.('(display-mode: standalone)');
+    const onDisplayModeChange = () => setInstalled(isStandalone());
+
     window.addEventListener('beforeinstallprompt', onBeforeInstall);
     window.addEventListener('appinstalled', onInstalled);
+    displayMode?.addEventListener?.('change', onDisplayModeChange);
+
     return () => {
       window.removeEventListener('beforeinstallprompt', onBeforeInstall);
       window.removeEventListener('appinstalled', onInstalled);
+      displayMode?.removeEventListener?.('change', onDisplayModeChange);
     };
   }, []);
 
-  if (installed) return null;
+  if (installed || !installPrompt) return null;
 
   const handleInstall = async () => {
-    if (!installPrompt) {
-      window.alert(
-        'To install Foundations on this computer, use your browser menu and choose "Install app" or "Apps > Install this site as an app".'
-      );
-      return;
-    }
+    const prompt = installPrompt;
+    if (!prompt) return;
 
-    await installPrompt.prompt();
-    const choice = await installPrompt.userChoice;
-    if (choice?.outcome === 'accepted') {
-      setInstallPrompt(null);
+    setInstallPrompt(null);
+    await prompt.prompt();
+    const choice = await prompt.userChoice;
+
+    if (choice?.outcome !== 'accepted') {
+      // The browser may emit a fresh beforeinstallprompt event later.
+      setInstalled(isStandalone());
     }
   };
 
