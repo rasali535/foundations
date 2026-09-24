@@ -1,0 +1,30 @@
+{
+  "name": "Foundations Counselling & Advisory",
+  "short_name": "Foundations",
+  "description": "Secure Foundations administration and corporate HR portal",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#059669",
+  "icons": [
+    {
+      "src": "/fca-app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Foundations Admin",
+      "short_name": "Admin",
+      "url": "/admin"
+    },
+    {
+      "name": "FCA Corporate HR",
+      "short_name": "HR Portal",
+      "url": "/hr"
+    }
+  ]
+}

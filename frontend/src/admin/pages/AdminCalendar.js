@@ -14,6 +14,7 @@ import {
   Eye,
   CalendarDays
 } from 'lucide-react';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { SESSION_TYPE_COLORS, SESSION_MODE_CONFIG, STATUS_CONFIG, formatSessionDateTime } from '../AdminConstants';
 
 const AdminCalendar = () => {
@@ -26,8 +27,8 @@ const AdminCalendar = () => {
   const [typeFilter, setTypeFilter] = useState('');
   const [selectedBooking, setSelectedBooking] = useState(null);
 
-  const fetchCalendarBookings = React.useCallback(async () => {
-    setLoading(true);
+  const fetchCalendarBookings = React.useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth();
@@ -47,7 +48,7 @@ const AdminCalendar = () => {
     } catch (err) {
       console.error('Error fetching calendar bookings:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [currentDate, therapistFilter, typeFilter]);
 
@@ -67,6 +68,8 @@ const AdminCalendar = () => {
   useEffect(() => {
     fetchCalendarBookings();
   }, [fetchCalendarBookings]);
+
+  useAutoRefresh(() => fetchCalendarBookings(true), 30000);
 
   const prevPeriod = () => {
     const d = new Date(currentDate);

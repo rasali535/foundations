@@ -1,0 +1,19 @@
+{
+  "id": "/hr",
+  "name": "FCA Corporate HR",
+  "short_name": "FCA HR",
+  "description": "Foundations secure corporate HR wellness portal",
+  "start_url": "/hr",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#059669",
+  "icons": [
+    {
+      "src": "/fca-app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

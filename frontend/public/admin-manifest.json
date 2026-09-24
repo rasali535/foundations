@@ -1,0 +1,19 @@
+{
+  "id": "/admin",
+  "name": "Foundations Admin",
+  "short_name": "FCA Admin",
+  "description": "Foundations Counselling & Advisory administration portal",
+  "start_url": "/admin",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#059669",
+  "icons": [
+    {
+      "src": "/fca-app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
