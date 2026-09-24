@@ -36,6 +36,13 @@ def require_admin(request: Request):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
 
+
+def require_super_admin(request: Request):
+    user = get_current_user(request)
+    if user.get("role") != "super_admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super admin access required")
+    return user
+
 def require_staff_or_above(request: Request):
     user = get_current_user(request)
     if user.get("role") not in ["super_admin", "admin", "staff", "therapist", "clinical_admin"]:
@@ -128,6 +135,102 @@ async def update_organisation(org_id: str, payload: OrganisationUpdate, request:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found.")
     return updated
 
+
+@admin_router.delete("/organisations/{org_id}")
+async def delete_organisation(
+    org_id: str,
+    request: Request,
+    cascade: bool = Query(False),
+    user: Dict = Depends(require_super_admin),
+):
+    db = get_db(request)
+    org = await db.organisations.find_one({"id": org_id}, {"_id": 0})
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found.")
+
+    client_docs = await db.crm_clients.find(
+        {"organisation_id": org_id}, {"_id": 0, "id": 1}
+    ).to_list(50000)
+    client_ids = [row.get("id") for row in client_docs if row.get("id")]
+    booking_count = await db.bookings.count_documents(
+        {"client_id": {"$in": client_ids}}
+    ) if client_ids else 0
+    invoice_count = await db.invoices.count_documents({"organisation_id": org_id})
+    hr_user_count = await db.organisation_users.count_documents({"organisation_id": org_id})
+    roster_count = await db.organisation_contacts.count_documents({"organisation_id": org_id})
+
+    linked_count = len(client_ids) + booking_count + invoice_count + hr_user_count + roster_count
+    if linked_count and not cascade:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Organisation has linked records. Confirm cascade deletion to continue.",
+                "clients": len(client_ids),
+                "bookings": booking_count,
+                "invoices": invoice_count,
+                "hr_users": hr_user_count,
+                "roster_members": roster_count,
+            },
+        )
+
+    booking_ids = []
+    if client_ids:
+        booking_docs = await db.bookings.find(
+            {"client_id": {"$in": client_ids}}, {"_id": 0, "id": 1}
+        ).to_list(50000)
+        booking_ids = [row.get("id") for row in booking_docs if row.get("id")]
+
+    invoice_docs = await db.invoices.find(
+        {"organisation_id": org_id}, {"_id": 0, "id": 1}
+    ).to_list(50000)
+    invoice_ids = [row.get("id") for row in invoice_docs if row.get("id")]
+
+    if invoice_ids:
+        await db.invoice_items.delete_many({"invoice_id": {"$in": invoice_ids}})
+        await db.invoice_booking_links.delete_many({"invoice_id": {"$in": invoice_ids}})
+    if booking_ids:
+        await db.invoice_booking_links.delete_many({"booking_id": {"$in": booking_ids}})
+    if client_ids:
+        await db.crm_intake_submissions.delete_many({"client_id": {"$in": client_ids}})
+        await db.crm_notes.delete_many({"client_id": {"$in": client_ids}})
+        await db.notification_log.delete_many({"client_id": {"$in": client_ids}})
+        await db.booking_batches.delete_many({"client_id": {"$in": client_ids}})
+        await db.bookings.delete_many({"client_id": {"$in": client_ids}})
+        await db.crm_clients.delete_many({"id": {"$in": client_ids}})
+
+    deleted_hr_users = await db.organisation_users.find(
+        {"organisation_id": org_id}, {"_id": 0, "user_id": 1}
+    ).to_list(5000)
+    await db.invoices.delete_many({"organisation_id": org_id})
+    await db.organisation_users.delete_many({"organisation_id": org_id})
+    await db.organisation_contacts.delete_many({"organisation_id": org_id})
+    await db.organisations.delete_one({"id": org_id})
+
+    from server import USERS_DB
+    for account in deleted_hr_users:
+        cache_key = str(account.get("user_id") or "").strip().lower()
+        if cache_key:
+            USERS_DB.pop(cache_key, None)
+
+    await AuditService.log_activity(
+        db,
+        action="organisation_deleted",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "organisation_id": org_id,
+            "organisation_name": org.get("name"),
+            "cascade": cascade,
+            "deleted_clients": len(client_ids),
+            "deleted_bookings": booking_count,
+            "deleted_invoices": invoice_count,
+            "deleted_hr_users": hr_user_count,
+            "deleted_roster_members": roster_count,
+        },
+    )
+    return {"status": "deleted", "organisation_id": org_id}
+
+
 @admin_router.post("/organisations/{org_id}/users", response_model=OrganisationUser, status_code=status.HTTP_201_CREATED)
 async def create_organisation_user(org_id: str, payload: OrganisationUserCreate, request: Request, user: Dict = Depends(require_admin)):
     db = get_db(request)
@@ -156,6 +259,110 @@ async def create_organisation_user(org_id: str, payload: OrganisationUserCreate,
 async def list_organisation_users(org_id: str, request: Request, user: Dict = Depends(require_admin)):
     db = get_db(request)
     return await HRReportingService.list_organisation_users(db, org_id)
+
+
+@admin_router.delete("/organisations/{org_id}/users/{account_id}")
+async def delete_organisation_user(
+    org_id: str,
+    account_id: str,
+    request: Request,
+    user: Dict = Depends(require_super_admin),
+):
+    db = get_db(request)
+    account = await db.organisation_users.find_one(
+        {"id": account_id, "organisation_id": org_id},
+        {"_id": 0}
+    )
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="HR portal user not found.")
+
+    await db.organisation_users.delete_one({"id": account_id, "organisation_id": org_id})
+
+    from server import USERS_DB
+    account_user_id = str(account.get("user_id") or "").strip().lower()
+    if account_user_id:
+        USERS_DB.pop(account_user_id, None)
+
+    await AuditService.log_activity(
+        db,
+        action="organisation_user_deleted",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "organisation_id": org_id,
+            "deleted_user_id": account_user_id,
+            "deleted_name": account.get("name"),
+        },
+    )
+    return {"status": "deleted"}
+
+
+@admin_router.get("/staff-users")
+async def list_staff_users(
+    request: Request,
+    user: Dict = Depends(require_super_admin),
+):
+    db = get_db(request)
+    return await db.staff_users.find(
+        {},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "name": 1,
+            "role": 1,
+            "active": 1,
+            "organisation_id": 1,
+            "therapist_id": 1,
+        },
+    ).sort("name", 1).to_list(5000)
+
+
+@admin_router.delete("/staff-users/{staff_user_id:path}")
+async def delete_staff_user(
+    staff_user_id: str,
+    request: Request,
+    user: Dict = Depends(require_super_admin),
+):
+    db = get_db(request)
+    normalized = str(staff_user_id or "").strip().lower()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User ID is required.")
+    if normalized == str(user.get("user_id") or "").strip().lower():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot delete your own account.")
+
+    account = await db.staff_users.find_one(
+        {"user_id": {"$regex": f"^{__import__('re').escape(normalized)}$", "$options": "i"}},
+        {"_id": 0},
+    )
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Staff user not found.")
+
+    if account.get("role") == "super_admin" and account.get("active") is not False:
+        active_super_admins = await db.staff_users.count_documents(
+            {"role": "super_admin", "active": {"$ne": False}}
+        )
+        if active_super_admins <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot delete the last active super admin account.",
+            )
+
+    await db.staff_users.delete_one({"user_id": account.get("user_id")})
+    from server import USERS_DB
+    USERS_DB.pop(normalized, None)
+
+    await AuditService.log_activity(
+        db,
+        action="staff_user_deleted",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "deleted_user_id": normalized,
+            "deleted_name": account.get("name"),
+            "deleted_role": account.get("role"),
+        },
+    )
+    return {"status": "deleted", "user_id": normalized}
 
 
 # ==================== Corporate Employee Roster & Entitlements ====================
@@ -301,6 +508,42 @@ async def set_organisation_contact_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corporate roster member not found.")
     pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id)
     return {"status": "updated", "active": active, "pool": pool}
+
+
+@admin_router.delete("/organisations/{org_id}/contacts/{contact_id}")
+async def delete_organisation_contact(
+    org_id: str,
+    contact_id: str,
+    request: Request,
+    user: Dict = Depends(require_super_admin),
+):
+    db = get_db(request)
+    contact = await db.organisation_contacts.find_one(
+        {"id": contact_id, "organisation_id": org_id},
+        {"_id": 0}
+    )
+    if not contact:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corporate roster member not found.")
+
+    await db.organisation_contacts.delete_one({"id": contact_id, "organisation_id": org_id})
+    await db.crm_clients.update_many(
+        {"organisation_id": org_id, "organisation_contact_id": contact_id},
+        {"$unset": {"organisation_contact_id": ""}, "$set": {"updated_at": now_iso()}},
+    )
+
+    await AuditService.log_activity(
+        db,
+        action="organisation_contact_deleted",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "organisation_id": org_id,
+            "contact_id": contact_id,
+            "deleted_email": contact.get("email"),
+        },
+    )
+    pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id)
+    return {"status": "deleted", "pool": pool}
 
 
 def require_therapist_approval_role(request: Request):
