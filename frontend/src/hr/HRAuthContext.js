@@ -51,6 +51,11 @@ export const HRAuthProvider = ({ children }) => {
         const remembered = window.localStorage.getItem('fca_hr_admin_organisation_id');
         const selected = orgs.find((org) => org.id === remembered) || orgs[0] || null;
         setOrganisationId(selected?.id || null);
+        if (selected?.id) {
+          window.localStorage.setItem('fca_hr_admin_organisation_id', selected.id);
+        } else {
+          window.localStorage.removeItem('fca_hr_admin_organisation_id');
+        }
         setUser({
           ...base.data,
           organisation_id: selected?.id || null,
