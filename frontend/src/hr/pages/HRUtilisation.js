@@ -80,7 +80,7 @@ const HRUtilisation = () => {
           <div className="space-y-4 pt-2">
             {trends.map((pt) => {
               const numericCount = pt.total_sessions.count || 0;
-              const maxCount = Math.max(...trends.map(t => t.total_sessions.count || 5), 10);
+              const maxCount = Math.max(...trends.map(t => t.total_sessions.count || 0), 10);
               const barPercent = Math.min((numericCount / maxCount) * 100, 100);
 
               return (
@@ -93,9 +93,7 @@ const HRUtilisation = () => {
                   </div>
                   <div className="w-full h-4 bg-slate-100 rounded-full overflow-hidden p-0.5">
                     <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        'bg-teal-600'
-                      }`}
+                      className="h-full rounded-full transition-all duration-500 bg-teal-600"
                       style={{ width: `${Math.max(barPercent, 6)}%` }}
                     />
                   </div>
@@ -155,7 +153,7 @@ const HRUtilisation = () => {
       <div className="p-4 bg-teal-50/60 border border-teal-200/70 rounded-2xl flex items-start gap-3 text-xs text-teal-900">
         <ShieldCheck className="w-5 h-5 text-teal-700 shrink-0 mt-0.5" />
         <div>
-          <strong className="block font-bold">Small-Count Protection:</strong>
+          <strong className="block font-bold">Confidential Aggregate Reporting:</strong>
           <p className="text-teal-800/90 mt-0.5 leading-relaxed">
             {privacy_notice} Individual employee and clinical records remain confidential.
           </p>
