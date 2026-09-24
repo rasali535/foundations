@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { api } from '../AdminAuthContext';
+import { api, useAdminAuth } from '../AdminAuthContext';
 import {
   Building2,
   Plus,
@@ -12,10 +12,13 @@ import {
   Copy,
   ExternalLink,
   Upload,
-  Receipt
+  Receipt,
+  Trash2
 } from 'lucide-react';
 
 const AdminOrganisations = () => {
+  const { user } = useAdminAuth();
+  const isSuperAdmin = user?.role === 'super_admin';
   const [organisations, setOrganisations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -260,6 +263,63 @@ const AdminOrganisations = () => {
     setRosterModalOpen(true);
   };
 
+  const handleDeleteOrganisation = async (org) => {
+    if (!isSuperAdmin) return;
+    const confirmation = window.prompt(
+      `This permanently deletes ${org.name} and linked operational records. Type ${org.code} to confirm.`
+    );
+    if (confirmation !== org.code) return;
+
+    setActionLoading(true);
+    setActionError('');
+    try {
+      await api.delete(`/admin-ops/organisations/${org.id}`, { params: { cascade: true } });
+      await fetchOrganisations();
+    } catch (err) {
+      setActionError(err.response?.data?.detail?.message || err.response?.data?.detail || 'Could not delete organisation.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteOrgUser = async (org, account) => {
+    if (!isSuperAdmin) return;
+    if (!window.confirm(`Delete HR portal user ${account.name} (${account.user_id})?`)) return;
+    setActionLoading(true);
+    setActionError('');
+    try {
+      await api.delete(`/admin-ops/organisations/${org.id}/users/${account.id}`);
+      await fetchOrganisations();
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Could not delete HR portal user.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteRosterContact = async (contact) => {
+    if (!isSuperAdmin || !selectedOrgForRoster) return;
+    if (!window.confirm(`Delete ${contact.name || contact.email} from this organisation roster?`)) return;
+    setActionLoading(true);
+    setActionError('');
+    try {
+      const res = await api.delete(
+        `/admin-ops/organisations/${selectedOrgForRoster.id}/contacts/${contact.id}`
+      );
+      setOrgContacts(prev => ({
+        ...prev,
+        [selectedOrgForRoster.id]: (prev[selectedOrgForRoster.id] || []).filter(item => item.id !== contact.id)
+      }));
+      if (res.data?.pool) {
+        setOrgPools(prev => ({ ...prev, [selectedOrgForRoster.id]: res.data.pool }));
+      }
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Could not delete roster member.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const parseRosterText = (text) => {
     return text
       .split(/\r?\n/)
@@ -427,6 +487,17 @@ const AdminOrganisations = () => {
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
+                    {isSuperAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteOrganisation(org)}
+                        disabled={actionLoading}
+                        className="p-1.5 text-rose-500 hover:text-rose-700 rounded-lg hover:bg-rose-50 transition disabled:opacity-50"
+                        title="Delete Organisation"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -504,6 +575,16 @@ const AdminOrganisations = () => {
                           <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-teal-100 text-teal-800 uppercase">
                             {u.role}
                           </span>
+                          {isSuperAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteOrgUser(org, u)}
+                              className="ml-1 text-rose-500 hover:text-rose-700"
+                              title="Delete HR portal user"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -613,15 +694,27 @@ const AdminOrganisations = () => {
                               )}
                             </td>
                             <td className="px-4 py-3 text-right">
-                              <button
-                                type="button"
-                                onClick={() => handleRosterStatus(contact)}
-                                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition ${contact.active === false
-                                  ? 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-emerald-50 hover:text-emerald-700'
-                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-rose-50 hover:text-rose-700'}`}
-                              >
-                                {contact.active === false ? 'Reactivate' : 'Active'}
-                              </button>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRosterStatus(contact)}
+                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition ${contact.active === false
+                                    ? 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-emerald-50 hover:text-emerald-700'
+                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-rose-50 hover:text-rose-700'}`}
+                                >
+                                  {contact.active === false ? 'Reactivate' : 'Active'}
+                                </button>
+                                {isSuperAdmin && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteRosterContact(contact)}
+                                    className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded"
+                                    title="Delete roster member"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))
