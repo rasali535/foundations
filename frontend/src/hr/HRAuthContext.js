@@ -11,9 +11,23 @@ export const hrApi = axios.create({
   }
 });
 
+hrApi.interceptors.request.use((config) => {
+  const selectedOrganisationId = window.localStorage.getItem('fca_hr_admin_organisation_id');
+  const url = String(config.url || '');
+  if (selectedOrganisationId && url.startsWith('/hr/') && url !== '/hr/me') {
+    config.params = {
+      ...(config.params || {}),
+      organisation_id: selectedOrganisationId
+    };
+  }
+  return config;
+});
+
 export const HRAuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [organisations, setOrganisations] = useState([]);
+  const [organisationId, setOrganisationId] = useState(null);
 
   const checkAuth = async () => {
     try {
@@ -26,16 +40,34 @@ export const HRAuthProvider = ({ children }) => {
       if (role === 'hr_admin' || role === 'hr_viewer') {
         const scoped = await hrApi.get('/hr/me');
         setUser(scoped.data);
+        setOrganisationId(scoped.data?.organisation_id || null);
+        setOrganisations([]);
+        window.localStorage.removeItem('fca_hr_admin_organisation_id');
       } else if (role === 'super_admin') {
-        // Super-admins may enter the HR area before selecting an organisation.
-        // Keep the authenticated identity and let organisation-scoped pages ask
-        // for the target organisation explicitly.
-        setUser(base.data);
+        const orgRes = await hrApi.get('/admin-ops/organisations');
+        const orgs = orgRes.data || [];
+        setOrganisations(orgs);
+
+        const remembered = window.localStorage.getItem('fca_hr_admin_organisation_id');
+        const selected = orgs.find((org) => org.id === remembered) || orgs[0] || null;
+        setOrganisationId(selected?.id || null);
+        if (selected?.id) {
+          window.localStorage.setItem('fca_hr_admin_organisation_id', selected.id);
+        } else {
+          window.localStorage.removeItem('fca_hr_admin_organisation_id');
+        }
+        setUser({
+          ...base.data,
+          organisation_id: selected?.id || null,
+          organisation_name: selected?.name || null
+        });
       } else {
         setUser(null);
       }
     } catch (err) {
       setUser(null);
+      setOrganisations([]);
+      setOrganisationId(null);
     } finally {
       setLoading(false);
     }
@@ -55,6 +87,29 @@ export const HRAuthProvider = ({ children }) => {
     return res.data;
   };
 
+  const selectOrganisation = (nextId) => {
+    if (user?.role !== 'super_admin') return;
+    const selected = organisations.find((org) => org.id === nextId) || null;
+    setOrganisationId(selected?.id || null);
+    if (selected?.id) {
+      window.localStorage.setItem('fca_hr_admin_organisation_id', selected.id);
+    } else {
+      window.localStorage.removeItem('fca_hr_admin_organisation_id');
+    }
+    setUser((current) => current ? {
+      ...current,
+      organisation_id: selected?.id || null,
+      organisation_name: selected?.name || null
+    } : current);
+  };
+
+  const scopedParams = (params = {}) => {
+    if (user?.role === 'super_admin' && organisationId) {
+      return { ...params, organisation_id: organisationId };
+    }
+    return params;
+  };
+
   const logout = async () => {
     try {
       await hrApi.post('/logout');
@@ -62,10 +117,23 @@ export const HRAuthProvider = ({ children }) => {
       console.warn('Logout request warning:', err);
     }
     setUser(null);
+    setOrganisations([]);
+    setOrganisationId(null);
+    window.localStorage.removeItem('fca_hr_admin_organisation_id');
   };
 
   return (
-    <HRAuthContext.Provider value={{ user, loading, login, logout, checkAuth }}>
+    <HRAuthContext.Provider value={{
+      user,
+      loading,
+      login,
+      logout,
+      checkAuth,
+      organisations,
+      organisationId,
+      selectOrganisation,
+      scopedParams
+    }}>
       {children}
     </HRAuthContext.Provider>
   );

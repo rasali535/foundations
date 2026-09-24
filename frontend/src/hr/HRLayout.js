@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 
 const HRLayout = () => {
-  const { user, loading, logout } = useHRAuth();
+  const { user, loading, logout, organisations, organisationId, selectOrganisation } = useHRAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -231,12 +231,32 @@ const HRLayout = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200">
-              <Building2 className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="text-xs font-semibold text-slate-700 max-w-48 truncate">
-                {user.organisation_name || 'Corporate Partner'}
-              </span>
-            </div>
+            {user.role === 'super_admin' ? (
+              <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200">
+                <Building2 className="w-3.5 h-3.5 text-emerald-600" />
+                <select
+                  value={organisationId || ''}
+                  onChange={(e) => selectOrganisation(e.target.value)}
+                  className="bg-transparent text-xs font-semibold text-slate-700 outline-none max-w-52"
+                  aria-label="Select organisation to inspect"
+                >
+                  {organisations.length === 0 ? (
+                    <option value="">No organisations</option>
+                  ) : (
+                    organisations.map((org) => (
+                      <option key={org.id} value={org.id}>{org.name}</option>
+                    ))
+                  )}
+                </select>
+              </div>
+            ) : (
+              <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200">
+                <Building2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="text-xs font-semibold text-slate-700 max-w-48 truncate">
+                  {user.organisation_name || 'Corporate Partner'}
+                </span>
+              </div>
+            )}
             <div className="hidden sm:flex items-center gap-2">
               <span className="text-xs text-slate-500">Operating in:</span>
               <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
@@ -252,7 +272,17 @@ const HRLayout = () => {
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-          <Outlet />
+          {user.role === 'super_admin' && !organisationId ? (
+            <div className="max-w-3xl mx-auto bg-white border border-slate-200 rounded-2xl shadow-sm p-8 text-center">
+              <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+              <h2 className="text-lg font-bold text-slate-900">No organisation selected</h2>
+              <p className="text-sm text-slate-500 mt-2">
+                Add a corporate organisation from the Foundations admin portal first. Once an organisation exists, select it here to inspect its HR dashboard securely.
+              </p>
+            </div>
+          ) : (
+            <Outlet key={organisationId || user.organisation_id || 'hr-scope'} />
+          )}
         </main>
 
         <footer className="bg-white border-t border-slate-200 py-3 px-4 sm:px-6 text-[10px] sm:text-[11px] text-slate-500">

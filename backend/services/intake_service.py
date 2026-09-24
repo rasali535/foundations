@@ -58,14 +58,23 @@ class IntakeService:
         organisation_contact = None
         if organisation:
             email_normalized = CorporateEntitlementService.normalize_email(payload.get("email"))
-            if email_normalized:
-                organisation_contact = await db.organisation_contacts.find_one(
-                    {
-                        "organisation_id": organisation.get("id"),
-                        "email_normalized": email_normalized,
-                        "active": True,
-                    },
-                    {"_id": 0},
+            if not email_normalized:
+                raise ValueError(
+                    "A registered work email is required for organisation/EAP intake."
+                )
+
+            organisation_contact = await db.organisation_contacts.find_one(
+                {
+                    "organisation_id": organisation.get("id"),
+                    "email_normalized": email_normalized,
+                    "active": True,
+                },
+                {"_id": 0},
+            )
+            if not organisation_contact:
+                raise ValueError(
+                    "The email address entered does not match the active employee roster for this organisation. "
+                    "Please use your registered work email or contact your organisation administrator."
                 )
 
         # Client profile fields extraction
