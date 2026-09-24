@@ -11,6 +11,18 @@ export const hrApi = axios.create({
   }
 });
 
+hrApi.interceptors.request.use((config) => {
+  const selectedOrganisationId = window.localStorage.getItem('fca_hr_admin_organisation_id');
+  const url = String(config.url || '');
+  if (selectedOrganisationId && url.startsWith('/hr/') && url !== '/hr/me') {
+    config.params = {
+      ...(config.params || {}),
+      organisation_id: selectedOrganisationId
+    };
+  }
+  return config;
+});
+
 export const HRAuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -30,6 +42,7 @@ export const HRAuthProvider = ({ children }) => {
         setUser(scoped.data);
         setOrganisationId(scoped.data?.organisation_id || null);
         setOrganisations([]);
+        window.localStorage.removeItem('fca_hr_admin_organisation_id');
       } else if (role === 'super_admin') {
         const orgRes = await hrApi.get('/admin-ops/organisations');
         const orgs = orgRes.data || [];
@@ -101,6 +114,7 @@ export const HRAuthProvider = ({ children }) => {
     setUser(null);
     setOrganisations([]);
     setOrganisationId(null);
+    window.localStorage.removeItem('fca_hr_admin_organisation_id');
   };
 
   return (
