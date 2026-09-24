@@ -8,6 +8,7 @@ import {
   FileCheck2,
   AlertCircle
 } from 'lucide-react';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { hrApi, useHRAuth } from '../HRAuthContext';
 
 const periodOptions = [
@@ -28,8 +29,8 @@ const HRBookingLedger = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const fetchLedger = useCallback(async () => {
-    setLoading(true);
+  const fetchLedger = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError('');
     try {
       const res = await hrApi.get(`/hr/booking-ledger?period=${period}`);
@@ -37,13 +38,15 @@ const HRBookingLedger = () => {
     } catch (err) {
       setError(err.response?.data?.detail || 'Unable to load the accounts booking ledger.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [period]);
 
   useEffect(() => {
     fetchLedger();
   }, [fetchLedger]);
+
+  useAutoRefresh(() => fetchLedger(true), 60000);
 
   if (user?.role === 'hr_viewer') {
     return (
