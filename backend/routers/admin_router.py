@@ -165,6 +165,110 @@ async def list_organisation_users(org_id: str, request: Request, user: Dict = De
     return await HRReportingService.list_organisation_users(db, org_id)
 
 
+@admin_router.delete("/organisations/{org_id}/users/{account_id}")
+async def delete_organisation_user(
+    org_id: str,
+    account_id: str,
+    request: Request,
+    user: Dict = Depends(require_super_admin),
+):
+    db = get_db(request)
+    account = await db.organisation_users.find_one(
+        {"id": account_id, "organisation_id": org_id},
+        {"_id": 0}
+    )
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="HR portal user not found.")
+
+    await db.organisation_users.delete_one({"id": account_id, "organisation_id": org_id})
+
+    from server import USERS_DB
+    account_user_id = str(account.get("user_id") or "").strip().lower()
+    if account_user_id:
+        USERS_DB.pop(account_user_id, None)
+
+    await AuditService.log_activity(
+        db,
+        action="organisation_user_deleted",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "organisation_id": org_id,
+            "deleted_user_id": account_user_id,
+            "deleted_name": account.get("name"),
+        },
+    )
+    return {"status": "deleted"}
+
+
+@admin_router.get("/staff-users")
+async def list_staff_users(
+    request: Request,
+    user: Dict = Depends(require_super_admin),
+):
+    db = get_db(request)
+    return await db.staff_users.find(
+        {},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "name": 1,
+            "role": 1,
+            "active": 1,
+            "organisation_id": 1,
+            "therapist_id": 1,
+        },
+    ).sort("name", 1).to_list(5000)
+
+
+@admin_router.delete("/staff-users/{staff_user_id:path}")
+async def delete_staff_user(
+    staff_user_id: str,
+    request: Request,
+    user: Dict = Depends(require_super_admin),
+):
+    db = get_db(request)
+    normalized = str(staff_user_id or "").strip().lower()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User ID is required.")
+    if normalized == str(user.get("user_id") or "").strip().lower():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot delete your own account.")
+
+    account = await db.staff_users.find_one(
+        {"user_id": {"$regex": f"^{__import__('re').escape(normalized)}$", "$options": "i"}},
+        {"_id": 0},
+    )
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Staff user not found.")
+
+    if account.get("role") == "super_admin" and account.get("active") is not False:
+        active_super_admins = await db.staff_users.count_documents(
+            {"role": "super_admin", "active": {"$ne": False}}
+        )
+        if active_super_admins <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot delete the last active super admin account.",
+            )
+
+    await db.staff_users.delete_one({"user_id": account.get("user_id")})
+    from server import USERS_DB
+    USERS_DB.pop(normalized, None)
+
+    await AuditService.log_activity(
+        db,
+        action="staff_user_deleted",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "deleted_user_id": normalized,
+            "deleted_name": account.get("name"),
+            "deleted_role": account.get("role"),
+        },
+    )
+    return {"status": "deleted", "user_id": normalized}
+
+
 # ==================== Corporate Employee Roster & Entitlements ====================
 @admin_router.get("/organisations/{org_id}/contacts")
 async def list_organisation_contacts(
