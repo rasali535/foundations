@@ -63,6 +63,11 @@ const HRContract = () => {
           <p className="text-xs text-slate-500 mt-1">
             Corporate Mental Health & Advisory Services Contract
           </p>
+          {contract.allocation_month && (
+            <p className="text-[11px] text-teal-700 font-bold mt-1">
+              Monthly entitlement period: {contract.allocation_month}
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
