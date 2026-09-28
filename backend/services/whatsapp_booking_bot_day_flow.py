@@ -383,7 +383,7 @@ def install_day_first_flow(service_cls) -> None:
                 requested_bookings.append(pending_booking)
 
             await service_cls._save_session(db, sender, client_id, "menu", {})
-            if request_error or not requested_bookings:
+            if not requested_bookings:
                 return (
                     f"The monthly booking request could not be completed: {request_error or 'availability changed.'}\n\n"
                     "Send BOOK to see fresh availability."
