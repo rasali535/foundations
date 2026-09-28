@@ -1048,6 +1048,13 @@ class BookingService:
         if request.status not in valid_statuses:
             return None, f"Invalid status '{request.status}'. Must be one of {valid_statuses}."
 
+        if (
+            booking_doc.get("status") == "pending"
+            and request.status == "confirmed"
+            and booking_doc.get("assignment_status") != "accepted"
+        ):
+            return None, "Pending client booking requests can only be confirmed after the assigned therapist accepts."
+
         active_inv_id = booking_doc.get("active_invoice_id")
         if active_inv_id and request.status != booking_doc.get("status"):
             inv = await db.invoices.find_one({"id": active_inv_id})
