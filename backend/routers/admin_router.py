@@ -278,7 +278,8 @@ async def create_organisation_user(org_id: str, payload: OrganisationUserCreate,
         "role": payload.role,
         "name": payload.name.strip(),
         "therapist_id": None,
-        "organisation_id": org_id
+        "organisation_id": org_id,
+        "auth_version": 1
     }
     
     return await HRReportingService.create_organisation_user(db, org_id, payload, password_hash=pwd_hash)
