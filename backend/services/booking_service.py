@@ -294,33 +294,34 @@ class BookingService:
             return None, "Client record not found."
 
         funding_scope = "organisation" if getattr(client, "organisation_id", None) else "private"
-        try:
-            target_start = parse_iso(booking_doc["starts_at"])
-            slots = await SchedulingService.get_available_slots(
-                db,
-                therapist_id=therapist.id,
-                start_date=target_start.date().isoformat(),
-                days_ahead=1,
-                session_type=booking_doc.get("session_type") or "individual",
-                session_mode=booking_doc.get("session_mode") or "virtual",
-                funding_scope=funding_scope,
-            )
-            exact_available = any(
-                slot.get("is_available")
-                and parse_iso(slot.get("starts_at", "")).isoformat() == target_start.isoformat()
-                for slot in slots
-                if slot.get("starts_at")
-            )
-            if not exact_available:
-                return None, "That therapist is not available for the requested time."
-        except Exception as exc:
-            logging.warning(
-                "Booking assignment availability check failed booking_id=%s therapist_id=%s error=%s",
-                booking_id,
-                therapist.id,
-                exc.__class__.__name__,
-            )
-            return None, "Live therapist availability could not be verified. Please try again."
+        if SchedulingService.provider() == "setmore":
+            try:
+                target_start = parse_iso(booking_doc["starts_at"])
+                slots = await SchedulingService.get_available_slots(
+                    db,
+                    therapist_id=therapist.id,
+                    start_date=target_start.date().isoformat(),
+                    days_ahead=1,
+                    session_type=booking_doc.get("session_type") or "individual",
+                    session_mode=booking_doc.get("session_mode") or "virtual",
+                    funding_scope=funding_scope,
+                )
+                exact_available = any(
+                    slot.get("is_available")
+                    and parse_iso(slot.get("starts_at", "")).isoformat() == target_start.isoformat()
+                    for slot in slots
+                    if slot.get("starts_at")
+                )
+                if not exact_available:
+                    return None, "That therapist is not available for the requested time."
+            except Exception as exc:
+                logging.warning(
+                    "Booking assignment availability check failed booking_id=%s therapist_id=%s error=%s",
+                    booking_id,
+                    therapist.id,
+                    exc.__class__.__name__,
+                )
+                return None, "Live therapist availability could not be verified. Please try again."
 
         assigned_at = now_iso()
         update = {
@@ -430,27 +431,28 @@ class BookingService:
             return None, "Client record not found."
 
         funding_scope = "organisation" if getattr(client, "organisation_id", None) else "private"
-        try:
-            target_start = parse_iso(booking_doc["starts_at"])
-            slots = await SchedulingService.get_available_slots(
-                db,
-                therapist_id=therapist_id,
-                start_date=target_start.date().isoformat(),
-                days_ahead=1,
-                session_type=booking_doc.get("session_type") or "individual",
-                session_mode=booking_doc.get("session_mode") or "virtual",
-                funding_scope=funding_scope,
-            )
-            exact_available = any(
-                slot.get("is_available")
-                and parse_iso(slot.get("starts_at", "")).isoformat() == target_start.isoformat()
-                for slot in slots
-                if slot.get("starts_at")
-            )
-            if not exact_available:
-                return None, "The requested time is no longer available. Ask FCA to reassign or reschedule it."
-        except Exception:
-            return None, "Live availability could not be verified. Please try again."
+        if SchedulingService.provider() == "setmore":
+            try:
+                target_start = parse_iso(booking_doc["starts_at"])
+                slots = await SchedulingService.get_available_slots(
+                    db,
+                    therapist_id=therapist_id,
+                    start_date=target_start.date().isoformat(),
+                    days_ahead=1,
+                    session_type=booking_doc.get("session_type") or "individual",
+                    session_mode=booking_doc.get("session_mode") or "virtual",
+                    funding_scope=funding_scope,
+                )
+                exact_available = any(
+                    slot.get("is_available")
+                    and parse_iso(slot.get("starts_at", "")).isoformat() == target_start.isoformat()
+                    for slot in slots
+                    if slot.get("starts_at")
+                )
+                if not exact_available:
+                    return None, "The requested time is no longer available. Ask FCA to reassign or reschedule it."
+            except Exception:
+                return None, "Live availability could not be verified. Please try again."
 
         location = booking_doc.get("location") or (
             therapist.default_location if booking_doc.get("session_mode") == "in_person" else None
