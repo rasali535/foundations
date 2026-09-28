@@ -12,9 +12,12 @@ root.render(
 
 
 if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js').catch((error) => {
+  window.addEventListener('load', async () => {
+    try {
+      const registration = await navigator.serviceWorker.register('/service-worker.js');
+      await registration.update();
+    } catch (error) {
       console.warn('Foundations app install service unavailable:', error);
-    });
+    }
   });
 }

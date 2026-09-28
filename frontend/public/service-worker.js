@@ -1,6 +1,5 @@
-const CACHE_NAME = 'foundations-shell-v2';
-const SAFE_SHELL = [
-  '/',
+const CACHE_NAME = 'foundations-static-v3';
+const SAFE_STATIC = [
   '/manifest.json',
   '/admin-manifest.json',
   '/hr-manifest.json',
@@ -20,11 +19,11 @@ const offlineResponse = () =>
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      for (const asset of SAFE_SHELL) {
+      for (const asset of SAFE_STATIC) {
         try {
           await cache.add(asset);
         } catch (error) {
-          // One unavailable optional shell asset must not prevent worker install.
+          // Optional static asset failures must not block worker installation.
         }
       }
     })
@@ -34,9 +33,10 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
-    )
+    caches.keys().then((keys) => Promise.all(keys.map((key) => {
+      if (key !== CACHE_NAME) return caches.delete(key);
+      return Promise.resolve(false);
+    })))
   );
   self.clients.claim();
 });
@@ -47,25 +47,19 @@ self.addEventListener('fetch', (event) => {
 
   if (request.method !== 'GET') return;
 
-  // Never intercept or cache authenticated API responses.
+  // Authenticated/API traffic is never intercepted or cached.
   if (url.pathname.startsWith('/api/') || url.hostname === 'api.academyfoundations.com') {
     return;
   }
 
-  // Portal navigation is network-first. If genuinely offline, return a valid
-  // cached app shell or a real 503 Response instead of undefined.
+  // HTML/navigation is always network-only. Never fall back to a cached '/'
+  // document, because stale app shells can break login and portal boot.
   if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request).catch(async () => {
-        const shell = await caches.match('/');
-        return shell || offlineResponse();
-      })
-    );
+    event.respondWith(fetch(request).catch(() => offlineResponse()));
     return;
   }
 
-  // Static assets are network-first with a cache fallback. Never return
-  // undefined to respondWith().
+  // Same-origin static assets remain network-first with safe cache fallback.
   event.respondWith(
     fetch(request)
       .then((response) => {
