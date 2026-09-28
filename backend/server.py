@@ -330,6 +330,7 @@ async def _load_persistent_user(target_db, user_key: str) -> Optional[Dict[str, 
                 "name": db_user.get("name", normalized),
                 "organisation_id": db_user.get("organisation_id"),
                 "therapist_id": db_user.get("therapist_id"),
+                "auth_version": int(db_user.get("auth_version") or 1),
             }
             USERS_DB[normalized] = cached
             return cached
@@ -545,6 +546,7 @@ async def login(request: Request, payload: Optional[LoginRequest] = None, userna
     request.session['name'] = user["name"]
     request.session['therapist_id'] = user.get("therapist_id")
     request.session['organisation_id'] = user.get("organisation_id")
+    request.session['auth_version'] = int(user.get("auth_version") or 1)
     request.session['login_time'] = now_iso()
     
     return {
