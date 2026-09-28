@@ -508,6 +508,7 @@ class HRContractStatus(BaseModel):
     contract_start: Optional[str] = None
     contract_end: Optional[str] = None
     allocated_sessions: Optional[int] = None
+    allocation_month: Optional[str] = None
     member_count: int = 0
     base_sessions_per_member: int = 4
     approved_extra_sessions: int = 0
