@@ -235,6 +235,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    if _IS_HTTPS:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
 # ----------------- User Management & RBAC -----------------
 # Production user store starts empty and is populated strictly via explicit environment bootstrap or database.
 USERS_DB: Dict[str, Dict[str, Any]] = {}
@@ -460,6 +472,9 @@ async def login(request: Request, payload: Optional[LoginRequest] = None, userna
     raw_key = payload.username if payload else username
     user_key = raw_key.strip().lower() if raw_key else ""
     user_pass = payload.password if payload else password
+
+    # Slow credential-stuffing/brute-force attempts without changing normal login UX.
+    check_rate_limit(request, limit=10, window_seconds=300)
 
     target_db = request.app.state.db if hasattr(request.app.state, 'db') and request.app.state.db is not None else db
     if not user_key:
