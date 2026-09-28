@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, status, Query, UploadFile, File
 from typing import List, Dict, Any, Optional
 from io import BytesIO
+from zipfile import BadZipFile, ZipFile
 import re
 import bcrypt
 from models import (
@@ -373,6 +374,35 @@ _ROSTER_FIRST_NAME_HEADERS = {"first name", "firstname", "first", "given name", 
 _ROSTER_SURNAME_HEADERS = {"surname", "last name", "lastname", "family name", "familyname"}
 _ROSTER_EMAIL_HEADERS = {"email", "email address", "emailaddress", "work email", "work email address"}
 
+_MAX_ROSTER_FILE_BYTES = 10 * 1024 * 1024
+_MAX_ROSTER_EXPANDED_BYTES = 50 * 1024 * 1024
+_MAX_ROSTER_ARCHIVE_MEMBERS = 5000
+_MAX_ROSTER_CONTACTS = 20000
+_MAX_PDF_PAGES = 250
+_MAX_EXTRACTED_TEXT_CHARS = 5_000_000
+
+
+def _validate_office_archive(raw: bytes) -> None:
+    try:
+        with ZipFile(BytesIO(raw)) as archive:
+            members = archive.infolist()
+            if len(members) > _MAX_ROSTER_ARCHIVE_MEMBERS:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Roster document contains too many embedded files."
+                )
+            expanded = sum(max(info.file_size, 0) for info in members)
+            if expanded > _MAX_ROSTER_EXPANDED_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Roster document expands beyond the allowed processing size."
+                )
+    except BadZipFile as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The uploaded Office document is not a valid file."
+        ) from exc
+
 
 def _normalise_roster_header(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip().lower().replace("_", " ").replace("-", " "))
@@ -479,11 +509,12 @@ async def _parse_roster_upload(file: UploadFile) -> List[OrganisationContactBulk
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The uploaded roster file is empty.")
-    if len(raw) > 10 * 1024 * 1024:
+    if len(raw) > _MAX_ROSTER_FILE_BYTES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Roster files must be 10 MB or smaller.")
 
     try:
         if extension == "xlsx":
+            _validate_office_archive(raw)
             from openpyxl import load_workbook
             workbook = load_workbook(BytesIO(raw), read_only=True, data_only=True)
             rows: List[List[Any]] = []
@@ -499,6 +530,7 @@ async def _parse_roster_upload(file: UploadFile) -> List[OrganisationContactBulk
                     rows.append(sheet.row_values(row_index))
             contacts = _rows_from_matrix(rows)
         elif extension == "docx":
+            _validate_office_archive(raw)
             from docx import Document
             document = Document(BytesIO(raw))
             contacts: List[OrganisationContactBulkRow] = []
@@ -509,8 +541,23 @@ async def _parse_roster_upload(file: UploadFile) -> List[OrganisationContactBulk
         elif extension == "pdf":
             from pypdf import PdfReader
             reader = PdfReader(BytesIO(raw))
-            text = "\n".join(page.extract_text() or "" for page in reader.pages)
-            contacts = _rows_from_text(text)
+            if len(reader.pages) > _MAX_PDF_PAGES:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Roster PDFs may contain at most {_MAX_PDF_PAGES} pages."
+                )
+            extracted_parts: List[str] = []
+            extracted_chars = 0
+            for page in reader.pages:
+                page_text = page.extract_text() or ""
+                extracted_chars += len(page_text)
+                if extracted_chars > _MAX_EXTRACTED_TEXT_CHARS:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Roster PDF contains too much extracted text to process safely."
+                    )
+                extracted_parts.append(page_text)
+            contacts = _rows_from_text("\n".join(extracted_parts))
         elif extension in {"csv", "txt"}:
             decoded = raw.decode("utf-8-sig", errors="replace")
             contacts = _rows_from_text(decoded)
@@ -538,6 +585,11 @@ async def _parse_roster_upload(file: UploadFile) -> List[OrganisationContactBulk
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No valid contacts were found. The document must contain First name, Surname and Email address."
+        )
+    if len(unique) > _MAX_ROSTER_CONTACTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Roster imports are limited to {_MAX_ROSTER_CONTACTS} contacts per file."
         )
     return list(unique.values())
 
