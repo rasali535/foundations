@@ -246,15 +246,12 @@ class HRReportingService:
             )
 
         client_ids = await HRReportingService._get_org_client_ids(db, org_id)
+        month_start, month_end = CorporateEntitlementService.month_bounds_utc()
         query: Dict[str, Any] = {
             "client_id": {"$in": client_ids},
-            "status": {"$in": ENTITLEMENT_STATUSES}
+            "status": {"$in": ENTITLEMENT_STATUSES},
+            "starts_at": {"$gte": month_start, "$lt": month_end},
         }
-        if org.contract_start and org.contract_end:
-            query["starts_at"] = {
-                "$gte": f"{org.contract_start}T00:00:00",
-                "$lte": f"{org.contract_end}T23:59:59"
-            }
 
         sessions_used = await db.bookings.count_documents(query)
         pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id)
@@ -269,6 +266,7 @@ class HRReportingService:
             contract_start=org.contract_start,
             contract_end=org.contract_end,
             allocated_sessions=allocated,
+            allocation_month=pool.get("month"),
             member_count=pool["member_count"],
             base_sessions_per_member=4,
             approved_extra_sessions=pool["approved_extra_sessions"],
