@@ -413,7 +413,7 @@ const IntakeForm = () => {
                                                     {bookingSlots.slice(0, 30).map((slot) => (
                                                         <div key={slot.therapist_id + slot.starts_at} className={`checkbox-card ${selectedSlot?.starts_at === slot.starts_at && selectedSlot?.therapist_id === slot.therapist_id ? 'checked' : ''}`} onClick={() => setSelectedSlot(slot)}>
                                                             <div className="checkbox-ui">{selectedSlot?.starts_at === slot.starts_at && selectedSlot?.therapist_id === slot.therapist_id ? <span className="check-mark">✓</span> : null}</div>
-                                                            <span className="checkbox-label">{new Date(slot.starts_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · {slot.therapist_name}</span>
+                                                            <span className="checkbox-label">{new Date(slot.starts_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -429,7 +429,8 @@ const IntakeForm = () => {
                                 {bookingSuccess && (
                                     <div className="intake-booking-card" style={{ marginTop: '24px' }}>
                                         <h3>Appointment confirmed</h3>
-                                        <p>Your {bookingSuccess.session_mode === 'virtual' ? 'virtual' : 'in-person'} session with {bookingSuccess.therapist_name} is booked for {new Date(bookingSuccess.starts_at).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })}.</p>
+                                        <p>Your {bookingSuccess.session_mode === 'virtual' ? 'virtual' : 'in-person'} counselling session is booked for {new Date(bookingSuccess.starts_at).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })}.</p>
+                                        <p>A suitable therapist will be assigned based on availability and your counselling needs.</p>
                                         {bookingSuccess.session_mode === 'virtual' && <p>Your secure session link will be sent via WhatsApp 3 hours before your appointment.</p>}
                                     </div>
                                 )}

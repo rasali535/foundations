@@ -122,6 +122,17 @@ class PublicBookingCreate(BaseModel):
     organisation_code: Optional[str] = None
 
 
+class PublicBookingConfirmation(BaseModel):
+    id: str
+    session_type: str
+    session_mode: str
+    starts_at: str
+    ends_at: str
+    status: str
+    location: Optional[str] = None
+    therapist_assignment: str = "A suitable therapist will be assigned based on availability and your counselling needs."
+
+
 @booking_router.get("/public/availability")
 async def public_booking_availability(
     request: Request,
@@ -174,7 +185,6 @@ async def public_booking_availability(
                 continue
             available.append({
                 "therapist_id": therapist.id,
-                "therapist_name": therapist.name,
                 "starts_at": slot["starts_at"],
                 "ends_at": slot["ends_at"],
                 "date": slot["date"],
@@ -188,10 +198,17 @@ async def public_booking_availability(
         )
 
     available.sort(key=lambda x: x["starts_at"])
-    return {"session_mode": mode, "funding_scope": funding_scope, "slots": available}
+    unique_slots = []
+    seen_starts = set()
+    for slot in available:
+        if slot["starts_at"] in seen_starts:
+            continue
+        seen_starts.add(slot["starts_at"])
+        unique_slots.append(slot)
+    return {"session_mode": mode, "funding_scope": funding_scope, "slots": unique_slots}
 
 
-@booking_router.post("/public", response_model=Booking)
+@booking_router.post("/public", response_model=PublicBookingConfirmation)
 async def create_public_booking(payload: PublicBookingCreate, request: Request):
     """Create a booking only for a CRM client produced by the intake workflow."""
     db = get_db(request)
@@ -224,7 +241,15 @@ async def create_public_booking(payload: PublicBookingCreate, request: Request):
     )
     if err:
         raise HTTPException(status_code=400, detail=err)
-    return booking
+    return PublicBookingConfirmation(
+        id=booking.id,
+        session_type=booking.session_type,
+        session_mode=booking.session_mode,
+        starts_at=booking.starts_at,
+        ends_at=booking.ends_at,
+        status=booking.status,
+        location=booking.location,
+    )
 
 @booking_router.get("")
 async def list_bookings(
