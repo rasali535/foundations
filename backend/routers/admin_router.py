@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, status, Query, UploadFile, File
 from typing import List, Dict, Any, Optional
 from io import BytesIO
-import csv
 import re
 import bcrypt
 from models import (
@@ -491,6 +490,14 @@ async def _parse_roster_upload(file: UploadFile) -> List[OrganisationContactBulk
             for sheet in workbook.worksheets:
                 rows.extend([list(row) for row in sheet.iter_rows(values_only=True)])
             contacts = _rows_from_matrix(rows)
+        elif extension == "xls":
+            import xlrd
+            workbook = xlrd.open_workbook(file_contents=raw)
+            rows: List[List[Any]] = []
+            for sheet in workbook.sheets():
+                for row_index in range(sheet.nrows):
+                    rows.append(sheet.row_values(row_index))
+            contacts = _rows_from_matrix(rows)
         elif extension == "docx":
             from docx import Document
             document = Document(BytesIO(raw))
@@ -510,7 +517,7 @@ async def _parse_roster_upload(file: UploadFile) -> List[OrganisationContactBulk
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Unsupported roster file. Upload Excel (.xlsx), PDF (.pdf), Word (.docx), or CSV (.csv)."
+                detail="Unsupported roster file. Upload Excel (.xlsx or .xls), PDF (.pdf), Word (.docx), or CSV (.csv)."
             )
     except HTTPException:
         raise
