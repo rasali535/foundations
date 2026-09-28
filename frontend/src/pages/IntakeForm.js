@@ -7,8 +7,6 @@ const IntakeForm = () => {
     const { organisationCode } = useParams();
     const corporateCode = (organisationCode || '').trim().toUpperCase();
     const API = `${process.env.REACT_APP_BACKEND_URL || ''}/api`;
-    const formspreeId = (typeof process !== 'undefined' && process.env?.REACT_APP_FORMSPREE_ID) || 'xdajqjev';
-    const isPlaceholderId = formspreeId === 'YOUR_FORM_ID';
 
     const [step, setStep] = useState(1);
     
@@ -276,79 +274,33 @@ const IntakeForm = () => {
             organisation_code: corporateCode || undefined
         };
 
-        const formspreePayload = {
-            _subject: `New ${corporateCode ? corporateCode + ' ' : ''}Virtual Client Intake: ${formData.full_name}`,
-            "Client Source": corporateCode ? `Corporate / EAP (${corporateCode})` : "Private Client",
-            "Full Name": formData.full_name,
-            "Date of Birth": formData.dob,
-            "Age": formData.age || 'Not specified',
-            "Gender": formData.gender || 'Not specified',
-            "Phone Number": formData.phone,
-            "Email Address": formData.email,
-            "Location / City": formData.location || 'Not specified',
-            "Preferred Contact Method": formData.contact_method,
-            "Emergency Contact Name": formData.emergency_name,
-            "Emergency Contact Relationship": formData.emergency_relationship,
-            "Emergency Contact Phone": formData.emergency_phone,
-            "Reason for Seeking Therapy": formData.reason,
-            "Support Needed": formData.support.length > 0 ? (formData.support.join(', ') + (formData.support_other ? ` (Other: ${formData.support_other})` : '')) : (formData.support_other || 'Not specified'),
-            "Wellbeing Symptoms": formData.wellbeing_symptoms.join(', '),
-            "Safety Screen - Self Harm": formData.self_harm,
-            "Safety Screen - Harm Others": formData.harm_others,
-            "Safety Screen - Unsafe Environment": formData.unsafe,
-            "Safety Screen - Abuse": formData.abuse,
-            "Safety Screen - Risk Details": formData.risk_details || 'None',
-            "Previous Support History": formData.previous_support_choice,
-            "Previous Support Details": formData.previous_support_details || 'None',
-            "Current Medication": formData.medication,
-            "Virtual Readiness Confirmed": "Yes",
-            "Consent Name": formData.consent_name,
-            "Typed Signature": formData.signature,
-            "Consent Date": formData.consent_date
-        };
-
         try {
-            // 1. Send formatted intake details to Formspree for instant email notification
-            const formspreePromise = fetch(`https://formspree.io/f/${formspreeId}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify(formspreePayload)
-            });
-
-            // 2. Concurrently record in isolated clinical backend for DB records & triage
-            const backendPromise = fetch(`${API}/clinical/intake`, {
+            const backendRes = await fetch(`${API}/clinical/intake`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
                 body: JSON.stringify(clinicalPayload)
-            }).catch(err => {
-                console.warn('Backend DB intake recording failed or offline:', err);
-                return null;
             });
 
-            const [formspreeRes, backendRes] = await Promise.all([formspreePromise, backendPromise]);
-
-            const backendOk = backendRes && backendRes.ok;
-            // Corporate/EAP links must be accepted by the FCA backend so the
-            // organisation attribution cannot be lost even if email succeeds.
-            if ((corporateCode && backendOk) || (!corporateCode && (formspreeRes.ok || backendOk))) {
-                let acceptedIntake = null;
-                if (backendOk) acceptedIntake = await backendRes.json().catch(() => null);
+            if (backendRes.ok) {
+                const acceptedIntake = await backendRes.json().catch(() => null);
                 setIntakeResult(acceptedIntake);
                 setSubmitSuccess(true);
                 localStorage.removeItem('pameltex_intake_draft');
             } else {
-                if (corporateCode && backendRes) {
-                    const backendError = await backendRes.json().catch(() => ({}));
-                    throw new Error(backendError.detail || 'This corporate intake link is invalid or inactive. Please request a new link from Foundations.');
+                const backendError = await backendRes.json().catch(() => ({}));
+                if (corporateCode) {
+                    throw new Error(
+                        backendError.detail ||
+                        'This corporate intake link is invalid or inactive. Please request a new link from Foundations.'
+                    );
                 }
-                const errData = await formspreeRes.json().catch(() => ({}));
-                throw new Error(errData.error || 'Failed to transmit clinical intake form. Please contact our clinic directly at info@academyfoundations.com.');
+                throw new Error(
+                    backendError.detail ||
+                    'Failed to submit your intake securely. Please contact our clinic directly at info@academyfoundations.com.'
+                );
             }
         } catch (err) {
             console.error('Submission error:', err);
@@ -425,21 +377,6 @@ const IntakeForm = () => {
                 <section className="intake-body-section py-12">
                     <div className="intake-container">
                         
-                        {isPlaceholderId && !submitSuccess && (
-                            <div className="intake-demo-banner">
-                                <div className="banner-content">
-                                    <span className="banner-icon">⚙️</span>
-                                    <div>
-                                        <strong>Intake Form Sandbox Mode</strong>
-                                        <p>Submissions will be simulated locally. Add <code>VITE_FORMSPREE_ID</code> to your <code>.env</code> file for live email notifications.</p>
-                                    </div>
-                                </div>
-                                <button type="button" className="demo-autofill-btn" onClick={handleAutofillDemo}>
-                                    ⚡ Autofill Demo Data
-                                </button>
-                            </div>
-                        )}
-
                         {submitSuccess ? (
                             <div className="intake-success-card">
                                 <div className="success-icon-wrap">
