@@ -16,6 +16,26 @@ import {
   Trash2
 } from 'lucide-react';
 
+const getApiErrorMessage = (err, fallback) => {
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item.msg === 'string') return item.msg;
+        if (item && typeof item.message === 'string') return item.message;
+        return '';
+      })
+      .filter(Boolean);
+    return messages.length ? messages.join(' • ') : fallback;
+  }
+  if (detail && typeof detail === 'object') {
+    return detail.message || detail.msg || fallback;
+  }
+  return fallback;
+};
+
 const AdminOrganisations = () => {
   const { user } = useAdminAuth();
   const isSuperAdmin = user?.role === 'super_admin';
@@ -378,7 +398,7 @@ const AdminOrganisations = () => {
       setBulkRosterFile(null);
       await fetchOrganisations();
     } catch (err) {
-      setActionError(err.response?.data?.detail || 'Failed to import roster document.');
+      setActionError(getApiErrorMessage(err, 'Failed to import roster document.'));
     } finally {
       setRosterLoading(false);
     }
