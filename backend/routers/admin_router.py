@@ -61,6 +61,17 @@ async def list_notification_logs(
     user: Dict = Depends(require_staff_or_above)
 ):
     db = get_db(request)
+    if user.get("role") == "therapist":
+        if not client_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Therapists may only view notifications for an assigned client."
+            )
+        if not await _therapist_assigned_to_client(db, user.get("therapist_id"), client_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. Therapist is not assigned to this client."
+            )
     return await NotificationService.list_notifications(db, client_id=client_id, limit=limit)
 
 @admin_router.get("/notifications/config")
@@ -68,6 +79,11 @@ async def get_notification_config_status(
     request: Request,
     user: Dict = Depends(require_staff_or_above)
 ):
+    if user.get("role") == "therapist":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Notification provider configuration is restricted to operational staff."
+        )
     return await NotificationService.get_config_status()
 
 # ==================== Immutable Audit Logs ====================
