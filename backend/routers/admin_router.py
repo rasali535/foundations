@@ -808,6 +808,15 @@ def require_therapist_approval_role(request: Request):
     return user
 
 
+async def _therapist_assigned_to_client(db, therapist_id: Optional[str], client_id: Optional[str]) -> bool:
+    if not therapist_id or not client_id:
+        return False
+    return bool(await db.bookings.find_one(
+        {"client_id": client_id, "therapist_id": therapist_id},
+        {"_id": 0, "id": 1},
+    ))
+
+
 @admin_router.post("/organisations/{org_id}/contacts/{contact_id}/approve-extra-sessions")
 async def approve_extra_sessions(
     org_id: str,
@@ -826,6 +835,25 @@ async def approve_extra_sessions(
     )
     if not contact:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corporate roster member not found.")
+
+    if user.get("role") == "therapist":
+        linked_client = await db.crm_clients.find_one(
+            {
+                "organisation_id": org_id,
+                "$or": [
+                    {"organisation_contact_id": contact_id},
+                    {"email": {"$regex": f"^{re.escape(str(contact.get('email') or ''))}$", "$options": "i"}},
+                ],
+            },
+            {"_id": 0, "id": 1},
+        )
+        if not linked_client or not await _therapist_assigned_to_client(
+            db, user.get("therapist_id"), linked_client.get("id")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Therapists can only approve extra sessions for their assigned clients."
+            )
 
     month_key = payload.month or CorporateEntitlementService.month_key()
     monthly_map = contact.get("extra_sessions_by_month") or {}
@@ -909,6 +937,13 @@ async def get_client_corporate_entitlement(
     client = await db.crm_clients.find_one({"id": client_id}, {"_id": 0})
     if not client:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found.")
+    if user.get("role") == "therapist" and not await _therapist_assigned_to_client(
+        db, user.get("therapist_id"), client_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Therapists can only access entitlement details for assigned clients."
+        )
     if not client.get("organisation_id"):
         return {"corporate": False}
 
@@ -949,6 +984,14 @@ async def approve_client_extra_sessions(
     client = await db.crm_clients.find_one({"id": client_id}, {"_id": 0})
     if not client or not client.get("organisation_id"):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corporate client not found.")
+
+    if user.get("role") == "therapist" and not await _therapist_assigned_to_client(
+        db, user.get("therapist_id"), client_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Therapists can only approve extra sessions for assigned clients."
+        )
 
     contact = await CorporateEntitlementService.get_contact_for_client(db, client)
     if not contact:
