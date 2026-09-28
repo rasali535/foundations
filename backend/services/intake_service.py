@@ -6,6 +6,7 @@ from services.crm_service import CRMService
 from services.audit_service import AuditService
 from services.meta_whatsapp_template_service import MetaWhatsAppTemplateService
 from services.corporate_entitlement_service import CorporateEntitlementService
+from services.notification_service import NotificationService
 
 class IntakeService:
     @staticmethod
@@ -149,6 +150,36 @@ class IntakeService:
         )
 
         await db.crm_intake_submissions.insert_one(intake_record.model_dump())
+
+        # Notify FCA that a secure intake is waiting in the portal. The email
+        # intentionally contains no client identity or clinical intake content.
+        try:
+            intake_alert = await NotificationService.send_secure_intake_alert({
+                "intake_id": intake_record.id,
+                "created_at": intake_record.created_at,
+                "source_type": source_type,
+            })
+            await db.crm_intake_submissions.update_one(
+                {"id": intake_record.id},
+                {"$set": {
+                    "notification_status": intake_alert.get("notification_status"),
+                    "notification_reference": intake_alert.get("notification_reference"),
+                    "notification_updated_at": now_iso(),
+                }}
+            )
+            if intake_alert.get("notification_status") != "sent":
+                logging.warning(
+                    "INTAKE_ALERT resend_failed intake_id=%s error=%s",
+                    intake_record.id,
+                    intake_alert.get("notification_error"),
+                )
+        except Exception as exc:
+            # Intake persistence must never fail because email delivery is unavailable.
+            logging.warning(
+                "INTAKE_ALERT delivery_exception intake_id=%s error=%s",
+                intake_record.id,
+                exc.__class__.__name__,
+            )
 
         # Intake acknowledgement is operational only; clinical/triage details are
         # deliberately never placed in WhatsApp template variables.
