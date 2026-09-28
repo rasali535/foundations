@@ -67,6 +67,10 @@ services:
         sync: false
       - key: WHATSAPP_TEMPLATE_LANGUAGE
         value: en
+      - key: WHATSAPP_THERAPIST_TEMPLATE_NAME
+        value: fca_therapist_booking_notification
+      - key: WHATSAPP_THERAPIST_TEMPLATE_LANGUAGE
+        value: en_US
       - key: META_GRAPH_API_VERSION
         value: v19.0
 
