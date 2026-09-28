@@ -74,10 +74,16 @@ async def _handle_therapist_booking_decision(
     decision = "accept" if match.group(1) == "ACCEPT" else "decline"
     booking_id = match.group(2)
 
-    therapist = await db.therapists.find_one(
-        {"whatsapp_phone": sender, "active": True},
-        {"_id": 0, "id": 1, "name": 1},
-    )
+    therapist = None
+    therapist_rows = await db.therapists.find(
+        {"active": True, "whatsapp_phone": {"$exists": True, "$ne": None}},
+        {"_id": 0, "id": 1, "name": 1, "whatsapp_phone": 1},
+    ).to_list(200)
+    for row in therapist_rows:
+        if _normalize_sender(row.get("whatsapp_phone")) == sender:
+            therapist = row
+            break
+
     if not therapist:
         return (
             "FCA could not match this WhatsApp number to an active therapist profile. "
