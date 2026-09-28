@@ -79,7 +79,7 @@ const HRContract = () => {
       {/* Contract Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500 block">Total Allocated Pool</span>
+          <span className="text-xs font-semibold text-slate-500 block">Monthly Session Pool</span>
           <div className="mt-2 flex items-baseline gap-1">
             <span className="text-2xl sm:text-3xl font-black text-slate-900">
               {contract.allocated_sessions != null ? contract.allocated_sessions : 'Not configured'}
@@ -87,31 +87,31 @@ const HRContract = () => {
             <span className="text-xs text-slate-400">sessions</span>
           </div>
           <p className="text-[10px] text-slate-400 mt-1">
-            {contract.member_count || 0} people × {contract.base_sessions_per_member || 4}
-            {contract.approved_extra_sessions > 0 ? ` + ${contract.approved_extra_sessions} approved extras` : ''}
+            {contract.member_count || 0} people × {contract.base_sessions_per_member || 4} sessions per person per month
+            {contract.approved_extra_sessions > 0 ? ` + ${contract.approved_extra_sessions} approved extras for this month` : ''}
           </p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500 block">Sessions Utilised</span>
+          <span className="text-xs font-semibold text-slate-500 block">Sessions Used This Month</span>
           <div className="mt-2 flex items-baseline gap-1">
             <span className="text-2xl sm:text-3xl font-black text-teal-700">
               {contract.sessions_used}
             </span>
             <span className="text-xs text-slate-400">sessions</span>
           </div>
-          <p className="text-[10px] text-slate-400 mt-1">Completed & confirmed sessions</p>
+          <p className="text-[10px] text-slate-400 mt-1">Completed & confirmed sessions in the current month</p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm">
-          <span className="text-xs font-semibold text-slate-500 block">Sessions Remaining</span>
+          <span className="text-xs font-semibold text-slate-500 block">Sessions Remaining This Month</span>
           <div className="mt-2 flex items-baseline gap-1">
             <span className="text-2xl sm:text-3xl font-black text-slate-900">
               {contract.sessions_remaining != null ? contract.sessions_remaining : 'N/A'}
             </span>
             <span className="text-xs text-slate-400">sessions</span>
           </div>
-          <p className="text-[10px] text-slate-400 mt-1">Available balance in pool</p>
+          <p className="text-[10px] text-slate-400 mt-1">Available balance in this month's pool</p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm">
@@ -121,7 +121,7 @@ const HRContract = () => {
               {contract.utilisation_percentage != null ? `${contract.utilisation_percentage}%` : 'N/A'}
             </span>
           </div>
-          <p className="text-[10px] text-slate-400 mt-1">Percentage of pool consumed</p>
+          <p className="text-[10px] text-slate-400 mt-1">Percentage of this month's pool consumed</p>
         </div>
       </div>
 
@@ -130,14 +130,14 @@ const HRContract = () => {
         <div>
           <h3 className="font-bold text-slate-900 text-sm mb-1">Contract Progress & Allocation</h3>
           <p className="text-xs text-slate-500">
-            Real-time track of your corporate counselling allocation under the master agreement.
+            Real-time view of the current monthly counselling allocation under the master agreement. The monthly pool resets each calendar month; it is not the total entitlement for the full contract term.
           </p>
         </div>
 
         {contract.utilisation_percentage != null && (
           <div className="space-y-2 p-4 bg-slate-50 rounded-xl">
             <div className="flex justify-between text-xs font-bold text-slate-700">
-              <span>Pool Utilisation Gauge</span>
+              <span>Current Month Pool Utilisation</span>
               <span>{contract.sessions_used} of {contract.allocated_sessions} Sessions ({contract.utilisation_percentage}%)</span>
             </div>
             <div className="w-full h-3.5 bg-slate-200 rounded-full overflow-hidden p-0.5">
@@ -166,7 +166,7 @@ const HRContract = () => {
             <span className="font-bold text-slate-700 block uppercase tracking-wider text-[10px]">Contract Accounting Rule</span>
             <div className="flex items-center gap-2 text-slate-900 font-semibold">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>Each rostered employee receives 4 sessions; additional sessions require therapist approval</span>
+              <span>Each rostered employee receives 4 sessions per calendar month; additional sessions are approved for that month only</span>
             </div>
           </div>
         </div>
