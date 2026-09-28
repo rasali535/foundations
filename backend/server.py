@@ -243,6 +243,14 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
+    origin = request.headers.get("origin")
+    if (
+        request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        and origin
+        and origin not in ALLOWED_ORIGINS
+    ):
+        return JSONResponse(status_code=403, content={"detail": "Origin not allowed"})
+
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
