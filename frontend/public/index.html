@@ -7,35 +7,11 @@
     <meta name="theme-color" content="#059669" />
     <meta name="description" content="Foundations Counselling & Advisory secure portal" />
     <link id="foundations-manifest" rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <script>
-      (function () {
-        var manifest = document.getElementById("foundations-manifest");
-        var path = window.location.pathname || "/";
-        if (path.indexOf("/admin") === 0) {
-          manifest.setAttribute("href", "%PUBLIC_URL%/admin-manifest.json");
-        } else if (path.indexOf("/hr") === 0) {
-          manifest.setAttribute("href", "%PUBLIC_URL%/hr-manifest.json");
-        }
-      })();
-    </script>
     <link rel="icon" href="%PUBLIC_URL%/fca-app-icon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
     <title>Foundations Counseling Academy</title>
-    <script>
-      window.addEventListener("error", function (e) {
-        if (
-          e.error instanceof DOMException &&
-          e.error.name === "DataCloneError" &&
-          e.message &&
-          e.message.includes("PerformanceServerTiming")
-        ) {
-          e.stopImmediatePropagation();
-          e.preventDefault();
-        }
-      }, true);
-    </script>
 </head>
 
 <body>
