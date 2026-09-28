@@ -322,7 +322,9 @@ async def _load_persistent_user(target_db, user_key: str) -> Optional[Dict[str, 
             USERS_DB[normalized] = cached
             return cached
 
-        db_user = await target_db.organisation_users.find_one({"user_id": exact_ci})
+        db_user = await target_db.organisation_users.find_one(
+            {"user_id": exact_ci, "active": {"$ne": False}}
+        )
         if db_user and db_user.get("password_hash"):
             cached = {
                 "password_hash": db_user["password_hash"],
