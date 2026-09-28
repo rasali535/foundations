@@ -12,6 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
 from services.aliana_conversation_service import AlianaConversationService
+from services.booking_service import BookingService
 from models import now_iso
 
 
@@ -42,6 +43,68 @@ def _verify_signature(raw_body: bytes, supplied_signature: Optional[str]) -> boo
         META_APP_SECRET.encode("utf-8"), raw_body, hashlib.sha256
     ).hexdigest()
     return hmac.compare_digest(expected, supplied_signature)
+
+
+def _extract_booking_decision_payload(message: Dict[str, Any]) -> Optional[str]:
+    """Return the opaque quick-reply payload used for therapist booking decisions."""
+    message_type = str(message.get("type") or "").lower()
+    if message_type == "button":
+        button = message.get("button") or {}
+        payload = str(button.get("payload") or "").strip()
+        return payload or None
+
+    if message_type == "interactive":
+        interactive = message.get("interactive") or {}
+        button = interactive.get("button_reply") or {}
+        payload = str(button.get("id") or "").strip()
+        return payload or None
+
+    return None
+
+
+async def _handle_therapist_booking_decision(
+    db: Any,
+    sender: str,
+    payload: str,
+) -> Optional[str]:
+    match = re.fullmatch(r"FCA_BOOKING_(ACCEPT|DECLINE):([A-Za-z0-9-]{8,128})", payload or "")
+    if not match:
+        return None
+
+    decision = "accept" if match.group(1) == "ACCEPT" else "decline"
+    booking_id = match.group(2)
+
+    therapist = await db.therapists.find_one(
+        {"whatsapp_phone": sender, "active": True},
+        {"_id": 0, "id": 1, "name": 1},
+    )
+    if not therapist:
+        return (
+            "FCA could not match this WhatsApp number to an active therapist profile. "
+            "Please use the number registered in your therapist settings or contact administration."
+        )
+
+    booking, error = await BookingService.therapist_decision(
+        db,
+        booking_id=booking_id,
+        therapist_id=therapist["id"],
+        decision=decision,
+        actor_id=f"whatsapp:{therapist['id']}",
+        actor_name=therapist.get("name") or "Therapist",
+    )
+    if error or not booking:
+        return f"FCA could not {decision} this appointment: {error or 'the request is no longer available.'}"
+
+    if decision == "accept":
+        return (
+            "Appointment accepted. ✅\n"
+            "The client confirmation has now been sent and the booking is confirmed."
+        )
+
+    return (
+        "Appointment declined.\n"
+        "The booking request has been returned to FCA administration for reassignment."
+    )
 
 
 def _extract_message_text(message: Dict[str, Any]) -> Optional[str]:
@@ -198,9 +261,10 @@ async def _process_webhook_payload(db: Any, payload: Dict[str, Any]) -> None:
 
     for value, message in _iter_messages(payload):
         sender = _normalize_sender(message.get("from"))
+        decision_payload = _extract_booking_decision_payload(message)
         text = _extract_message_text(message)
         message_id = str(message.get("id") or "").strip() or None
-        if not sender or not text:
+        if not sender or (not text and not decision_payload):
             continue
 
         if message_id:
@@ -216,6 +280,13 @@ async def _process_webhook_payload(db: Any, payload: Dict[str, Any]) -> None:
                 upsert=True,
             )
             if result.matched_count > 0 and result.upserted_id is None:
+                continue
+
+        if decision_payload:
+            decision_reply = await _handle_therapist_booking_decision(db, sender, decision_payload)
+            if decision_reply is not None:
+                metadata = value.get("metadata") or {}
+                await _send_meta_text(sender, decision_reply, metadata.get("phone_number_id"))
                 continue
 
         session_id = f"whatsapp:{sender}"
