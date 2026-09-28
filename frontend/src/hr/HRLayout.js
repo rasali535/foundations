@@ -71,7 +71,7 @@ const HRLayout = () => {
 
   const handleLogout = async () => {
     await logout();
-    navigate('/hr/login');
+    window.location.assign('/');
   };
 
   const getRoleBadge = (role) => {
