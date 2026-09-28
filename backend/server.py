@@ -9,6 +9,10 @@ import logging
 import time
 import asyncio
 import re
+import json
+import hmac
+import hashlib
+import base64
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 import bcrypt
@@ -45,6 +49,8 @@ client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=5000)
 db = client[os.environ.get('DB_NAME', 'foundations_db')]
 
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', 'dummy_key')
+RESEND_WEBHOOK_SECRET = (os.environ.get('RESEND_WEBHOOK_SECRET') or '').strip()
+RESEND_INBOUND_DOMAIN = (os.environ.get('RESEND_INBOUND_DOMAIN') or 'forms.academyfoundations.com').strip().lower()
 
 # ----------------- In-Memory Rate Limiting Engine -----------------
 RATE_LIMIT_STORE: Dict[str, List[float]] = {}
@@ -103,6 +109,8 @@ async def lifespan(app: FastAPI):
         await db.crm_activity_log.create_index([("client_id", 1)])
         await db.crm_activity_log.create_index([("booking_id", 1)])
         await db.notification_log.create_index([("client_id", 1)])
+        await db.resend_webhook_events.create_index([("event_id", 1)], unique=True)
+        await db.resend_inbound_messages.create_index([("email_id", 1)], unique=True, sparse=True)
         await db.whatsapp_dispatch_claims.create_index([("event_key", 1)], unique=True)
         
         # Seed default therapists if missing
@@ -509,6 +517,135 @@ aliana = AlianaEngine(api_key=EMERGENT_LLM_KEY, system_prompt=SYSTEM_PROMPT)
 
 # ----------------- API Router & Endpoints -----------------
 api_router = APIRouter(prefix="/api")
+
+
+def _verify_resend_webhook(raw_body: bytes, request: Request) -> bool:
+    """Verify Resend/Svix webhook signatures against the untouched request body."""
+    if not RESEND_WEBHOOK_SECRET:
+        return False
+
+    event_id = request.headers.get("svix-id")
+    timestamp = request.headers.get("svix-timestamp")
+    signature_header = request.headers.get("svix-signature")
+    if not event_id or not timestamp or not signature_header:
+        return False
+
+    try:
+        timestamp_int = int(timestamp)
+    except (TypeError, ValueError):
+        return False
+
+    # Svix/Resend recommends rejecting stale signatures to reduce replay risk.
+    if abs(int(time.time()) - timestamp_int) > 300:
+        return False
+
+    secret = RESEND_WEBHOOK_SECRET
+    if secret.startswith("whsec_"):
+        secret = secret[len("whsec_"):]
+
+    try:
+        key = base64.b64decode(secret)
+    except Exception:
+        return False
+
+    signed_payload = f"{event_id}.{timestamp}.".encode("utf-8") + raw_body
+    expected = base64.b64encode(
+        hmac.new(key, signed_payload, hashlib.sha256).digest()
+    ).decode("ascii")
+
+    signatures = []
+    for item in signature_header.split():
+        if item.startswith("v1,"):
+            signatures.append(item.split(",", 1)[1])
+
+    return any(hmac.compare_digest(expected, candidate) for candidate in signatures)
+
+
+@api_router.post("/webhooks/resend", include_in_schema=False)
+async def resend_webhook(request: Request):
+    if not RESEND_WEBHOOK_SECRET:
+        logging.error("RESEND_WEBHOOK status=misconfigured reason=missing_secret")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webhook verification is not configured."
+        )
+
+    raw_body = await request.body()
+    if not _verify_resend_webhook(raw_body, request):
+        logging.warning("RESEND_WEBHOOK status=rejected reason=invalid_signature")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid webhook signature.")
+
+    try:
+        event = json.loads(raw_body.decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid webhook payload.")
+
+    event_id = request.headers.get("svix-id")
+    event_type = str(event.get("type") or "")
+    event_data = event.get("data") if isinstance(event.get("data"), dict) else {}
+    target_db = request.app.state.db if hasattr(request.app.state, "db") and request.app.state.db is not None else db
+
+    # Idempotency: Resend retries events, so processing the same Svix event twice
+    # must be harmless.
+    existing = await target_db.resend_webhook_events.find_one(
+        {"event_id": event_id},
+        {"_id": 0, "event_id": 1},
+    )
+    if existing:
+        return {"status": "duplicate_ignored"}
+
+    await target_db.resend_webhook_events.insert_one({
+        "event_id": event_id,
+        "event_type": event_type,
+        "created_at": event.get("created_at") or now_iso(),
+        "received_at": now_iso(),
+    })
+
+    if event_type == "email.received":
+        recipients = [
+            str(value).strip().lower()
+            for value in (event_data.get("to") or [])
+            if value
+        ]
+        accepted_recipients = [
+            address
+            for address in recipients
+            if address.endswith(f"@{RESEND_INBOUND_DOMAIN}")
+        ]
+
+        if not accepted_recipients:
+            logging.warning(
+                "RESEND_WEBHOOK status=ignored reason=unexpected_recipient event_id=%s",
+                event_id,
+            )
+            return {"status": "ignored"}
+
+        email_id = event_data.get("email_id")
+        await target_db.resend_inbound_messages.update_one(
+            {"email_id": email_id},
+            {"$setOnInsert": {
+                "email_id": email_id,
+                "message_id": event_data.get("message_id"),
+                "from": event_data.get("from"),
+                "to": accepted_recipients,
+                "subject": event_data.get("subject"),
+                "attachments": event_data.get("attachments") or [],
+                "provider_created_at": event_data.get("created_at"),
+                "received_at": now_iso(),
+                "status": "received",
+                "source": "resend_inbound",
+            }},
+            upsert=True,
+        )
+
+        logging.info(
+            "RESEND_WEBHOOK status=accepted type=email.received event_id=%s email_id=%s",
+            event_id,
+            email_id,
+        )
+
+    return {"status": "accepted"}
+
 
 @api_router.get("/")
 async def root():
