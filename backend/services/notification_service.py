@@ -408,7 +408,6 @@ class NotificationService:
         for idx, booking in enumerate(bookings, 1):
             date_str, time_str = _format_booking_datetime(booking.starts_at)
             mode_display = "In-Person" if booking.session_mode == "in_person" else "Virtual"
-            therapist_name = html.escape(booking.therapist_name or "Assigned Specialist")
             access_line = ""
             if booking.session_mode == "virtual" and booking.virtual_meeting_link:
                 link = html.escape(booking.virtual_meeting_link, quote=True)
@@ -422,7 +421,7 @@ class NotificationService:
             <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 16px;margin-bottom:8px;">
                 <p style="margin:0 0 4px;font-weight:600;color:#1e293b;">Session {idx}: {date_str} at {time_str}</p>
                 <p style="margin:0;font-size:13px;color:#64748b;">
-                    Therapist: <strong>{therapist_name}</strong> | Type: {html.escape(booking.session_type.capitalize())} | Mode: {mode_display}
+                    Type: {html.escape(booking.session_type.capitalize())} | Mode: {mode_display}
                 </p>
                 {access_line}
             </div>
@@ -442,6 +441,11 @@ class NotificationService:
                     <h2 style="color:#1e293b;font-size:18px;margin-top:0;">Dear {client_name},</h2>
                     <p style="color:#475569;font-size:14px;line-height:1.6;">Your appointment has been successfully scheduled. Below are your session details:</p>
                     <div style="margin:20px 0;">{slots_html}</div>
+                    <div style="background:#f0fdf4;border-left:4px solid #16a34a;padding:12px 16px;margin:20px 0;border-radius:0 8px 8px 0;">
+                        <p style="margin:0;font-size:13px;color:#166534;line-height:1.5;">
+                            <strong>Therapist assignment:</strong> A suitable therapist will be assigned based on availability and your counselling needs.
+                        </p>
+                    </div>
                     <div style="background:#eff6ff;border-left:4px solid #3b82f6;padding:12px 16px;margin:20px 0;border-radius:0 8px 8px 0;">
                         <p style="margin:0;font-size:13px;color:#1e40af;line-height:1.5;">
                             <strong>Privacy & scheduling:</strong> Please contact FCA administration at least 6 hours before your appointment if you need to reschedule or cancel. Cancellations within 6 hours may be billable under the FCA cancellation policy.
@@ -466,7 +470,7 @@ class NotificationService:
             f"Time: {time_str}",
             f"Session: {first_b.session_type.capitalize()}",
             f"Mode: {mode}",
-            f"Therapist: {first_b.therapist_name or 'Assigned Specialist'}"
+            "A suitable therapist will be assigned based on availability and your counselling needs."
         ]
         if len(bookings) > 1:
             lines.append(f"Confirmed sessions: {len(bookings)} (details are included in your email confirmation).")
