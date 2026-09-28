@@ -133,6 +133,11 @@ async def _available_therapists_for_booking(db: Any, booking: Dict[str, Any]) ->
             continue
         if SchedulingService.provider() == "setmore":
             try:
+                client = await db.crm_clients.find_one(
+                    {"id": booking.get("client_id")},
+                    {"_id": 0, "organisation_id": 1},
+                )
+                funding_scope = "organisation" if client and client.get("organisation_id") else "private"
                 start_dt = __import__("datetime").datetime.fromisoformat(
                     str(booking["starts_at"]).replace("Z", "+00:00")
                 )
@@ -143,7 +148,7 @@ async def _available_therapists_for_booking(db: Any, booking: Dict[str, Any]) ->
                     days_ahead=1,
                     session_type=booking.get("session_type") or "individual",
                     session_mode=mode or "virtual",
-                    funding_scope="private",
+                    funding_scope=funding_scope,
                 )
                 if not any(
                     slot.get("is_available")
