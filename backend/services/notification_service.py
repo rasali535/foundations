@@ -297,6 +297,54 @@ class NotificationService:
         }
 
     @staticmethod
+    async def send_secure_intake_alert(intake: Dict[str, Any]) -> Dict[str, Any]:
+        """Notify staff that a secure intake exists without emailing clinical content."""
+        reference = html.escape(str(intake.get("intake_id") or ""))
+        submitted_at = html.escape(str(intake.get("created_at") or now_iso()))
+        source_type = html.escape(str(intake.get("source_type") or "private"))
+
+        subject = "New secure intake received — review in Foundations Admin"
+        html_body = f"""
+        <!doctype html>
+        <html>
+        <body style="margin:0;padding:24px;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#0f172a;">
+          <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+            <div style="background:#1C3F3A;padding:22px 26px;color:#ffffff;">
+              <div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;opacity:.75;">Foundations Counselling Academy</div>
+              <h1 style="margin:6px 0 0;font-size:20px;">New secure intake received</h1>
+            </div>
+            <div style="padding:26px;">
+              <p style="margin:0;color:#475569;font-size:14px;line-height:1.7;">
+                A new intake form has been securely stored in the Foundations system.
+                Sign in to the authenticated Admin portal to review the submission.
+              </p>
+              <div style="margin:20px 0;padding:14px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;line-height:1.7;">
+                <strong>Reference:</strong> {reference}<br>
+                <strong>Submitted:</strong> {submitted_at}<br>
+                <strong>Intake type:</strong> {source_type}
+              </div>
+              <div style="padding:12px 14px;background:#ecfdf5;border-left:4px solid #059669;border-radius:0 8px 8px 0;color:#065f46;font-size:12px;line-height:1.6;">
+                Privacy safeguard: this email intentionally contains no client identity, therapy reason, safety-screen response, emergency contact, or other clinical intake content.
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+        """
+
+        ok, ref, error = await NotificationService.send_email_message(
+            CONTACT_NOTIFICATION_TO,
+            subject,
+            html_body,
+            reply_to=CONTACT_REPLY_TO,
+        )
+        return {
+            "notification_status": "sent" if ok else "failed",
+            "notification_reference": ref,
+            "notification_error": error,
+        }
+
+    @staticmethod
     async def send_chat_lead_notification(lead: Dict[str, Any]) -> Dict[str, Any]:
         name = html.escape(str(lead.get("name") or "Website chatbot visitor"))
         email_address = html.escape(str(lead.get("email") or "Not provided"))
