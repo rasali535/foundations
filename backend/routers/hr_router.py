@@ -201,7 +201,7 @@ async def change_hr_password(
     new_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     changed_at = now_iso()
     await db.organisation_users.update_one(
-        {"id": account.get("id")},
+        {"user_id": exact_ci, "active": {"$ne": False}},
         {"$set": {
             "password_hash": new_hash,
             "auth_version": next_version,
