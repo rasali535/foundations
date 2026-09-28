@@ -36,6 +36,7 @@ const AdminSettings = () => {
   const [invoiceProfileMessage, setInvoiceProfileMessage] = useState('');
   const [staffUsers, setStaffUsers] = useState([]);
   const [staffUserMessage, setStaffUserMessage] = useState('');
+  const [staffWhatsappDrafts, setStaffWhatsappDrafts] = useState({});
 
   const fetchData = React.useCallback(async () => {
     setLoading(true);
@@ -54,6 +55,13 @@ const AdminSettings = () => {
       if (isSuperAdmin) {
         const staffRes = await api.get('/admin-ops/staff-users');
         setStaffUsers(staffRes.data || []);
+        setStaffWhatsappDrafts(Object.fromEntries((staffRes.data || []).map(account => [
+          account.user_id,
+          {
+            whatsapp_phone: account.whatsapp_phone || '',
+            whatsapp_admin_enabled: Boolean(account.whatsapp_admin_enabled)
+          }
+        ])));
       } else {
         setStaffUsers([]);
       }
@@ -85,6 +93,25 @@ const AdminSettings = () => {
       setInvoiceProfileMessage(err.response?.data?.detail || 'Could not save invoice company profile.');
     } finally {
       setInvoiceProfileSaving(false);
+    }
+  };
+
+  const saveStaffWhatsapp = async (account) => {
+    if (!isSuperAdmin) return;
+    const draft = staffWhatsappDrafts[account.user_id] || {};
+    setStaffUserMessage('');
+    try {
+      const res = await api.patch(
+        `/admin-ops/staff-users/${encodeURIComponent(account.user_id)}/whatsapp`,
+        {
+          whatsapp_phone: draft.whatsapp_phone || null,
+          whatsapp_admin_enabled: Boolean(draft.whatsapp_admin_enabled)
+        }
+      );
+      setStaffUsers(prev => prev.map(item => item.user_id === account.user_id ? { ...item, ...res.data } : item));
+      setStaffUserMessage('Super Admin WhatsApp access saved.');
+    } catch (err) {
+      setStaffUserMessage(err.response?.data?.detail || 'Could not save WhatsApp admin access.');
     }
   };
 
@@ -180,12 +207,13 @@ const AdminSettings = () => {
                   <th className="py-2.5 px-3">Login</th>
                   <th className="py-2.5 px-3">Role</th>
                   <th className="py-2.5 px-3">Status</th>
+                  <th className="py-2.5 px-3">WhatsApp Admin</th>
                   <th className="py-2.5 px-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {staffUsers.length === 0 ? (
-                  <tr><td colSpan="5" className="py-6 text-center text-slate-400">No platform staff accounts found.</td></tr>
+                  <tr><td colSpan="6" className="py-6 text-center text-slate-400">No platform staff accounts found.</td></tr>
                 ) : (
                   staffUsers.map((account) => {
                     const isSelf = account.user_id === user?.user_id;
@@ -206,6 +234,45 @@ const AdminSettings = () => {
                           }`}>
                             {account.active === false ? 'Inactive' : 'Active'}
                           </span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          {account.role === 'super_admin' ? (
+                            <div className="flex flex-col gap-1.5 min-w-[190px]">
+                              <input
+                                value={staffWhatsappDrafts[account.user_id]?.whatsapp_phone || ''}
+                                onChange={(e) => setStaffWhatsappDrafts(prev => ({
+                                  ...prev,
+                                  [account.user_id]: {
+                                    ...(prev[account.user_id] || {}),
+                                    whatsapp_phone: e.target.value
+                                  }
+                                }))}
+                                placeholder="+267..."
+                                className="px-2 py-1.5 border border-slate-200 rounded-lg text-[11px]"
+                              />
+                              <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-600">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(staffWhatsappDrafts[account.user_id]?.whatsapp_admin_enabled)}
+                                  onChange={(e) => setStaffWhatsappDrafts(prev => ({
+                                    ...prev,
+                                    [account.user_id]: {
+                                      ...(prev[account.user_id] || {}),
+                                      whatsapp_admin_enabled: e.target.checked
+                                    }
+                                  }))}
+                                />
+                                Allow booking assignment by WhatsApp
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => saveStaffWhatsapp(account)}
+                                className="self-start px-2 py-1 rounded bg-emerald-50 text-emerald-700 text-[10px] font-bold hover:bg-emerald-100"
+                              >
+                                Save WhatsApp
+                              </button>
+                            </div>
+                          ) : <span className="text-slate-400">—</span>}
                         </td>
                         <td className="py-2.5 px-3 text-right">
                           <button
