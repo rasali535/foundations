@@ -88,6 +88,7 @@ const AdminOrganisations = () => {
   const [rosterModalOpen, setRosterModalOpen] = useState(false);
   const [selectedOrgForRoster, setSelectedOrgForRoster] = useState(null);
   const [bulkRosterText, setBulkRosterText] = useState('');
+  const [bulkRosterFile, setBulkRosterFile] = useState(null);
   const [rosterLoading, setRosterLoading] = useState(false);
 
   const fetchOrganisations = useCallback(async () => {
@@ -259,6 +260,7 @@ const AdminOrganisations = () => {
   const handleOpenRoster = (org) => {
     setSelectedOrgForRoster(org);
     setBulkRosterText('');
+    setBulkRosterFile(null);
     setActionError('');
     setRosterModalOpen(true);
   };
@@ -326,22 +328,63 @@ const AdminOrganisations = () => {
       .map(line => line.trim())
       .filter(Boolean)
       .map(line => {
-        const delimiter = line.includes('\t') ? '\t' : ',';
+        const delimiter = line.includes('\t') ? '\t' : (line.includes(';') ? ';' : ',');
         const parts = line.split(delimiter).map(value => value.trim());
-        if (parts.length === 1 && parts[0].includes('@')) {
-          return { name: '', email: parts[0], phone: '', department: '', job_title: '', contact_type: 'employee' };
-        }
+        const first = parts[0] || '';
+        const surname = parts[1] || '';
+        const email = parts[2] || '';
+
+        const looksLikeHeader = ['first name', 'firstname', 'first'].includes(first.toLowerCase())
+          && ['surname', 'last name', 'lastname'].includes(surname.toLowerCase());
+        if (looksLikeHeader) return null;
+
         return {
-          name: parts[0] || '',
-          email: parts[1] || '',
-          phone: parts[2] || '',
-          department: parts[3] || '',
-          job_title: parts[4] || '',
-          contact_type: parts[5] || 'employee'
+          name: [first, surname].filter(Boolean).join(' '),
+          email,
+          phone: '',
+          department: '',
+          job_title: '',
+          contact_type: 'employee'
         };
       })
-      .filter(row => row.email && row.email.includes('@'));
+      .filter(row => row && row.email && row.email.includes('@'));
   };
+
+  const handleRosterFileUpload = async () => {
+    if (!selectedOrgForRoster || !bulkRosterFile) {
+      setActionError('Choose an Excel, PDF, Word or CSV roster file first.');
+      return;
+    }
+
+    setRosterLoading(true);
+    setActionError('');
+    try {
+      const formData = new FormData();
+      formData.append('file', bulkRosterFile);
+
+      const res = await api.post(
+        `/admin-ops/organisations/${selectedOrgForRoster.id}/contacts/bulk-file`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+
+      setOrgContacts(prev => ({
+        ...prev,
+        [selectedOrgForRoster.id]: res.data?.contacts || []
+      }));
+      setOrgPools(prev => ({
+        ...prev,
+        [selectedOrgForRoster.id]: res.data?.pool || null
+      }));
+      setBulkRosterFile(null);
+      await fetchOrganisations();
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Failed to import roster document.');
+    } finally {
+      setRosterLoading(false);
+    }
+  };
+
 
   const handleRosterStatus = async (contact) => {
     if (!selectedOrgForRoster) return;
@@ -371,7 +414,7 @@ const AdminOrganisations = () => {
     if (!selectedOrgForRoster) return;
     const contacts = parseRosterText(bulkRosterText);
     if (!contacts.length) {
-      setActionError('Add at least one valid email. Use: Name, Email, Phone, Department, Job Title.');
+      setActionError('Add at least one valid employee using: First name, Surname, Email address.');
       return;
     }
     setRosterLoading(true);
@@ -384,6 +427,7 @@ const AdminOrganisations = () => {
       setOrgContacts(prev => ({ ...prev, [selectedOrgForRoster.id]: res.data?.contacts || [] }));
       setOrgPools(prev => ({ ...prev, [selectedOrgForRoster.id]: res.data?.pool || null }));
       setBulkRosterText('');
+      setBulkRosterFile(null);
       await fetchOrganisations();
     } catch (err) {
       setActionError(err.response?.data?.detail || 'Failed to import corporate contacts.');
@@ -632,30 +676,65 @@ const AdminOrganisations = () => {
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs">{actionError}</div>
               )}
 
-              <div className="p-4 border border-slate-200 rounded-xl">
-                <div className="flex items-center gap-2 mb-2">
-                  <Upload className="w-4 h-4 text-emerald-700" />
-                  <h4 className="text-sm font-bold text-slate-900">Bulk add / update people</h4>
+              <div className="p-4 border border-slate-200 rounded-xl space-y-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Upload className="w-4 h-4 text-emerald-700" />
+                    <h4 className="text-sm font-bold text-slate-900">Bulk add / update employees</h4>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Upload an <b>Excel (.xlsx), PDF (.pdf), Word (.docx) or CSV (.csv)</b> roster.
+                    The document should contain three fields: <b>First name, Surname, Email address</b>.
+                    Email is the unique roster key, so uploading an existing employee updates the same roster record.
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-500 mb-3">
-                  Paste from Excel or CSV. One person per line: <b>Name, Email, Phone, Department, Job Title</b>. Email is required and acts as the unique roster key.
-                </p>
-                <textarea
-                  rows="7"
-                  value={bulkRosterText}
-                  onChange={(e) => setBulkRosterText(e.target.value)}
-                  placeholder={"Jane Doe, jane@company.com, +267..., Finance, Manager\nJohn Doe, john@company.com, +267..., Operations, Officer"}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono"
-                />
-                <div className="flex justify-end mt-3">
-                  <button
-                    type="button"
-                    onClick={handleBulkRosterSave}
-                    disabled={rosterLoading}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg"
-                  >
-                    {rosterLoading ? 'Importing...' : 'Import / Update Roster'}
-                  </button>
+
+                <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/40 p-4">
+                  <label className="block text-xs font-bold text-slate-800 mb-2">Roster document</label>
+                  <input
+                    type="file"
+                    accept=".xlsx,.pdf,.docx,.csv"
+                    onChange={(e) => setBulkRosterFile(e.target.files?.[0] || null)}
+                    className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-600 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white hover:file:bg-emerald-700"
+                  />
+                  {bulkRosterFile && (
+                    <div className="mt-2 text-[11px] text-emerald-800 font-semibold">
+                      Selected: {bulkRosterFile.name}
+                    </div>
+                  )}
+                  <div className="flex justify-end mt-3">
+                    <button
+                      type="button"
+                      onClick={handleRosterFileUpload}
+                      disabled={rosterLoading || !bulkRosterFile}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg"
+                    >
+                      {rosterLoading ? 'Importing document...' : 'Upload & Import Roster'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-100 pt-4">
+                  <p className="text-[11px] text-slate-500 mb-3">
+                    Or paste rows directly using: <b>First name, Surname, Email address</b>.
+                  </p>
+                  <textarea
+                    rows="5"
+                    value={bulkRosterText}
+                    onChange={(e) => setBulkRosterText(e.target.value)}
+                    placeholder={"First name, Surname, Email address\nJane, Doe, jane@company.com\nJohn, Smith, john@company.com"}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono"
+                  />
+                  <div className="flex justify-end mt-3">
+                    <button
+                      type="button"
+                      onClick={handleBulkRosterSave}
+                      disabled={rosterLoading || !bulkRosterText.trim()}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white text-xs font-bold rounded-lg"
+                    >
+                      {rosterLoading ? 'Importing...' : 'Import Pasted Contacts'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
