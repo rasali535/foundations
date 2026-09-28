@@ -47,7 +47,16 @@ Booking email already uses `NotificationService`. The form migration centralises
 
 Clinical intake remains in the secure CRM/intake workflow.
 
-Clinical answers, safety-screen responses, therapy reasons and other sensitive intake content are not copied into marketing notification emails. Staff review those records in the authenticated Foundations Admin/CRM portal.
+After the intake is safely persisted, Resend sends FCA a **minimal secure-intake alert** telling staff that a new intake is waiting in the authenticated Admin portal.
+
+The alert contains only:
+- intake reference
+- submission timestamp
+- intake type (private/corporate)
+
+Clinical answers, client identity, email/phone, safety-screen responses, therapy reasons, emergency contacts and other sensitive intake content are never copied into the Resend alert. Staff review those records only inside the authenticated Foundations Admin/CRM portal.
+
+A Resend failure never blocks or rolls back an intake that has already been safely stored.
 
 ## Production environment
 
