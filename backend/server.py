@@ -179,6 +179,39 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Foundations Counselling Academy API & CRM", version="2.1.0", lifespan=lifespan)
 app.state.db = db
 
+
+@app.get("/health", include_in_schema=False)
+async def health():
+    return {
+        "status": "ok",
+        "service": "foundations-api",
+        "version": app.version,
+    }
+
+
+@app.get("/ready", include_in_schema=False)
+async def ready(request: Request):
+    target_db = request.app.state.db
+    try:
+        await asyncio.wait_for(target_db.command("ping"), timeout=2.0)
+    except Exception as exc:
+        logging.error("READINESS_CHECK status=failed error=%s", exc.__class__.__name__)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "not_ready",
+                "service": "foundations-api",
+                "database": "unavailable",
+            },
+        )
+
+    return {
+        "status": "ready",
+        "service": "foundations-api",
+        "database": "ok",
+    }
+
+
 # Strict Production Session Middleware
 # Reads SESSION_SECRET (Render env var name) with SESSION_SECRET_KEY as alias.
 _SESSION_SECRET_RAW = (
