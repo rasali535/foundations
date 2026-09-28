@@ -433,20 +433,7 @@ const IntakeForm = () => {
                                         {bookingSuccess.session_mode === 'virtual' && <p>Your secure session link will be sent via WhatsApp 3 hours before your appointment.</p>}
                                     </div>
                                 )}
-                                
-                                {isPlaceholderId && (
-                                    <div className="demo-data-receipt">
-                                        <h4>Submitted Details (Simulation Sandbox)</h4>
-                                        <ul>
-                                            <li><strong>Client:</strong> {formData.full_name} ({formData.gender || 'Not specified'})</li>
-                                            <li><strong>Email:</strong> {formData.email}</li>
-                                            <li><strong>Phone:</strong> {formData.phone}</li>
-                                            <li><strong>Contact Method:</strong> {formData.contact_method}</li>
-                                            <li><strong>Support:</strong> {formData.support.join(', ')}</li>
-                                            <li><strong>Safety Screening Flags:</strong> Self-Harm: {formData.self_harm}, Harm Others: {formData.harm_others}, Unsafe: {formData.unsafe}, Abuse: {formData.abuse}</li>
-                                        </ul>
-                                    </div>
-                                )}
+
 
                                 <div className="success-actions">
                                     {!intakeResult?.client_id && <Link to="/contact" className="btn-primary">Contact Us to Book</Link>}

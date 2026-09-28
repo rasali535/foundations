@@ -16,6 +16,8 @@ def test_intake_form_has_no_formspree_dependency():
         "VITE_FORMSPREE_ID",
         "formspreePayload",
         "formspreePromise",
+        "isPlaceholderId",
+        "Simulation Sandbox",
     ]
 
     for token in forbidden:
