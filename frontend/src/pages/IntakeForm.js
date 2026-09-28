@@ -337,7 +337,6 @@ const IntakeForm = () => {
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify({
                     client_id: intakeResult.client_id,
-                    therapist_id: selectedSlot.therapist_id,
                     session_type: 'individual',
                     session_mode: bookingMode,
                     starts_at: selectedSlot.starts_at,
@@ -411,14 +410,14 @@ const IntakeForm = () => {
                                                 <label>Available appointments</label>
                                                 <div className="checkbox-list" style={{ marginTop: '8px' }}>
                                                     {bookingSlots.slice(0, 30).map((slot) => (
-                                                        <div key={slot.therapist_id + slot.starts_at} className={`checkbox-card ${selectedSlot?.starts_at === slot.starts_at && selectedSlot?.therapist_id === slot.therapist_id ? 'checked' : ''}`} onClick={() => setSelectedSlot(slot)}>
-                                                            <div className="checkbox-ui">{selectedSlot?.starts_at === slot.starts_at && selectedSlot?.therapist_id === slot.therapist_id ? <span className="check-mark">✓</span> : null}</div>
+                                                        <div key={slot.starts_at} className={`checkbox-card ${selectedSlot?.starts_at === slot.starts_at ? 'checked' : ''}`} onClick={() => setSelectedSlot(slot)}>
+                                                            <div className="checkbox-ui">{selectedSlot?.starts_at === slot.starts_at ? <span className="check-mark">✓</span> : null}</div>
                                                             <span className="checkbox-label">{new Date(slot.starts_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
                                                         </div>
                                                     ))}
                                                 </div>
                                                 <button type="button" className="btn-primary" disabled={!selectedSlot || bookingBusy} onClick={confirmIntakeBooking} style={{ marginTop: '14px' }}>
-                                                    {bookingBusy ? 'Confirming...' : 'Confirm appointment'}
+                                                    {bookingBusy ? 'Sending request...' : 'Request appointment'}
                                                 </button>
                                             </div>
                                         )}
@@ -428,10 +427,10 @@ const IntakeForm = () => {
 
                                 {bookingSuccess && (
                                     <div className="intake-booking-card" style={{ marginTop: '24px' }}>
-                                        <h3>Appointment confirmed</h3>
-                                        <p>Your {bookingSuccess.session_mode === 'virtual' ? 'virtual' : 'in-person'} counselling session is booked for {new Date(bookingSuccess.starts_at).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })}.</p>
-                                        <p>A suitable therapist will be assigned based on availability and your counselling needs.</p>
-                                        {bookingSuccess.session_mode === 'virtual' && <p>Your secure session link will be sent via WhatsApp 3 hours before your appointment.</p>}
+                                        <h3>Booking request received</h3>
+                                        <p>Your requested {bookingSuccess.session_mode === 'virtual' ? 'virtual' : 'in-person'} counselling time is {new Date(bookingSuccess.starts_at).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })}.</p>
+                                        <p><strong>Status: Awaiting confirmation.</strong></p>
+                                        <p>FCA will assign an available therapist. You will receive a booking confirmation only after the therapist accepts the appointment.</p>
                                     </div>
                                 )}
 
