@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from uuid import uuid4
 from pydantic import BaseModel, Field, EmailStr
 
@@ -493,7 +493,7 @@ class OrganisationUserCreate(BaseModel):
     password: str
     email: str
     name: str
-    role: str = "hr_admin"  # hr_admin, hr_viewer
+    role: Literal["hr_admin", "hr_viewer"] = "hr_admin"
 
 class AggregateMetric(BaseModel):
     count: Optional[int] = None
