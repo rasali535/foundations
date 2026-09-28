@@ -73,7 +73,7 @@ async def get_current_hr_user(request: Request) -> Dict[str, Any]:
     if role not in allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied. Corporate HR credentials required.")
 
-    if role in ["hr_admin", "hr_viewer"]:
+    if role in ["hr_admin", "hr_viewer"] and request.session.get("persistent_hr_account") is True:
         db = get_db(request)
         normalized = str(user_id).strip().lower()
         exact_ci = {"$regex": f"^{re.escape(normalized)}$", "$options": "i"}
