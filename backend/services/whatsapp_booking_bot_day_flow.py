@@ -330,16 +330,16 @@ def install_day_first_flow(service_cls) -> None:
                 return "That booking selection expired. Send BOOK to start again."
 
             if raw_text == "1" or len(monthly_series) <= 1:
-                booking, error = await BookingService.create_booking(
+                booking, error = await BookingService.create_booking_request(
                     db,
                     BookingCreateRequest(
                         client_id=client_id,
-                        therapist_id=selected["therapist_id"],
+                        therapist_id=None,
                         session_type=context["session_type"],
                         session_mode=context["session_mode"],
                         starts_at=selected["starts_at"],
                         ends_at=selected["ends_at"],
-                        send_notifications=True,
+                        send_notifications=False,
                         source="whatsapp",
                     ),
                     actor_id="whatsapp-self-service",
@@ -353,53 +353,54 @@ def install_day_first_flow(service_cls) -> None:
                     )
                 local = _parse_iso(booking.starts_at).astimezone(CAT_TZ)
                 return (
-                    "Your FCA corporate appointment has been booked successfully. ✅\n"
+                    "Your FCA corporate booking request has been received. ✅\n"
                     f"{local.strftime('%a %d %b %Y, %H:%M CAT')}\n\n"
-                    "A suitable therapist will be assigned based on availability and your counselling needs.\n\n"
+                    "Status: Awaiting therapist confirmation. FCA will assign an available therapist and confirm after acceptance.\n\n"
                     "Corporate clients may use up to 4 sessions per month, with one session per calendar week. "
                     "Send MENU for more options."
                 )
 
-            result, error = await BookingService.create_multi_booking(
-                db,
-                MultiBookingCreateRequest(
-                    client_id=client_id,
-                    therapist_id=selected["therapist_id"],
-                    session_type=context["session_type"],
-                    session_mode=context["session_mode"],
-                    slots=[
-                        SingleBookingSlot(
-                            starts_at=slot["starts_at"],
-                            ends_at=slot.get("ends_at"),
-                        )
-                        for slot in monthly_series
-                    ],
-                    send_notifications=True,
-                    source="whatsapp",
-                ),
-                actor_id="whatsapp-self-service",
-                actor_name="WhatsApp Client Self-Service",
-            )
+            requested_bookings = []
+            request_error = None
+            for slot in monthly_series:
+                pending_booking, request_error = await BookingService.create_booking_request(
+                    db,
+                    BookingCreateRequest(
+                        client_id=client_id,
+                        therapist_id=None,
+                        session_type=context["session_type"],
+                        session_mode=context["session_mode"],
+                        starts_at=slot["starts_at"],
+                        ends_at=slot.get("ends_at"),
+                        send_notifications=False,
+                        source="whatsapp",
+                    ),
+                    actor_id="whatsapp-self-service",
+                    actor_name="WhatsApp Client Self-Service",
+                )
+                if request_error or not pending_booking:
+                    break
+                requested_bookings.append(pending_booking)
+
             await service_cls._save_session(db, sender, client_id, "menu", {})
-            if error or not result:
+            if request_error or not requested_bookings:
                 return (
-                    f"The monthly booking plan could not be completed: {error or 'availability changed.'}\n\n"
+                    f"The monthly booking request could not be completed: {request_error or 'availability changed.'}\n\n"
                     "Send BOOK to see fresh availability."
                 )
 
-            bookings = result.get("bookings") or []
             lines = [
-                f"{len(bookings)} corporate counselling session(s) booked for the month. ✅",
-                "One session per calendar week:",
+                f"{len(requested_bookings)} corporate counselling booking request(s) received. ✅",
+                "Awaiting therapist confirmation for:",
             ]
-            for booking in bookings:
+            for booking in requested_bookings:
                 starts_at = booking.starts_at if hasattr(booking, "starts_at") else booking.get("starts_at")
                 local = _parse_iso(starts_at).astimezone(CAT_TZ)
                 lines.append(f"• {local.strftime('%a %d %b %Y, %H:%M CAT')}")
-            if result.get("partial"):
-                lines.append("\nSome later slots changed while booking, so only the confirmed appointments above were saved.")
-            lines.append("\nA suitable therapist will be assigned based on availability and your counselling needs.")
-            lines.append("Setmore and FCA confirmations will follow. Send MENU for more options.")
+            if request_error:
+                lines.append("\nSome later requests could not be saved, so only the requests above are pending.")
+            lines.append("\nFCA will assign available therapist(s). Confirmation follows only after therapist acceptance.")
+            lines.append("Send MENU for more options.")
             return "\n".join(lines)
 
         if state == "confirm_booking":
