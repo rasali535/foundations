@@ -364,8 +364,7 @@ const AdminOrganisations = () => {
 
       const res = await api.post(
         `/admin-ops/organisations/${selectedOrgForRoster.id}/contacts/bulk-file`,
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
+        formData
       );
 
       setOrgContacts(prev => ({
@@ -683,7 +682,7 @@ const AdminOrganisations = () => {
                     <h4 className="text-sm font-bold text-slate-900">Bulk add / update employees</h4>
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    Upload an <b>Excel (.xlsx), PDF (.pdf), Word (.docx) or CSV (.csv)</b> roster.
+                    Upload an <b>Excel (.xlsx/.xls), PDF (.pdf), Word (.docx) or CSV (.csv)</b> roster.
                     The document should contain three fields: <b>First name, Surname, Email address</b>.
                     Email is the unique roster key, so uploading an existing employee updates the same roster record.
                   </p>
@@ -693,7 +692,7 @@ const AdminOrganisations = () => {
                   <label className="block text-xs font-bold text-slate-800 mb-2">Roster document</label>
                   <input
                     type="file"
-                    accept=".xlsx,.pdf,.docx,.csv"
+                    accept=".xlsx,.xls,.pdf,.docx,.csv"
                     onChange={(e) => setBulkRosterFile(e.target.files?.[0] || null)}
                     className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-600 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white hover:file:bg-emerald-700"
                   />
