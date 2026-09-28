@@ -37,6 +37,10 @@ services:
         value: info@academyfoundations.com
       - key: RESEND_API_KEY
         sync: false
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
+      - key: RESEND_INBOUND_DOMAIN
+        value: forms.academyfoundations.com
       - key: RESEND_API_URL
         value: https://api.resend.com/emails
 
