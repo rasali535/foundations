@@ -53,6 +53,7 @@ import HRUtilisation from "@/hr/pages/HRUtilisation";
 import HRReports from "@/hr/pages/HRReports";
 import HRInvoices from "@/hr/pages/HRInvoices";
 import HRBookingLedger from "@/hr/pages/HRBookingLedger";
+import HRAccountSecurity from "@/hr/pages/HRAccountSecurity";
 
 function App() {
   return (
@@ -70,6 +71,7 @@ function App() {
               <Route path="reports" element={<HRReports />} />
               <Route path="invoices" element={<HRInvoices />} />
               <Route path="booking-ledger" element={<HRBookingLedger />} />
+              <Route path="account-security" element={<HRAccountSecurity />} />
             </Route>
 
             {/* ================= Protected Admin CRM & Booking Routes ================= */}
