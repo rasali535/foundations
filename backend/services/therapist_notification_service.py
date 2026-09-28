@@ -234,18 +234,38 @@ class TherapistNotificationService:
             "template": {
                 "name": WHATSAPP_THERAPIST_TEMPLATE_NAME,
                 "language": {"code": WHATSAPP_TEMPLATE_LANGUAGE},
-                "components": [{
-                    "type": "body",
-                    "parameters": [
-                        {"type": "text", "parameter_name": "therapist_name", "text": str(target.get("name") or "Therapist")},
-                        {"type": "text", "parameter_name": "client_name", "text": f"{client.first_name} {client.last_name}".strip() or "Client"},
-                        {"type": "text", "parameter_name": "client_number", "text": client.client_number},
-                        {"type": "text", "parameter_name": "appointment_date", "text": date_str},
-                        {"type": "text", "parameter_name": "appointment_time", "text": time_str},
-                        {"type": "text", "parameter_name": "session_type", "text": first.session_type.capitalize()},
-                        {"type": "text", "parameter_name": "session_mode", "text": mode}
-                    ]
-                }]
+                "components": [
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {"type": "text", "parameter_name": "therapist_name", "text": str(target.get("name") or "Therapist")},
+                            {"type": "text", "parameter_name": "client_name", "text": f"{client.first_name} {client.last_name}".strip() or "Client"},
+                            {"type": "text", "parameter_name": "client_number", "text": client.client_number},
+                            {"type": "text", "parameter_name": "appointment_date", "text": date_str},
+                            {"type": "text", "parameter_name": "appointment_time", "text": time_str},
+                            {"type": "text", "parameter_name": "session_type", "text": first.session_type.capitalize()},
+                            {"type": "text", "parameter_name": "session_mode", "text": mode}
+                        ]
+                    },
+                    {
+                        "type": "button",
+                        "sub_type": "quick_reply",
+                        "index": "0",
+                        "parameters": [{
+                            "type": "payload",
+                            "payload": f"FCA_BOOKING_ACCEPT:{first.id}"
+                        }]
+                    },
+                    {
+                        "type": "button",
+                        "sub_type": "quick_reply",
+                        "index": "1",
+                        "parameters": [{
+                            "type": "payload",
+                            "payload": f"FCA_BOOKING_DECLINE:{first.id}"
+                        }]
+                    }
+                ]
             }
         }
         url = f"{WHATSAPP_API_URL}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
