@@ -761,3 +761,136 @@ async def test_admin_cannot_create_privileged_org_user_role(hr_test_app):
 
         created = await mock_db.organisation_users.find_one({"user_id": "escalation_attempt"})
         assert created is None
+
+
+@pytest.mark.asyncio
+async def test_hr_password_change_invalidates_all_sessions(hr_test_app):
+    """Changing an HR password must invalidate every previously issued HR session."""
+    test_app, mock_db = hr_test_app
+    transport = ASGITransport(app=test_app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as admin:
+        login = await admin.post("/api/login", json={"username": "admin", "password": "adminpass123"})
+        assert login.status_code == 200
+
+        org_res = await admin.post("/api/admin-ops/organisations", json={
+            "name": "Security Test Organisation",
+            "code": "SECURITYTEST",
+        })
+        assert org_res.status_code == 201
+        org_id = org_res.json()["id"]
+
+        user_res = await admin.post(f"/api/admin-ops/organisations/{org_id}/users", json={
+            "username": "security_hr",
+            "password": "InitialPass123!",
+            "email": "security.hr@example.com",
+            "name": "Security HR",
+            "role": "hr_admin",
+        })
+        assert user_res.status_code == 201
+
+    client_one = AsyncClient(transport=transport, base_url="http://test")
+    client_two = AsyncClient(transport=transport, base_url="http://test")
+    try:
+        login_one = await client_one.post("/api/login", json={
+            "username": "security_hr",
+            "password": "InitialPass123!",
+        })
+        login_two = await client_two.post("/api/login", json={
+            "username": "security_hr",
+            "password": "InitialPass123!",
+        })
+        assert login_one.status_code == 200
+        assert login_two.status_code == 200
+
+        assert (await client_one.get("/api/hr/me")).status_code == 200
+        assert (await client_two.get("/api/hr/me")).status_code == 200
+
+        changed = await client_one.post("/api/hr/account/change-password", json={
+            "current_password": "InitialPass123!",
+            "new_password": "NewSecurePass456$",
+            "confirm_password": "NewSecurePass456$",
+        })
+        assert changed.status_code == 200
+        assert changed.json()["all_previous_sessions_invalidated"] is True
+        assert changed.json()["reauthentication_required"] is True
+
+        # The session used to change the password was cleared.
+        assert (await client_one.get("/api/hr/me")).status_code == 401
+
+        # A separately issued session is invalidated by auth_version mismatch.
+        assert (await client_two.get("/api/hr/me")).status_code == 401
+
+        account = await mock_db.organisation_users.find_one({"user_id": "security_hr"}, {"_id": 0})
+        assert account["auth_version"] == 2
+        assert account["password_hash"] != "NewSecurePass456$"
+        assert bcrypt.checkpw(b"NewSecurePass456$", account["password_hash"].encode())
+
+        old_login = await client_one.post("/api/login", json={
+            "username": "security_hr",
+            "password": "InitialPass123!",
+        })
+        assert old_login.status_code == 401
+
+        new_login = await client_one.post("/api/login", json={
+            "username": "security_hr",
+            "password": "NewSecurePass456$",
+        })
+        assert new_login.status_code == 200
+        assert (await client_one.get("/api/hr/me")).status_code == 200
+
+        audit = await mock_db.crm_activity_log.find_one({
+            "actor_user_id": "security_hr",
+            "action": "hr_password_changed",
+        })
+        assert audit is not None
+        assert audit.get("metadata", {}).get("all_previous_sessions_invalidated") is True
+    finally:
+        await client_one.aclose()
+        await client_two.aclose()
+
+
+@pytest.mark.asyncio
+async def test_hr_password_change_requires_current_password_and_strength(hr_test_app):
+    """HR password changes fail closed on bad current credentials or weak replacements."""
+    test_app, mock_db = hr_test_app
+    transport = ASGITransport(app=test_app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as admin:
+        await admin.post("/api/login", json={"username": "admin", "password": "adminpass123"})
+        org_res = await admin.post("/api/admin-ops/organisations", json={
+            "name": "Password Policy Organisation",
+            "code": "PWDPOLICY",
+        })
+        org_id = org_res.json()["id"]
+        await admin.post(f"/api/admin-ops/organisations/{org_id}/users", json={
+            "username": "policy_hr",
+            "password": "InitialPass123!",
+            "email": "policy.hr@example.com",
+            "name": "Policy HR",
+            "role": "hr_viewer",
+        })
+
+    async with AsyncClient(transport=transport, base_url="http://test") as hr:
+        assert (await hr.post("/api/login", json={
+            "username": "policy_hr",
+            "password": "InitialPass123!",
+        })).status_code == 200
+
+        wrong_current = await hr.post("/api/hr/account/change-password", json={
+            "current_password": "WrongPassword123!",
+            "new_password": "AnotherSecure456$",
+            "confirm_password": "AnotherSecure456$",
+        })
+        assert wrong_current.status_code == 400
+
+        weak = await hr.post("/api/hr/account/change-password", json={
+            "current_password": "InitialPass123!",
+            "new_password": "short",
+            "confirm_password": "short",
+        })
+        assert weak.status_code == 400
+
+        account = await mock_db.organisation_users.find_one({"user_id": "policy_hr"}, {"_id": 0})
+        assert account.get("auth_version", 1) == 1
+        assert bcrypt.checkpw(b"InitialPass123!", account["password_hash"].encode())
