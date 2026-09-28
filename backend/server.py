@@ -541,6 +541,24 @@ async def login(request: Request, payload: Optional[LoginRequest] = None, userna
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
     if not bcrypt.checkpw(user_pass.encode(), user["password_hash"].encode()):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
+
+    # HR sessions backed by organisation_users get persistent auth-version
+    # enforcement. Legacy/in-memory fixtures without a persistent account keep
+    # the historical behavior used by the test suite.
+    persistent_hr_account = False
+    if user.get("role") in ["hr_admin", "hr_viewer"]:
+        exact_ci = {"$regex": f"^{re.escape(user_key)}$", "$options": "i"}
+        persisted_hr = await target_db.organisation_users.find_one(
+            {"user_id": exact_ci, "active": {"$ne": False}},
+            {"_id": 0, "auth_version": 1, "organisation_id": 1, "role": 1, "name": 1},
+        )
+        if persisted_hr:
+            persistent_hr_account = True
+            user["auth_version"] = int(persisted_hr.get("auth_version") or 1)
+            user["organisation_id"] = persisted_hr.get("organisation_id")
+            user["role"] = persisted_hr.get("role", user.get("role"))
+            user["name"] = persisted_hr.get("name", user.get("name"))
+            USERS_DB[user_key] = user
     
     # Establish server-side session
     request.session['user_id'] = user_key
@@ -549,6 +567,7 @@ async def login(request: Request, payload: Optional[LoginRequest] = None, userna
     request.session['therapist_id'] = user.get("therapist_id")
     request.session['organisation_id'] = user.get("organisation_id")
     request.session['auth_version'] = int(user.get("auth_version") or 1)
+    request.session['persistent_hr_account'] = persistent_hr_account
     request.session['login_time'] = now_iso()
     
     return {
