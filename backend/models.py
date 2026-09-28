@@ -225,8 +225,13 @@ class Booking(BaseModel):
     client_name: Optional[str] = None
     client_email: Optional[str] = None
     client_phone: Optional[str] = None
-    therapist_id: str
+    therapist_id: Optional[str] = None
     therapist_name: Optional[str] = None
+    assignment_status: str = "awaiting_assignment"  # awaiting_assignment, awaiting_acceptance, accepted, declined
+    assigned_at: Optional[str] = None
+    assigned_by: Optional[str] = None
+    therapist_response_at: Optional[str] = None
+    therapist_decline_reason: Optional[str] = None
     session_type: str  # individual, couple, family
     session_mode: str  # in_person, virtual
     starts_at: str  # UTC ISO timestamp
@@ -292,6 +297,15 @@ class MultiBookingCreateRequest(BaseModel):
     notes: Optional[str] = None
     send_notifications: bool = True
     source: str = "admin"
+
+class BookingAssignmentRequest(BaseModel):
+    therapist_id: str
+
+
+class TherapistBookingDecisionRequest(BaseModel):
+    decision: str  # accept, decline
+    reason: Optional[str] = None
+
 
 class BookingRescheduleRequest(BaseModel):
     new_starts_at: str

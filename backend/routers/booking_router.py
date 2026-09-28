@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from models import (
     Booking, BookingCreateRequest, MultiBookingCreateRequest,
+    BookingAssignmentRequest, TherapistBookingDecisionRequest,
     BookingRescheduleRequest, BookingStatusUpdateRequest, now_iso
 )
 from services.booking_service import BookingService
@@ -51,6 +52,13 @@ def get_current_user(request: Request) -> Dict[str, Any]:
         "name": request.session.get("name", user_id),
         "therapist_id": request.session.get("therapist_id"),
     }
+
+
+def require_super_admin(request: Request):
+    user = get_current_user(request)
+    if user.get("role") != "super_admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super Admin permissions required")
+    return user
 
 
 def require_staff_or_therapist(request: Request):
@@ -114,7 +122,6 @@ async def whatsapp_booking_inbound(payload: WhatsAppInboundMessage, request: Req
 
 class PublicBookingCreate(BaseModel):
     client_id: str
-    therapist_id: str
     session_type: str = "individual"
     session_mode: str
     starts_at: str
@@ -130,7 +137,8 @@ class PublicBookingConfirmation(BaseModel):
     ends_at: str
     status: str
     location: Optional[str] = None
-    therapist_assignment: str = "A suitable therapist will be assigned based on availability and your counselling needs."
+    assignment_status: str
+    therapist_assignment: str = "Your booking request has been received and is awaiting therapist confirmation."
 
 
 @booking_router.get("/public/availability")
@@ -184,7 +192,6 @@ async def public_booking_availability(
             except Exception:
                 continue
             available.append({
-                "therapist_id": therapist.id,
                 "starts_at": slot["starts_at"],
                 "ends_at": slot["ends_at"],
                 "date": slot["date"],
@@ -228,15 +235,15 @@ async def create_public_booking(payload: PublicBookingCreate, request: Request):
 
     booking_request = BookingCreateRequest(
         client_id=payload.client_id,
-        therapist_id=payload.therapist_id,
+        therapist_id=None,
         session_type=payload.session_type,
         session_mode=payload.session_mode,
         starts_at=payload.starts_at,
         ends_at=payload.ends_at,
-        send_notifications=True,
+        send_notifications=False,
         source="website_intake",
     )
-    booking, err = await BookingService.create_booking(
+    booking, err = await BookingService.create_booking_request(
         db, request=booking_request, actor_id="public_intake", actor_name="Website Intake"
     )
     if err:
@@ -249,7 +256,53 @@ async def create_public_booking(payload: PublicBookingCreate, request: Request):
         ends_at=booking.ends_at,
         status=booking.status,
         location=booking.location,
+        assignment_status=booking.assignment_status,
     )
+
+
+@booking_router.post("/{booking_id}/assign", response_model=Booking)
+async def assign_booking_therapist(
+    booking_id: str,
+    payload: BookingAssignmentRequest,
+    request: Request,
+    user: Dict = Depends(require_super_admin),
+):
+    db = get_db(request)
+    booking, err = await BookingService.assign_therapist(
+        db,
+        booking_id=booking_id,
+        therapist_id=payload.therapist_id,
+        actor_id=user.get("user_id"),
+        actor_name=user.get("name"),
+    )
+    if err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
+    return booking
+
+
+@booking_router.post("/{booking_id}/therapist-decision", response_model=Booking)
+async def therapist_booking_decision(
+    booking_id: str,
+    payload: TherapistBookingDecisionRequest,
+    request: Request,
+    user: Dict = Depends(require_staff_or_therapist),
+):
+    if user.get("role") != "therapist":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Therapist permissions required")
+    db = get_db(request)
+    booking, err = await BookingService.therapist_decision(
+        db,
+        booking_id=booking_id,
+        therapist_id=user.get("therapist_id"),
+        decision=payload.decision,
+        reason=payload.reason,
+        actor_id=user.get("user_id"),
+        actor_name=user.get("name"),
+    )
+    if err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
+    return booking
+
 
 @booking_router.get("")
 async def list_bookings(

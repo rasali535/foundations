@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../AdminAuthContext';
+import { api, useAdminAuth } from '../AdminAuthContext';
 import {
   CalendarDays,
   Plus,
@@ -23,6 +23,7 @@ import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { SESSION_TYPE_COLORS, SESSION_MODE_CONFIG, STATUS_CONFIG, formatSessionDateTime } from '../AdminConstants';
 
 const AdminBookings = () => {
+  const { user } = useAdminAuth();
   const [bookings, setBookings] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -91,6 +92,7 @@ const AdminBookings = () => {
 
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [assignmentChoices, setAssignmentChoices] = useState({});
 
   const fetchBookings = React.useCallback(async (pageNum = 1, silent = false) => {
     if (!silent) setLoading(true);
@@ -204,6 +206,41 @@ const AdminBookings = () => {
       fetchBookings(page);
     } catch (err) {
       setActionError(err.response?.data?.detail || 'Failed to reschedule.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleAssignTherapist = async (booking) => {
+    const therapistId = assignmentChoices[booking.id];
+    if (!therapistId) {
+      setActionError('Choose an available therapist before assigning.');
+      return;
+    }
+    setActionLoading(true);
+    setActionError('');
+    try {
+      await api.post(`/bookings/${booking.id}/assign`, { therapist_id: therapistId });
+      await fetchBookings(page);
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Could not assign therapist.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleTherapistDecision = async (booking, decision) => {
+    let reason = null;
+    if (decision === 'decline') {
+      reason = window.prompt('Optional reason for declining this appointment:') || null;
+    }
+    setActionLoading(true);
+    setActionError('');
+    try {
+      await api.post(`/bookings/${booking.id}/therapist-decision`, { decision, reason });
+      await fetchBookings(page);
+    } catch (err) {
+      setActionError(err.response?.data?.detail || `Could not ${decision} appointment.`);
     } finally {
       setActionLoading(false);
     }
@@ -382,12 +419,43 @@ const AdminBookings = () => {
                         </div>
                       </td>
                       <td className="py-3.5 px-4 font-medium text-slate-800">
-                        {booking.therapist_name}
+                        {booking.therapist_name || (
+                          <span className="text-amber-600 text-xs font-semibold">Awaiting assignment</span>
+                        )}
+                        {user?.role === 'super_admin' && booking.status === 'pending' && ['awaiting_assignment', 'declined'].includes(booking.assignment_status) && (
+                          <div className="mt-2 flex items-center gap-1.5">
+                            <select
+                              value={assignmentChoices[booking.id] || ''}
+                              onChange={(e) => setAssignmentChoices(prev => ({ ...prev, [booking.id]: e.target.value }))}
+                              className="text-[11px] border border-slate-200 rounded-lg px-2 py-1 bg-white"
+                            >
+                              <option value="">Choose therapist</option>
+                              {therapists.filter(t => t.active !== false).map(t => (
+                                <option key={t.id} value={t.id}>{t.name}</option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              disabled={actionLoading}
+                              onClick={() => handleAssignTherapist(booking)}
+                              className="px-2 py-1 bg-emerald-600 text-white text-[10px] font-bold rounded-lg disabled:opacity-50"
+                            >
+                              Assign
+                            </button>
+                          </div>
+                        )}
                       </td>
                       <td className="py-3.5 px-4">
                         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${statusConf.badge}`}>
                           {statusConf.label}
                         </span>
+                        {booking.status === 'pending' && (
+                          <div className="mt-1 text-[9px] font-semibold text-slate-500">
+                            {booking.assignment_status === 'awaiting_assignment' && 'Awaiting assignment'}
+                            {booking.assignment_status === 'awaiting_acceptance' && 'Awaiting therapist acceptance'}
+                            {booking.assignment_status === 'declined' && 'Declined · reassignment required'}
+                          </div>
+                        )}
                         {booking.status === 'late_cancelled_billable' && booking.hours_before_session != null && (
                           <div className="mt-0.5 text-[9px] text-orange-600 font-semibold">
                             {booking.hours_before_session.toFixed(1)}h before session
@@ -396,6 +464,26 @@ const AdminBookings = () => {
                       </td>
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {user?.role === 'therapist' && booking.status === 'pending' && booking.assignment_status === 'awaiting_acceptance' && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={actionLoading}
+                                onClick={() => handleTherapistDecision(booking, 'accept')}
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg disabled:opacity-50"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                type="button"
+                                disabled={actionLoading}
+                                onClick={() => handleTherapistDecision(booking, 'decline')}
+                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold rounded-lg disabled:opacity-50"
+                              >
+                                Decline
+                              </button>
+                            </>
+                          )}
                           <button
                             onClick={() => {
                               setSelectedBooking(booking);

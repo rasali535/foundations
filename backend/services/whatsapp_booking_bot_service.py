@@ -463,16 +463,16 @@ class WhatsAppBookingBotService:
                     "Send BOOK to view other available dates or reply 6 to speak to FCA."
                 )
 
-            booking, error = await BookingService.create_booking(
+            booking, error = await BookingService.create_booking_request(
                 db,
                 BookingCreateRequest(
                     client_id=client_id,
-                    therapist_id=selected["therapist_id"],
+                    therapist_id=None,
                     session_type=context["session_type"],
                     session_mode=context["session_mode"],
                     starts_at=selected["starts_at"],
                     ends_at=selected["ends_at"],
-                    send_notifications=True,
+                    send_notifications=False,
                     source="whatsapp",
                 ),
                 actor_id="whatsapp-self-service",
@@ -485,10 +485,11 @@ class WhatsAppBookingBotService:
                     "Send BOOK to see fresh availability."
                 )
             return (
-                "Your FCA appointment has been booked successfully. ✅\n"
+                "Your booking request has been received. ✅\n"
                 f"{_format_cat(booking.starts_at)}\n\n"
-                "A suitable therapist will be assigned based on availability and your counselling needs.\n\n"
-                "A booking confirmation has also been sent. Send MENU for more options."
+                "Status: Awaiting therapist confirmation.\n"
+                "FCA will assign an available therapist. You will receive a booking confirmation after the therapist accepts.\n\n"
+                "Send MENU for more options."
             )
 
         await WhatsAppBookingBotService._save_session(db, sender, client_id, "menu", {})
