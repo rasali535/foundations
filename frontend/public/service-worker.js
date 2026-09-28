@@ -1,4 +1,4 @@
-const CACHE_NAME = 'foundations-static-v3';
+const CACHE_NAME = 'foundations-static-v4';
 const SAFE_STATIC = [
   '/manifest.json',
   '/admin-manifest.json',
