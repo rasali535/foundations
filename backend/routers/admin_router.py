@@ -243,10 +243,19 @@ async def create_organisation_user(org_id: str, payload: OrganisationUserCreate,
     
     username = payload.username.strip().lower()
     from server import USERS_DB
-    
+
+    if not username:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username is required.")
+
     if username in USERS_DB:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Username '{username}' already exists.")
-    
+
+    username_ci = {"$regex": f"^{re.escape(username)}$", "$options": "i"}
+    existing_staff = await db.staff_users.find_one({"user_id": username_ci}, {"_id": 0, "user_id": 1})
+    existing_org_user = await db.organisation_users.find_one({"user_id": username_ci}, {"_id": 0, "user_id": 1})
+    if existing_staff or existing_org_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Username '{username}' already exists.")
+
     pwd_hash = bcrypt.hashpw(payload.password.strip().encode(), bcrypt.gensalt()).decode()
     USERS_DB[username] = {
         "password_hash": pwd_hash,
