@@ -16,6 +16,8 @@ services:
         value: foundations_db
       - key: SESSION_SECRET
         generateValue: true
+      - key: HTTPS_ONLY
+        value: "true"
       - key: CORS_ORIGINS
         value: https://academyfoundations.com,https://www.academyfoundations.com
       - key: FCA_BOOTSTRAP_ADMIN_EMAIL

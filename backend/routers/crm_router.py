@@ -420,6 +420,10 @@ async def add_crm_note(
     user: Dict = Depends(require_crm_access)
 ):
     db = get_db(request)
+    if user.get("role") == "therapist":
+        assigned = await is_therapist_assigned_to_client(db, user.get("therapist_id"), client_id)
+        if not assigned:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied. Therapist is not assigned to this client.")
     client = await CRMService.get_client_by_id(db, client_id)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -441,6 +445,15 @@ async def update_crm_note(
     user: Dict = Depends(require_crm_access)
 ):
     db = get_db(request)
+    if user.get("role") == "therapist":
+        note_doc = await db.crm_notes.find_one({"id": note_id}, {"_id": 0})
+        if not note_doc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+        assigned = await is_therapist_assigned_to_client(db, user.get("therapist_id"), note_doc.get("client_id"))
+        if not assigned:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied. Therapist is not assigned to this client.")
+        if note_doc.get("author_user_id") != user.get("user_id"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Therapists can only edit their own notes")
     updated = await CRMService.update_note(
         db,
         note_id=note_id,
@@ -459,6 +472,15 @@ async def delete_crm_note(
     user: Dict = Depends(require_crm_access)
 ):
     db = get_db(request)
+    if user.get("role") == "therapist":
+        note_doc = await db.crm_notes.find_one({"id": note_id}, {"_id": 0})
+        if not note_doc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+        assigned = await is_therapist_assigned_to_client(db, user.get("therapist_id"), note_doc.get("client_id"))
+        if not assigned:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied. Therapist is not assigned to this client.")
+        if note_doc.get("author_user_id") != user.get("user_id"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Therapists can only delete their own notes")
     success = await CRMService.delete_note(
         db, note_id, actor_id=user.get("user_id"), actor_name=user.get("name", "Staff")
     )

@@ -47,23 +47,29 @@ EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', 'dummy_key')
 
 # ----------------- In-Memory Rate Limiting Engine -----------------
 RATE_LIMIT_STORE: Dict[str, List[float]] = {}
-def check_rate_limit(request: Request, limit: int = 15, window_seconds: int = 60):
+def check_rate_limit(
+    request: Request,
+    limit: int = 15,
+    window_seconds: int = 60,
+    bucket: Optional[str] = None,
+):
     client_ip = request.client.host if request.client else "127.0.0.1"
+    store_key = f"{client_ip}:{bucket}" if bucket else client_ip
     now = time.time()
-    if client_ip not in RATE_LIMIT_STORE:
-        RATE_LIMIT_STORE[client_ip] = []
-    
-    RATE_LIMIT_STORE[client_ip] = [t for t in RATE_LIMIT_STORE[client_ip] if now - t < window_seconds]
-    
-    if len(RATE_LIMIT_STORE[client_ip]) >= limit:
-        retry_after = int(window_seconds - (now - RATE_LIMIT_STORE[client_ip][0]))
+    if store_key not in RATE_LIMIT_STORE:
+        RATE_LIMIT_STORE[store_key] = []
+
+    RATE_LIMIT_STORE[store_key] = [t for t in RATE_LIMIT_STORE[store_key] if now - t < window_seconds]
+
+    if len(RATE_LIMIT_STORE[store_key]) >= limit:
+        retry_after = int(window_seconds - (now - RATE_LIMIT_STORE[store_key][0]))
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Rate limit exceeded. Please retry shortly.",
             headers={"Retry-After": str(max(retry_after, 1))}
         )
-    
-    RATE_LIMIT_STORE[client_ip].append(now)
+
+    RATE_LIMIT_STORE[store_key].append(now)
 
 from contextlib import asynccontextmanager
 
@@ -203,27 +209,20 @@ for _required_origin in [
     if _required_origin not in ALLOWED_ORIGINS:
         ALLOWED_ORIGINS.append(_required_origin)
 
-# Always include localhost for local development if not already present
-for _local in ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:8000', 'http://127.0.0.1:8000']:
-    if _local not in ALLOWED_ORIGINS:
-        ALLOWED_ORIGINS.append(_local)
+# Production HTTPS must be explicit. Render sets HTTPS_ONLY=true via render.yaml.
+_IS_HTTPS = os.environ.get('HTTPS_ONLY', '').lower() == 'true'
 
-# Enable Secure cookie flag only when serving over HTTPS in production.
-# HTTPS_ONLY env var is explicitly set to "true" in production (Render).
-# Local dev and test environments leave it unset (defaults to False).
-# We also infer production mode if CORS_ORIGINS contains only https:// origins
-# (no localhost), which is the case in the Render production environment.
-_cors_has_localhost = any('localhost' in o or '127.0.0.1' in o for o in ALLOWED_ORIGINS)
-_IS_HTTPS = (
-    os.environ.get('HTTPS_ONLY', '').lower() == 'true'
-    or (not _cors_has_localhost and any(o.startswith('https://') for o in ALLOWED_ORIGINS))
-)
+# Only add localhost origins for local development. Production CORS remains
+# limited to the configured/canonical FCA web origins.
+if not _IS_HTTPS:
+    for _local in ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:8000', 'http://127.0.0.1:8000']:
+        if _local not in ALLOWED_ORIGINS:
+            ALLOWED_ORIGINS.append(_local)
 
-# The production frontend and API are on different sites
-# (academyfoundations.com -> onrender.com). Cross-site XHR session cookies
-# therefore require SameSite=None together with Secure. Local HTTP dev/test
-# keeps SameSite=Lax so cookies continue to work without HTTPS.
-_SESSION_SAME_SITE = 'none' if _IS_HTTPS else 'lax'
+# academyfoundations.com and api.academyfoundations.com are same-site HTTPS
+# origins, so SameSite=Lax preserves the credentialed API session while
+# providing stronger CSRF protection than SameSite=None.
+_SESSION_SAME_SITE = 'lax'
 
 app.add_middleware(
     SessionMiddleware,
@@ -241,6 +240,26 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    origin = request.headers.get("origin")
+    if (
+        request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        and origin
+        and origin not in ALLOWED_ORIGINS
+    ):
+        return JSONResponse(status_code=403, content={"detail": "Origin not allowed"})
+
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    if _IS_HTTPS:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 # ----------------- User Management & RBAC -----------------
 # Production user store starts empty and is populated strictly via explicit environment bootstrap or database.
@@ -467,6 +486,12 @@ async def login(request: Request, payload: Optional[LoginRequest] = None, userna
     raw_key = payload.username if payload else username
     user_key = raw_key.strip().lower() if raw_key else ""
     user_pass = payload.password if payload else password
+
+    # Slow credential-stuffing/brute-force attempts without locking out a whole
+    # corporate NAT after a few normal logins.
+    check_rate_limit(request, limit=60, window_seconds=300, bucket="login-ip")
+    if user_key:
+        check_rate_limit(request, limit=10, window_seconds=300, bucket=f"login-user:{user_key}")
 
     target_db = request.app.state.db if hasattr(request.app.state, 'db') and request.app.state.db is not None else db
     if not user_key:

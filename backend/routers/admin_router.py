@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, status, Query, UploadFile, File
 from typing import List, Dict, Any, Optional
 from io import BytesIO
+from zipfile import BadZipFile, ZipFile
 import re
 import bcrypt
 from models import (
@@ -60,6 +61,17 @@ async def list_notification_logs(
     user: Dict = Depends(require_staff_or_above)
 ):
     db = get_db(request)
+    if user.get("role") == "therapist":
+        if not client_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Therapists may only view notifications for an assigned client."
+            )
+        if not await _therapist_assigned_to_client(db, user.get("therapist_id"), client_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. Therapist is not assigned to this client."
+            )
     return await NotificationService.list_notifications(db, client_id=client_id, limit=limit)
 
 @admin_router.get("/notifications/config")
@@ -67,6 +79,11 @@ async def get_notification_config_status(
     request: Request,
     user: Dict = Depends(require_staff_or_above)
 ):
+    if user.get("role") == "therapist":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Notification provider configuration is restricted to operational staff."
+        )
     return await NotificationService.get_config_status()
 
 # ==================== Immutable Audit Logs ====================
@@ -242,10 +259,19 @@ async def create_organisation_user(org_id: str, payload: OrganisationUserCreate,
     
     username = payload.username.strip().lower()
     from server import USERS_DB
-    
+
+    if not username:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username is required.")
+
     if username in USERS_DB:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Username '{username}' already exists.")
-    
+
+    username_ci = {"$regex": f"^{re.escape(username)}$", "$options": "i"}
+    existing_staff = await db.staff_users.find_one({"user_id": username_ci}, {"_id": 0, "user_id": 1})
+    existing_org_user = await db.organisation_users.find_one({"user_id": username_ci}, {"_id": 0, "user_id": 1})
+    if existing_staff or existing_org_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Username '{username}' already exists.")
+
     pwd_hash = bcrypt.hashpw(payload.password.strip().encode(), bcrypt.gensalt()).decode()
     USERS_DB[username] = {
         "password_hash": pwd_hash,
@@ -373,6 +399,35 @@ _ROSTER_FIRST_NAME_HEADERS = {"first name", "firstname", "first", "given name", 
 _ROSTER_SURNAME_HEADERS = {"surname", "last name", "lastname", "family name", "familyname"}
 _ROSTER_EMAIL_HEADERS = {"email", "email address", "emailaddress", "work email", "work email address"}
 
+_MAX_ROSTER_FILE_BYTES = 10 * 1024 * 1024
+_MAX_ROSTER_EXPANDED_BYTES = 50 * 1024 * 1024
+_MAX_ROSTER_ARCHIVE_MEMBERS = 5000
+_MAX_ROSTER_CONTACTS = 20000
+_MAX_PDF_PAGES = 250
+_MAX_EXTRACTED_TEXT_CHARS = 5_000_000
+
+
+def _validate_office_archive(raw: bytes) -> None:
+    try:
+        with ZipFile(BytesIO(raw)) as archive:
+            members = archive.infolist()
+            if len(members) > _MAX_ROSTER_ARCHIVE_MEMBERS:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Roster document contains too many embedded files."
+                )
+            expanded = sum(max(info.file_size, 0) for info in members)
+            if expanded > _MAX_ROSTER_EXPANDED_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Roster document expands beyond the allowed processing size."
+                )
+    except BadZipFile as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The uploaded Office document is not a valid file."
+        ) from exc
+
 
 def _normalise_roster_header(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip().lower().replace("_", " ").replace("-", " "))
@@ -479,11 +534,12 @@ async def _parse_roster_upload(file: UploadFile) -> List[OrganisationContactBulk
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The uploaded roster file is empty.")
-    if len(raw) > 10 * 1024 * 1024:
+    if len(raw) > _MAX_ROSTER_FILE_BYTES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Roster files must be 10 MB or smaller.")
 
     try:
         if extension == "xlsx":
+            _validate_office_archive(raw)
             from openpyxl import load_workbook
             workbook = load_workbook(BytesIO(raw), read_only=True, data_only=True)
             rows: List[List[Any]] = []
@@ -499,6 +555,7 @@ async def _parse_roster_upload(file: UploadFile) -> List[OrganisationContactBulk
                     rows.append(sheet.row_values(row_index))
             contacts = _rows_from_matrix(rows)
         elif extension == "docx":
+            _validate_office_archive(raw)
             from docx import Document
             document = Document(BytesIO(raw))
             contacts: List[OrganisationContactBulkRow] = []
@@ -509,8 +566,23 @@ async def _parse_roster_upload(file: UploadFile) -> List[OrganisationContactBulk
         elif extension == "pdf":
             from pypdf import PdfReader
             reader = PdfReader(BytesIO(raw))
-            text = "\n".join(page.extract_text() or "" for page in reader.pages)
-            contacts = _rows_from_text(text)
+            if len(reader.pages) > _MAX_PDF_PAGES:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Roster PDFs may contain at most {_MAX_PDF_PAGES} pages."
+                )
+            extracted_parts: List[str] = []
+            extracted_chars = 0
+            for page in reader.pages:
+                page_text = page.extract_text() or ""
+                extracted_chars += len(page_text)
+                if extracted_chars > _MAX_EXTRACTED_TEXT_CHARS:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Roster PDF contains too much extracted text to process safely."
+                    )
+                extracted_parts.append(page_text)
+            contacts = _rows_from_text("\n".join(extracted_parts))
         elif extension in {"csv", "txt"}:
             decoded = raw.decode("utf-8-sig", errors="replace")
             contacts = _rows_from_text(decoded)
@@ -538,6 +610,11 @@ async def _parse_roster_upload(file: UploadFile) -> List[OrganisationContactBulk
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No valid contacts were found. The document must contain First name, Surname and Email address."
+        )
+    if len(unique) > _MAX_ROSTER_CONTACTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Roster imports are limited to {_MAX_ROSTER_CONTACTS} contacts per file."
         )
     return list(unique.values())
 
@@ -747,6 +824,15 @@ def require_therapist_approval_role(request: Request):
     return user
 
 
+async def _therapist_assigned_to_client(db, therapist_id: Optional[str], client_id: Optional[str]) -> bool:
+    if not therapist_id or not client_id:
+        return False
+    return bool(await db.bookings.find_one(
+        {"client_id": client_id, "therapist_id": therapist_id},
+        {"_id": 0, "id": 1},
+    ))
+
+
 @admin_router.post("/organisations/{org_id}/contacts/{contact_id}/approve-extra-sessions")
 async def approve_extra_sessions(
     org_id: str,
@@ -765,6 +851,25 @@ async def approve_extra_sessions(
     )
     if not contact:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corporate roster member not found.")
+
+    if user.get("role") == "therapist":
+        linked_client = await db.crm_clients.find_one(
+            {
+                "organisation_id": org_id,
+                "$or": [
+                    {"organisation_contact_id": contact_id},
+                    {"email": {"$regex": f"^{re.escape(str(contact.get('email') or ''))}$", "$options": "i"}},
+                ],
+            },
+            {"_id": 0, "id": 1},
+        )
+        if not linked_client or not await _therapist_assigned_to_client(
+            db, user.get("therapist_id"), linked_client.get("id")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Therapists can only approve extra sessions for their assigned clients."
+            )
 
     month_key = payload.month or CorporateEntitlementService.month_key()
     monthly_map = contact.get("extra_sessions_by_month") or {}
@@ -848,6 +953,13 @@ async def get_client_corporate_entitlement(
     client = await db.crm_clients.find_one({"id": client_id}, {"_id": 0})
     if not client:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found.")
+    if user.get("role") == "therapist" and not await _therapist_assigned_to_client(
+        db, user.get("therapist_id"), client_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Therapists can only access entitlement details for assigned clients."
+        )
     if not client.get("organisation_id"):
         return {"corporate": False}
 
@@ -888,6 +1000,14 @@ async def approve_client_extra_sessions(
     client = await db.crm_clients.find_one({"id": client_id}, {"_id": 0})
     if not client or not client.get("organisation_id"):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corporate client not found.")
+
+    if user.get("role") == "therapist" and not await _therapist_assigned_to_client(
+        db, user.get("therapist_id"), client_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Therapists can only approve extra sessions for assigned clients."
+        )
 
     contact = await CorporateEntitlementService.get_contact_for_client(db, client)
     if not contact:

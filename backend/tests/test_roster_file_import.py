@@ -96,3 +96,13 @@ async def test_parse_roster_deduplicates_email():
 
     assert len(contacts) == 1
     assert contacts[0].email == "jane@example.com"
+
+
+@pytest.mark.asyncio
+async def test_reject_invalid_office_archive():
+    with pytest.raises(Exception) as exc:
+        await _parse_roster_upload(
+            UploadFile(filename="employees.xlsx", file=BytesIO(b"not-a-valid-xlsx"))
+        )
+
+    assert "valid file" in str(exc.value.detail).lower()

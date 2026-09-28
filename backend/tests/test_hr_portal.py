@@ -728,3 +728,36 @@ async def test_hr_viewer_cannot_access_booking_ledger(hr_test_app):
         await ac.post("/api/login", json={"username": "ledger_viewer", "password": "viewerpass"})
         res = await ac.get("/api/hr/booking-ledger?period=all_time")
         assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_create_privileged_org_user_role(hr_test_app):
+    """Organisation account creation must never allow staff/admin/super-admin privilege escalation."""
+    test_app, mock_db = hr_test_app
+    transport = ASGITransport(app=test_app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        login = await ac.post("/api/login", json={"username": "admin", "password": "adminpass123"})
+        assert login.status_code == 200
+
+        org_res = await ac.post("/api/admin-ops/organisations", json={
+            "name": "Privilege Test Corp",
+            "code": "PRIVTEST"
+        })
+        assert org_res.status_code == 201
+        org_id = org_res.json()["id"]
+
+        escalation = await ac.post(
+            f"/api/admin-ops/organisations/{org_id}/users",
+            json={
+                "username": "escalation_attempt",
+                "password": "secure-test-password",
+                "email": "security@example.com",
+                "name": "Escalation Attempt",
+                "role": "super_admin"
+            }
+        )
+        assert escalation.status_code == 422
+
+        created = await mock_db.organisation_users.find_one({"user_id": "escalation_attempt"})
+        assert created is None
