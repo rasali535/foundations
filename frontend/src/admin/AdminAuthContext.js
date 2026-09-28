@@ -5,6 +5,7 @@ const AdminAuthContext = createContext(null);
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
 export const API_BASE = `${BACKEND_URL}/api`;
+const ADMIN_PORTAL_ROLES = new Set(['super_admin', 'admin', 'staff', 'clinical_admin', 'therapist']);
 
 // Axios instance with credentials enabled for session cookies
 export const api = axios.create({
@@ -22,7 +23,7 @@ export const AdminAuthProvider = ({ children }) => {
   const checkAuth = async () => {
     try {
       const res = await api.get('/me');
-      setUser(res.data);
+      setUser(ADMIN_PORTAL_ROLES.has(res.data?.role) ? res.data : null);
     } catch (err) {
       setUser(null);
     } finally {
@@ -36,6 +37,12 @@ export const AdminAuthProvider = ({ children }) => {
 
   const login = async (username, password) => {
     const res = await api.post('/login', { username, password });
+    if (!ADMIN_PORTAL_ROLES.has(res.data?.role)) {
+      setUser(null);
+      const error = new Error('This account does not have access to the Foundations Admin Portal.');
+      error.code = 'ADMIN_PORTAL_ROLE_REQUIRED';
+      throw error;
+    }
     setUser(res.data);
     return res.data;
   };
