@@ -280,7 +280,7 @@ def install_day_first_flow(service_cls) -> None:
                     "Confirm your corporate counselling booking?",
                     "",
                     f"First session: {_day_label(context['selected_day'])} at {_time_label(selected)}",
-                    f"Therapist: {selected.get('therapist_name') or 'FCA therapist'}",
+                    "A suitable therapist will be assigned based on availability and your counselling needs.",
                     "",
                     "1. Book this session only",
                 ]
@@ -299,8 +299,8 @@ def install_day_first_flow(service_cls) -> None:
                 f"{_day_label(context['selected_day'])}\n"
                 f"{_time_label(selected)}\n"
                 f"{context.get('session_type', 'session').capitalize()} — "
-                f"{'Virtual' if context.get('session_mode') == 'virtual' else 'In-Person'}\n"
-                f"Therapist: {selected.get('therapist_name') or 'FCA therapist'}\n\n"
+                f"{'Virtual' if context.get('session_mode') == 'virtual' else 'In-Person'}\n\n"
+                "A suitable therapist will be assigned based on availability and your counselling needs.\n\n"
                 "1. Confirm\n2. Change time\n3. Change day"
             )
 
@@ -355,6 +355,7 @@ def install_day_first_flow(service_cls) -> None:
                 return (
                     "Your FCA corporate appointment has been booked successfully. ✅\n"
                     f"{local.strftime('%a %d %b %Y, %H:%M CAT')}\n\n"
+                    "A suitable therapist will be assigned based on availability and your counselling needs.\n\n"
                     "Corporate clients may use up to 4 sessions per month, with one session per calendar week. "
                     "Send MENU for more options."
                 )
@@ -397,7 +398,8 @@ def install_day_first_flow(service_cls) -> None:
                 lines.append(f"• {local.strftime('%a %d %b %Y, %H:%M CAT')}")
             if result.get("partial"):
                 lines.append("\nSome later slots changed while booking, so only the confirmed appointments above were saved.")
-            lines.append("\nSetmore and FCA confirmations will follow. Send MENU for more options.")
+            lines.append("\nA suitable therapist will be assigned based on availability and your counselling needs.")
+            lines.append("Setmore and FCA confirmations will follow. Send MENU for more options.")
             return "\n".join(lines)
 
         if state == "confirm_booking":
