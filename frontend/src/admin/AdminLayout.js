@@ -74,7 +74,7 @@ const AdminLayout = () => {
 
   const handleLogout = async () => {
     await logout();
-    navigate('/admin/login');
+    window.location.assign('/');
   };
 
   const getRoleBadge = (role) => {
