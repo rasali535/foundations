@@ -81,3 +81,39 @@ Once this migration is deployed and a production test enquiry has been received 
 - Database write fails -> return an error to the visitor; do not claim the enquiry was received.
 - Database write succeeds but Resend fails -> return success to the visitor because the enquiry is safely stored, mark email delivery as failed, and keep the record visible in Admin -> Enquiries.
 - Resend errors are logged without exposing API keys or provider secrets.
+
+
+## Inbound receiving domain and webhook
+
+Resend inbound receiving is configured on:
+
+- `forms.academyfoundations.com`
+- Region: `eu-west-1`
+- Sending: enabled
+- Receiving: enabled
+
+The domain is considered fully ready only after the inbound MX record is verified.
+
+Required MX record:
+
+- Host/name: `forms`
+- Type: `MX`
+- Target: `inbound-smtp.eu-west-1.amazonaws.com`
+- Priority: `10`
+
+The application receives Resend inbound events at:
+
+- `POST https://api.academyfoundations.com/api/webhooks/resend`
+
+The webhook must subscribe to `email.received`.
+
+Security requirements:
+
+- use the raw HTTP request body for signature verification
+- verify `svix-id`, `svix-timestamp`, and `svix-signature`
+- store the Resend webhook signing secret as `RESEND_WEBHOOK_SECRET`
+- reject signatures older than five minutes
+- deduplicate retries by Svix event ID
+- accept inbound messages only for recipients under `forms.academyfoundations.com`
+
+Inbound webhook metadata is stored in MongoDB for operational processing. The webhook does not replace the secure direct API submission path used by the clinical intake form.
