@@ -1,11 +1,13 @@
-from fastapi import APIRouter, HTTPException, Depends, Request, status, Query
+from fastapi import APIRouter, HTTPException, Depends, Request, status, Query, UploadFile, File
 from typing import List, Dict, Any, Optional
+from io import BytesIO
+import re
 import bcrypt
 from models import (
     NotificationLog, CRMActivityLog,
     Organisation, OrganisationCreate, OrganisationUpdate,
     OrganisationUser, OrganisationUserCreate,
-    OrganisationContact, OrganisationContactBulkRequest,
+    OrganisationContact, OrganisationContactBulkRequest, OrganisationContactBulkRow,
     SessionAllocationApprovalRequest, InvoiceProfile, now_iso
 )
 from services.notification_service import NotificationService
@@ -366,6 +368,266 @@ async def delete_staff_user(
 
 
 # ==================== Corporate Employee Roster & Entitlements ====================
+
+_ROSTER_FIRST_NAME_HEADERS = {"first name", "firstname", "first", "given name", "givenname"}
+_ROSTER_SURNAME_HEADERS = {"surname", "last name", "lastname", "family name", "familyname"}
+_ROSTER_EMAIL_HEADERS = {"email", "email address", "emailaddress", "work email", "work email address"}
+
+
+def _normalise_roster_header(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower().replace("_", " ").replace("-", " "))
+
+
+def _valid_roster_email(value: Any) -> Optional[str]:
+    email = CorporateEntitlementService.normalize_email(str(value or "").strip())
+    if not email or "@" not in email or "." not in email.split("@")[-1]:
+        return None
+    return email
+
+
+def _contact_from_parts(first_name: Any, surname: Any, email_value: Any) -> Optional[OrganisationContactBulkRow]:
+    email = _valid_roster_email(email_value)
+    if not email:
+        return None
+    first = str(first_name or "").strip()
+    last = str(surname or "").strip()
+    name = " ".join(part for part in [first, last] if part).strip()
+    return OrganisationContactBulkRow(name=name, email=email, contact_type="employee")
+
+
+def _rows_from_matrix(rows: List[List[Any]]) -> List[OrganisationContactBulkRow]:
+    cleaned = [[cell for cell in row] for row in rows if any(str(cell or "").strip() for cell in row)]
+    if not cleaned:
+        return []
+
+    header_index = None
+    first_idx = surname_idx = email_idx = None
+    for idx, row in enumerate(cleaned[:10]):
+        headers = [_normalise_roster_header(cell) for cell in row]
+        for col, header in enumerate(headers):
+            if header in _ROSTER_FIRST_NAME_HEADERS:
+                first_idx = col
+            elif header in _ROSTER_SURNAME_HEADERS:
+                surname_idx = col
+            elif header in _ROSTER_EMAIL_HEADERS:
+                email_idx = col
+        if email_idx is not None and (first_idx is not None or surname_idx is not None):
+            header_index = idx
+            break
+
+    contacts: List[OrganisationContactBulkRow] = []
+    source_rows = cleaned[header_index + 1:] if header_index is not None else cleaned
+    for row in source_rows:
+        if header_index is not None:
+            first = row[first_idx] if first_idx is not None and first_idx < len(row) else ""
+            surname = row[surname_idx] if surname_idx is not None and surname_idx < len(row) else ""
+            email = row[email_idx] if email_idx is not None and email_idx < len(row) else ""
+        else:
+            if len(row) < 3:
+                continue
+            first, surname, email = row[0], row[1], row[2]
+        contact = _contact_from_parts(first, surname, email)
+        if contact:
+            contacts.append(contact)
+    return contacts
+
+
+def _rows_from_text(text: str) -> List[OrganisationContactBulkRow]:
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    contacts: List[OrganisationContactBulkRow] = []
+
+    # First try structured comma/tab/semicolon rows.
+    matrix: List[List[str]] = []
+    for line in lines:
+        delimiter = "\t" if "\t" in line else ("," if "," in line else (";" if ";" in line else None))
+        if delimiter:
+            matrix.append([part.strip() for part in line.split(delimiter)])
+    contacts.extend(_rows_from_matrix(matrix))
+
+    # Then parse common PDF/DOCX text layouts: "First Surname email@..." or
+    # individual cells rendered on neighbouring lines.
+    seen = {c.email for c in contacts if c.email}
+    email_pattern = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
+    for index, line in enumerate(lines):
+        match = email_pattern.search(line)
+        if not match:
+            continue
+        email = _valid_roster_email(match.group(0))
+        if not email or email in seen:
+            continue
+
+        before = line[:match.start()].strip(" ,;|\t-")
+        name_parts = [part for part in re.split(r"\s+", before) if part]
+        if len(name_parts) >= 2:
+            first, surname = name_parts[0], " ".join(name_parts[1:])
+        else:
+            previous = [p for p in lines[max(0, index - 2):index] if not email_pattern.search(p)]
+            first = previous[-2] if len(previous) >= 2 else (previous[-1] if previous else "")
+            surname = previous[-1] if len(previous) >= 2 else ""
+
+        contact = _contact_from_parts(first, surname, email)
+        if contact:
+            contacts.append(contact)
+            seen.add(email)
+
+    return contacts
+
+
+async def _parse_roster_upload(file: UploadFile) -> List[OrganisationContactBulkRow]:
+    filename = (file.filename or "").strip()
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The uploaded roster file is empty.")
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Roster files must be 10 MB or smaller.")
+
+    try:
+        if extension == "xlsx":
+            from openpyxl import load_workbook
+            workbook = load_workbook(BytesIO(raw), read_only=True, data_only=True)
+            rows: List[List[Any]] = []
+            for sheet in workbook.worksheets:
+                rows.extend([list(row) for row in sheet.iter_rows(values_only=True)])
+            contacts = _rows_from_matrix(rows)
+        elif extension == "xls":
+            import xlrd
+            workbook = xlrd.open_workbook(file_contents=raw)
+            rows: List[List[Any]] = []
+            for sheet in workbook.sheets():
+                for row_index in range(sheet.nrows):
+                    rows.append(sheet.row_values(row_index))
+            contacts = _rows_from_matrix(rows)
+        elif extension == "docx":
+            from docx import Document
+            document = Document(BytesIO(raw))
+            contacts: List[OrganisationContactBulkRow] = []
+            for table in document.tables:
+                contacts.extend(_rows_from_matrix([[cell.text for cell in row.cells] for row in table.rows]))
+            paragraph_text = "\n".join(p.text for p in document.paragraphs if p.text.strip())
+            contacts.extend(_rows_from_text(paragraph_text))
+        elif extension == "pdf":
+            from pypdf import PdfReader
+            reader = PdfReader(BytesIO(raw))
+            text = "\n".join(page.extract_text() or "" for page in reader.pages)
+            contacts = _rows_from_text(text)
+        elif extension in {"csv", "txt"}:
+            decoded = raw.decode("utf-8-sig", errors="replace")
+            contacts = _rows_from_text(decoded)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unsupported roster file. Upload Excel (.xlsx or .xls), PDF (.pdf), Word (.docx), or CSV (.csv)."
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not read the roster file. Ensure it contains First name, Surname and Email address columns. ({type(exc).__name__})"
+        ) from exc
+
+    unique: Dict[str, OrganisationContactBulkRow] = {}
+    for contact in contacts:
+        email = _valid_roster_email(contact.email)
+        if email:
+            contact.email = email
+            unique[email] = contact
+
+    if not unique:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No valid contacts were found. The document must contain First name, Surname and Email address."
+        )
+    return list(unique.values())
+
+
+async def _bulk_upsert_contacts(db, org_id: str, contacts: List[OrganisationContactBulkRow], user: Dict[str, Any]):
+    inserted = 0
+    updated = 0
+    seen = set()
+    for row in contacts:
+        email = CorporateEntitlementService.normalize_email(row.email)
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Every corporate roster member must have an email address so their four-session allocation can be tracked."
+            )
+        if email in seen:
+            continue
+        seen.add(email)
+
+        existing = await db.organisation_contacts.find_one(
+            {"organisation_id": org_id, "email_normalized": email},
+            {"_id": 0}
+        )
+        now = now_iso()
+        update_fields = {
+            "name": row.name.strip(),
+            "email": email,
+            "email_normalized": email,
+            "phone": str(row.phone or "").strip() or None,
+            "job_title": str(row.job_title or "").strip() or None,
+            "department": str(row.department or "").strip() or None,
+            "contact_type": str(row.contact_type or "employee").strip().lower(),
+            "active": True,
+            "updated_at": now,
+        }
+
+        if existing:
+            await db.organisation_contacts.update_one({"id": existing["id"]}, {"$set": update_fields})
+            updated += 1
+        else:
+            contact = OrganisationContact(
+                organisation_id=org_id,
+                name=update_fields["name"],
+                email=email,
+                phone=update_fields["phone"],
+                job_title=update_fields["job_title"],
+                department=update_fields["department"],
+                contact_type=update_fields["contact_type"],
+                base_session_allocation=4,
+                extra_sessions_approved=0,
+                active=True,
+                created_at=now,
+                updated_at=now,
+            )
+            doc = contact.model_dump()
+            doc["email_normalized"] = email
+            await db.organisation_contacts.insert_one(doc)
+            inserted += 1
+
+        contact_doc = await db.organisation_contacts.find_one(
+            {"organisation_id": org_id, "email_normalized": email},
+            {"_id": 0}
+        )
+        if contact_doc:
+            await db.crm_clients.update_many(
+                {"organisation_id": org_id, "email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}},
+                {"$set": {"organisation_contact_id": contact_doc["id"], "updated_at": now}}
+            )
+
+    pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id)
+    roster = await db.organisation_contacts.find(
+        {"organisation_id": org_id},
+        {"_id": 0}
+    ).sort("name", 1).to_list(50000)
+
+    await AuditService.log_activity(
+        db,
+        action="organisation_roster_bulk_updated",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "organisation_id": org_id,
+            "inserted": inserted,
+            "updated": updated,
+            "member_count": pool["member_count"],
+            "allocated_sessions": pool["allocated_sessions"],
+        }
+    )
+    return {"inserted": inserted, "updated": updated, "contacts": roster, "pool": pool}
+
 @admin_router.get("/organisations/{org_id}/contacts")
 async def list_organisation_contacts(
     org_id: str,
@@ -396,99 +658,28 @@ async def bulk_upsert_organisation_contacts(
     org = await db.organisations.find_one({"id": org_id}, {"_id": 0})
     if not org:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found.")
-
     if not payload.contacts:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one contact is required.")
+    return await _bulk_upsert_contacts(db, org_id, payload.contacts, user)
 
-    inserted = 0
-    updated = 0
-    seen = set()
-    for row in payload.contacts:
-        email = CorporateEntitlementService.normalize_email(row.email)
-        if not email:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Every corporate roster member must have an email address so their four-session allocation can be tracked."
-            )
-        if email in seen:
-            continue
-        seen.add(email)
 
-        existing = await db.organisation_contacts.find_one(
-            {"organisation_id": org_id, "email_normalized": email},
-            {"_id": 0}
-        )
-        now = now_iso()
-        update_fields = {
-            "name": row.name.strip(),
-            "email": email,
-            "email_normalized": email,
-            "phone": str(row.phone or "").strip() or None,
-            "job_title": str(row.job_title or "").strip() or None,
-            "department": str(row.department or "").strip() or None,
-            "contact_type": str(row.contact_type or "employee").strip().lower(),
-            "active": True,
-            "updated_at": now,
-        }
+@admin_router.post("/organisations/{org_id}/contacts/bulk-file")
+async def bulk_upload_organisation_contacts(
+    org_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    user: Dict = Depends(require_admin)
+):
+    db = get_db(request)
+    org = await db.organisations.find_one({"id": org_id}, {"_id": 0})
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found.")
 
-        if existing:
-            await db.organisation_contacts.update_one(
-                {"id": existing["id"]},
-                {"$set": update_fields}
-            )
-            updated += 1
-        else:
-            contact = OrganisationContact(
-                organisation_id=org_id,
-                name=update_fields["name"],
-                email=email,
-                phone=update_fields["phone"],
-                job_title=update_fields["job_title"],
-                department=update_fields["department"],
-                contact_type=update_fields["contact_type"],
-                base_session_allocation=4,
-                extra_sessions_approved=0,
-                active=True,
-                created_at=now,
-                updated_at=now,
-            )
-            doc = contact.model_dump()
-            doc["email_normalized"] = email
-            await db.organisation_contacts.insert_one(doc)
-            inserted += 1
-
-        # If this person already completed an FCA intake under the organisation,
-        # bind the CRM client to the roster entry without exposing that link to HR.
-        contact_doc = await db.organisation_contacts.find_one(
-            {"organisation_id": org_id, "email_normalized": email},
-            {"_id": 0}
-        )
-        if contact_doc:
-            await db.crm_clients.update_many(
-                {"organisation_id": org_id, "email": {"$regex": f"^{__import__('re').escape(email)}$", "$options": "i"}},
-                {"$set": {"organisation_contact_id": contact_doc["id"], "updated_at": now}}
-            )
-
-    pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id)
-    contacts = await db.organisation_contacts.find(
-        {"organisation_id": org_id},
-        {"_id": 0}
-    ).sort("name", 1).to_list(50000)
-
-    await AuditService.log_activity(
-        db,
-        action="organisation_roster_bulk_updated",
-        actor_user_id=user.get("user_id"),
-        actor_name=user.get("name"),
-        metadata={
-            "organisation_id": org_id,
-            "inserted": inserted,
-            "updated": updated,
-            "member_count": pool["member_count"],
-            "allocated_sessions": pool["allocated_sessions"],
-        }
-    )
-    return {"inserted": inserted, "updated": updated, "contacts": contacts, "pool": pool}
+    contacts = await _parse_roster_upload(file)
+    result = await _bulk_upsert_contacts(db, org_id, contacts, user)
+    result["parsed_contacts"] = len(contacts)
+    result["source_file"] = file.filename
+    return result
 
 
 @admin_router.patch("/organisations/{org_id}/contacts/{contact_id}/status")
