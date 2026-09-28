@@ -488,6 +488,12 @@ class OrganisationUser(BaseModel):
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
+class HRPasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+    confirm_password: str
+
+
 class OrganisationUserCreate(BaseModel):
     username: str
     password: str
