@@ -34,6 +34,7 @@ from routers.meta_messenger_router import meta_messenger_router
 from services.aliana_conversation_service import AlianaConversationService
 from services.scheduling_service import SchedulingService
 from services.setmore_service import SetmoreService
+from services.notification_service import NotificationService
 
 # ----------------- Environment & Configuration -----------------
 ROOT_DIR = Path(__file__).parent
@@ -392,6 +393,10 @@ class ContactSubmission(BaseModel):
     phone: Optional[str] = None
     inquiry_type: Optional[str] = None
     message: str
+    admin_notification_status: Optional[str] = None
+    admin_notification_reference: Optional[str] = None
+    acknowledgement_status: Optional[str] = None
+    acknowledgement_reference: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
 class ChatLeadCreate(BaseModel):
@@ -413,6 +418,8 @@ class ChatLead(BaseModel):
     inquiry_type: Optional[str] = None
     session_id: str
     notes: Optional[str] = None
+    notification_status: Optional[str] = None
+    notification_reference: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
 # ----------------- Domain 2: Clinical Intake & Triage Models -----------------
@@ -598,12 +605,49 @@ async def get_me(user: Dict = Depends(get_current_user_session)):
 @api_router.post("/contact", response_model=ContactSubmission)
 async def submit_contact(payload: ContactSubmissionCreate, request: Request):
     check_rate_limit(request, limit=10, window_seconds=60)
+    target_db = request.app.state.db if hasattr(request.app.state, "db") and request.app.state.db is not None else db
     submission = ContactSubmission(**payload.model_dump())
+    submission_doc = submission.model_dump()
+
+    # The database is the source of truth. Email is a notification layer only.
     try:
-        await db.contact_submissions.insert_one(submission.model_dump())
-    except Exception as e:
-        logging.warning(f"MongoDB offline/timeout in /contact: {e}")
-    return submission
+        await target_db.contact_submissions.insert_one(submission_doc)
+    except Exception as exc:
+        logging.error("CONTACT_SUBMISSION persist_failed error=%s", exc.__class__.__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Your enquiry could not be safely stored. Please try again."
+        )
+
+    delivery = await NotificationService.send_contact_notifications(submission_doc)
+    public_delivery = {
+        "admin_notification_status": delivery.get("admin_notification_status"),
+        "admin_notification_reference": delivery.get("admin_notification_reference"),
+        "acknowledgement_status": delivery.get("acknowledgement_status"),
+        "acknowledgement_reference": delivery.get("acknowledgement_reference"),
+    }
+    await target_db.contact_submissions.update_one(
+        {"id": submission.id},
+        {"$set": {
+            **public_delivery,
+            "notification_updated_at": now_iso(),
+        }}
+    )
+
+    if delivery.get("admin_notification_status") != "sent":
+        logging.warning(
+            "CONTACT_SUBMISSION resend_admin_notification_failed id=%s error=%s",
+            submission.id,
+            delivery.get("admin_notification_error"),
+        )
+    if delivery.get("acknowledgement_status") != "sent":
+        logging.warning(
+            "CONTACT_SUBMISSION resend_acknowledgement_failed id=%s error=%s",
+            submission.id,
+            delivery.get("acknowledgement_error"),
+        )
+
+    return ContactSubmission(**{**submission_doc, **public_delivery})
 
 @api_router.get("/contact", response_model=List[ContactSubmission])
 async def list_contacts(user: Dict = Depends(require_role(["staff", "admin", "super_admin"]))):
@@ -616,14 +660,38 @@ async def list_contacts(user: Dict = Depends(require_role(["staff", "admin", "su
 @api_router.post("/chat/lead", response_model=ChatLead)
 async def capture_chat_lead(payload: ChatLeadCreate, request: Request):
     check_rate_limit(request, limit=10, window_seconds=60)
+    target_db = request.app.state.db if hasattr(request.app.state, "db") and request.app.state.db is not None else db
     lead = ChatLead(**payload.model_dump())
+    lead_doc = lead.model_dump()
     try:
-        await db.chatbot_leads.insert_one({
-            **lead.model_dump()
-        })
-    except Exception as e:
-        logging.warning(f"MongoDB offline/timeout in /chat/lead: {e}")
-    return lead
+        await target_db.chatbot_leads.insert_one(lead_doc)
+    except Exception as exc:
+        logging.error("CHAT_LEAD persist_failed error=%s", exc.__class__.__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Your details could not be safely stored. Please try again."
+        )
+
+    delivery = await NotificationService.send_chat_lead_notification(lead_doc)
+    await target_db.chatbot_leads.update_one(
+        {"id": lead.id},
+        {"$set": {
+            "notification_status": delivery.get("notification_status"),
+            "notification_reference": delivery.get("notification_reference"),
+            "notification_updated_at": now_iso(),
+        }}
+    )
+    if delivery.get("notification_status") != "sent":
+        logging.warning(
+            "CHAT_LEAD resend_notification_failed id=%s error=%s",
+            lead.id,
+            delivery.get("notification_error"),
+        )
+    return ChatLead(**{
+        **lead_doc,
+        "notification_status": delivery.get("notification_status"),
+        "notification_reference": delivery.get("notification_reference"),
+    })
 
 @api_router.get("/chat/leads", response_model=List[ChatLead])
 async def list_chat_leads(user: Dict = Depends(require_role(["staff", "admin", "super_admin"]))):

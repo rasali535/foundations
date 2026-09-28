@@ -42,6 +42,7 @@ import AdminOrganisations from "@/admin/pages/AdminOrganisations";
 import AdminInvoices from "@/admin/pages/AdminInvoices";
 import AdminInvoiceCreate from "@/admin/pages/AdminInvoiceCreate";
 import AdminInvoiceDetail from "@/admin/pages/AdminInvoiceDetail";
+import AdminEnquiries from "@/admin/pages/AdminEnquiries";
 
 // Corporate HR Aggregate-Only Portal Components
 import { HRAuthProvider } from "@/hr/HRAuthContext";
@@ -83,6 +84,7 @@ function App() {
               <Route path="crm" element={<Navigate to="/admin/crm/clients" replace />} />
               <Route path="crm/clients" element={<AdminClients />} />
               <Route path="crm/clients/:id" element={<AdminClientDetail />} />
+              <Route path="enquiries" element={<AdminEnquiries />} />
               <Route path="bookings" element={<AdminBookings />} />
               <Route path="calendar" element={<AdminCalendar />} />
               <Route path="therapists" element={<AdminTherapists />} />

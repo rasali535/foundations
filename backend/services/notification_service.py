@@ -28,6 +28,8 @@ EMAIL_FROM = (
 )
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 RESEND_API_URL = os.environ.get("RESEND_API_URL", "https://api.resend.com/emails")
+CONTACT_NOTIFICATION_TO = os.environ.get("CONTACT_NOTIFICATION_TO", "info@academyfoundations.com")
+CONTACT_REPLY_TO = os.environ.get("CONTACT_REPLY_TO", "info@academyfoundations.com")
 
 # Optional SMTP path for paid/local environments.
 SMTP_HOST = os.environ.get("SMTP_HOST")
@@ -133,6 +135,195 @@ class NotificationService:
             "whatsapp_template_configured": True,
             "operating_timezone": "CAT (Africa/Gaborone, UTC+2)",
             "delivery_status_policy": "sent means accepted by a configured provider"
+        }
+
+    @staticmethod
+    async def send_email_message(
+        recipient: str,
+        subject: str,
+        html_body: str,
+        *,
+        reply_to: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        """Send a transactional email through the configured provider.
+
+        Returns (accepted, provider_reference, safe_error). Provider failures are
+        deliberately returned to the caller so business records can remain saved
+        even when email delivery is temporarily unavailable.
+        """
+        if not recipient:
+            return False, None, "Recipient email address is missing"
+        if not NotificationService.is_email_configured():
+            return False, None, f"Email provider '{EMAIL_PROVIDER}' is not configured"
+
+        try:
+            if EMAIL_PROVIDER == "resend":
+                def _send_resend():
+                    payload = {
+                        "from": EMAIL_FROM,
+                        "to": [recipient],
+                        "subject": subject,
+                        "html": html_body,
+                    }
+                    if reply_to:
+                        payload["reply_to"] = reply_to
+                    return requests.post(
+                        RESEND_API_URL,
+                        headers={
+                            "Authorization": f"Bearer {RESEND_API_KEY}",
+                            "Content-Type": "application/json",
+                        },
+                        json=payload,
+                        timeout=15,
+                    )
+
+                response = await asyncio.to_thread(_send_resend)
+                if response.status_code in (200, 201, 202):
+                    body = response.json() if response.content else {}
+                    return True, str(body.get("id") or "resend-accepted"), None
+                return False, None, _safe_provider_error("Resend delivery rejected", response=response)
+
+            if EMAIL_PROVIDER == "smtp":
+                def _send_smtp():
+                    msg = MIMEMultipart("alternative")
+                    msg["Subject"] = subject
+                    msg["From"] = SMTP_FROM
+                    msg["To"] = recipient
+                    if reply_to:
+                        msg["Reply-To"] = reply_to
+                    msg.attach(MIMEText(html_body, "html"))
+                    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+                        server.starttls()
+                        server.login(SMTP_USER, SMTP_PASSWORD)
+                        server.sendmail(SMTP_FROM, [recipient], msg.as_string())
+
+                await asyncio.to_thread(_send_smtp)
+                return True, "smtp-provider-accepted", None
+
+            return False, None, f"Unsupported email provider '{EMAIL_PROVIDER}'"
+        except Exception as exc:
+            return False, None, _safe_provider_error("Email delivery error", exc=exc)
+
+    @staticmethod
+    def build_contact_admin_email(submission: Dict[str, Any]) -> Tuple[str, str]:
+        name = html.escape(str(submission.get("name") or "Website visitor"))
+        email_address = html.escape(str(submission.get("email") or ""))
+        company = html.escape(str(submission.get("company") or "Not provided"))
+        phone = html.escape(str(submission.get("phone") or "Not provided"))
+        inquiry_type = html.escape(str(submission.get("inquiry_type") or "General enquiry"))
+        message = html.escape(str(submission.get("message") or "")).replace("\n", "<br>")
+        reference = html.escape(str(submission.get("id") or ""))
+
+        subject = f"New FCA website enquiry — {inquiry_type}"
+        body = f"""
+        <!doctype html>
+        <html>
+        <body style="margin:0;padding:24px;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#0f172a;">
+          <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+            <div style="background:#1C3F3A;padding:22px 26px;color:#ffffff;">
+              <div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;opacity:.75;">Foundations Counselling Academy</div>
+              <h1 style="margin:6px 0 0;font-size:20px;">New website enquiry</h1>
+            </div>
+            <div style="padding:26px;">
+              <table style="width:100%;border-collapse:collapse;font-size:14px;">
+                <tr><td style="padding:7px 0;color:#64748b;width:145px;">Name</td><td style="padding:7px 0;font-weight:600;">{name}</td></tr>
+                <tr><td style="padding:7px 0;color:#64748b;">Email</td><td style="padding:7px 0;">{email_address}</td></tr>
+                <tr><td style="padding:7px 0;color:#64748b;">Company</td><td style="padding:7px 0;">{company}</td></tr>
+                <tr><td style="padding:7px 0;color:#64748b;">Phone</td><td style="padding:7px 0;">{phone}</td></tr>
+                <tr><td style="padding:7px 0;color:#64748b;">Enquiry type</td><td style="padding:7px 0;">{inquiry_type}</td></tr>
+              </table>
+              <div style="margin-top:20px;padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;line-height:1.6;">{message}</div>
+              <p style="margin:20px 0 0;font-size:11px;color:#94a3b8;">Reference: {reference}. This enquiry is already saved in the Foundations system; email is a notification copy.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+        """
+        return subject, body
+
+    @staticmethod
+    def build_contact_acknowledgement(submission: Dict[str, Any]) -> Tuple[str, str]:
+        first_name = html.escape(str(submission.get("name") or "there").strip().split(" ")[0] or "there")
+        subject = "We received your Foundations enquiry"
+        body = f"""
+        <!doctype html>
+        <html>
+        <body style="margin:0;padding:24px;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#0f172a;">
+          <div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+            <div style="background:#1C3F3A;padding:22px 26px;color:#ffffff;">
+              <h1 style="margin:0;font-size:20px;">Foundations Counselling Academy</h1>
+            </div>
+            <div style="padding:28px;">
+              <h2 style="margin:0 0 12px;font-size:18px;">Thank you, {first_name}.</h2>
+              <p style="margin:0;color:#475569;font-size:14px;line-height:1.7;">We have received your enquiry and a member of the Foundations team will respond within one business day.</p>
+              <p style="margin:18px 0 0;color:#475569;font-size:14px;line-height:1.7;">If your enquiry is urgent, you can also contact us directly at <strong>info@academyfoundations.com</strong> or +267 73 860 490.</p>
+              <p style="margin:24px 0 0;color:#64748b;font-size:13px;">Warm regards,<br><strong>Foundations Administration Team</strong></p>
+            </div>
+          </div>
+        </body>
+        </html>
+        """
+        return subject, body
+
+    @staticmethod
+    async def send_contact_notifications(submission: Dict[str, Any]) -> Dict[str, Any]:
+        admin_subject, admin_html = NotificationService.build_contact_admin_email(submission)
+        ack_subject, ack_html = NotificationService.build_contact_acknowledgement(submission)
+
+        admin_result, ack_result = await asyncio.gather(
+            NotificationService.send_email_message(
+                CONTACT_NOTIFICATION_TO,
+                admin_subject,
+                admin_html,
+                reply_to=str(submission.get("email") or "") or None,
+            ),
+            NotificationService.send_email_message(
+                str(submission.get("email") or ""),
+                ack_subject,
+                ack_html,
+                reply_to=CONTACT_REPLY_TO,
+            ),
+        )
+
+        admin_ok, admin_ref, admin_error = admin_result
+        ack_ok, ack_ref, ack_error = ack_result
+        return {
+            "admin_notification_status": "sent" if admin_ok else "failed",
+            "admin_notification_reference": admin_ref,
+            "admin_notification_error": admin_error,
+            "acknowledgement_status": "sent" if ack_ok else "failed",
+            "acknowledgement_reference": ack_ref,
+            "acknowledgement_error": ack_error,
+        }
+
+    @staticmethod
+    async def send_chat_lead_notification(lead: Dict[str, Any]) -> Dict[str, Any]:
+        name = html.escape(str(lead.get("name") or "Website chatbot visitor"))
+        email_address = html.escape(str(lead.get("email") or "Not provided"))
+        company = html.escape(str(lead.get("company") or "Not provided"))
+        phone = html.escape(str(lead.get("phone") or "Not provided"))
+        inquiry = html.escape(str(lead.get("inquiry_type") or "Chatbot lead"))
+        notes = html.escape(str(lead.get("notes") or "No additional notes")).replace("\n", "<br>")
+        subject = f"New FCA chatbot lead — {inquiry}"
+        html_body = f"""
+        <!doctype html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f1f5f9;padding:24px;">
+        <div style="max-width:620px;margin:auto;background:white;border:1px solid #e2e8f0;border-radius:12px;padding:24px;">
+        <h2 style="margin-top:0;color:#1C3F3A;">New chatbot lead</h2>
+        <p><strong>Name:</strong> {name}<br><strong>Email:</strong> {email_address}<br><strong>Company:</strong> {company}<br><strong>Phone:</strong> {phone}<br><strong>Enquiry:</strong> {inquiry}</p>
+        <div style="background:#f8fafc;padding:14px;border-radius:8px;">{notes}</div>
+        <p style="font-size:11px;color:#94a3b8;">The lead is already stored in the Foundations system.</p>
+        </div></body></html>
+        """
+        ok, ref, error = await NotificationService.send_email_message(
+            CONTACT_NOTIFICATION_TO,
+            subject,
+            html_body,
+            reply_to=str(lead.get("email") or "") or None,
+        )
+        return {
+            "notification_status": "sent" if ok else "failed",
+            "notification_reference": ref,
+            "notification_error": error,
         }
 
     @staticmethod
@@ -283,56 +474,18 @@ class NotificationService:
             log_entry.error_message = f"Email provider '{EMAIL_PROVIDER}' is not configured"
             return await NotificationService._persist_log(db, log_entry)
 
-        try:
-            if EMAIL_PROVIDER == "resend":
-                def _send_resend():
-                    return requests.post(
-                        RESEND_API_URL,
-                        headers={
-                            "Authorization": f"Bearer {RESEND_API_KEY}",
-                            "Content-Type": "application/json"
-                        },
-                        json={
-                            "from": EMAIL_FROM,
-                            "to": [recipient],
-                            "subject": subject,
-                            "html": html_body
-                        },
-                        timeout=15
-                    )
-
-                response = await asyncio.to_thread(_send_resend)
-                if response.status_code in (200, 201, 202):
-                    body = response.json() if response.content else {}
-                    log_entry.status = "sent"
-                    log_entry.sent_at = now_iso()
-                    log_entry.provider_reference = str(body.get("id") or "resend-accepted")
-                else:
-                    log_entry.status = "failed"
-                    log_entry.error_message = _safe_provider_error("Resend delivery rejected", response=response)
-
-            elif EMAIL_PROVIDER == "smtp":
-                def _send_smtp():
-                    msg = MIMEMultipart("alternative")
-                    msg["Subject"] = subject
-                    msg["From"] = SMTP_FROM
-                    msg["To"] = recipient
-                    msg.attach(MIMEText(html_body, "html"))
-                    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
-                        server.starttls()
-                        server.login(SMTP_USER, SMTP_PASSWORD)
-                        server.sendmail(SMTP_FROM, [recipient], msg.as_string())
-
-                await asyncio.to_thread(_send_smtp)
-                log_entry.status = "sent"
-                log_entry.sent_at = now_iso()
-                log_entry.provider_reference = "smtp-provider-accepted"
-            else:
-                log_entry.status = "failed"
-                log_entry.error_message = f"Unsupported email provider '{EMAIL_PROVIDER}'"
-        except Exception as exc:
+        accepted, provider_reference, provider_error = await NotificationService.send_email_message(
+            recipient,
+            subject,
+            html_body,
+        )
+        if accepted:
+            log_entry.status = "sent"
+            log_entry.sent_at = now_iso()
+            log_entry.provider_reference = provider_reference
+        else:
             log_entry.status = "failed"
-            log_entry.error_message = _safe_provider_error("Email delivery error", exc=exc)
+            log_entry.error_message = provider_error
             logging.error("Email booking confirmation failed for %s", mask_recipient(recipient))
 
         return await NotificationService._persist_log(db, log_entry)

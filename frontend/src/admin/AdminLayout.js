@@ -17,7 +17,8 @@ import {
   Sparkles,
   ExternalLink,
   Building2,
-  Receipt
+  Receipt,
+  Inbox
 } from 'lucide-react';
 
 const AdminLayout = () => {
@@ -62,6 +63,7 @@ const AdminLayout = () => {
   const navItems = [
     { label: 'Dashboard', path: '/admin/dashboard', icon: LayoutDashboard },
     { label: 'CRM Clients', path: '/admin/crm/clients', icon: Users },
+    { label: 'Enquiries', path: '/admin/enquiries', icon: Inbox, roles: ['super_admin', 'admin', 'staff'] },
     { label: 'Bookings', path: '/admin/bookings', icon: CalendarDays },
     { label: 'Calendar', path: '/admin/calendar', icon: Calendar },
     { label: 'Therapists', path: '/admin/therapists', icon: UserCheck, roles: ['super_admin', 'admin', 'clinical_admin', 'staff'] },
