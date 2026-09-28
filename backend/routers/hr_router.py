@@ -1,6 +1,9 @@
 import logging
+import re
+import bcrypt
 from fastapi import APIRouter, HTTPException, Depends, Request, status, Query, Response
 from typing import List, Dict, Any, Optional
+from models import HRPasswordChangeRequest, now_iso
 from services.hr_service import HRReportingService
 from services.audit_service import AuditService
 
@@ -58,7 +61,7 @@ def get_db(request: Request):
     return request.app.state.db
 
 
-def get_current_hr_user(request: Request) -> Dict[str, Any]:
+async def get_current_hr_user(request: Request) -> Dict[str, Any]:
     user_id = request.session.get("user_id")
     role = request.session.get("role")
     org_id = request.session.get("organisation_id")
@@ -69,6 +72,28 @@ def get_current_hr_user(request: Request) -> Dict[str, Any]:
     allowed = ["hr_admin", "hr_viewer", "super_admin", "admin"]
     if role not in allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied. Corporate HR credentials required.")
+
+    if role in ["hr_admin", "hr_viewer"]:
+        db = get_db(request)
+        normalized = str(user_id).strip().lower()
+        exact_ci = {"$regex": f"^{re.escape(normalized)}$", "$options": "i"}
+        account = await db.organisation_users.find_one(
+            {"user_id": exact_ci, "active": {"$ne": False}},
+            {"_id": 0, "auth_version": 1, "organisation_id": 1, "role": 1, "name": 1},
+        )
+        if not account:
+            request.session.clear()
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+
+        current_version = int(account.get("auth_version") or 1)
+        session_version = int(request.session.get("auth_version") or 1)
+        if session_version != current_version:
+            request.session.clear()
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired. Please sign in again.")
+
+        if account.get("organisation_id") != org_id or account.get("role") != role:
+            request.session.clear()
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account permissions changed. Please sign in again.")
 
     return {
         "user_id": user_id,
@@ -123,6 +148,145 @@ async def get_hr_me(
         "role": user["role"],
         "organisation_id": org_id,
         "organisation_name": org.name if org else "Corporate Partner"
+    }
+
+
+@hr_router.post("/account/change-password")
+async def change_hr_password(
+    payload: HRPasswordChangeRequest,
+    request: Request,
+    user: Dict = Depends(get_current_hr_user),
+):
+    if user.get("role") not in ["hr_admin", "hr_viewer"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Password self-service is available only to Corporate HR accounts."
+        )
+
+    current_password = str(payload.current_password or "")
+    new_password = str(payload.new_password or "")
+    confirm_password = str(payload.confirm_password or "")
+
+    if new_password != confirm_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password confirmation does not match.")
+    if len(new_password) < 12:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be at least 12 characters.")
+    if not re.search(r"[A-Z]", new_password) or not re.search(r"[a-z]", new_password) or not re.search(r"\d", new_password) or not re.search(r"[^A-Za-z0-9]", new_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must include uppercase, lowercase, a number and a symbol."
+        )
+
+    db = get_db(request)
+    normalized = str(user["user_id"]).strip().lower()
+    exact_ci = {"$regex": f"^{re.escape(normalized)}$", "$options": "i"}
+    account = await db.organisation_users.find_one(
+        {"user_id": exact_ci, "active": {"$ne": False}},
+        {"_id": 0},
+    )
+    if not account or not account.get("password_hash"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corporate HR account not found.")
+
+    try:
+        current_ok = bcrypt.checkpw(current_password.encode("utf-8"), account["password_hash"].encode("utf-8"))
+    except Exception:
+        current_ok = False
+    if not current_ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect.")
+
+    if bcrypt.checkpw(new_password.encode("utf-8"), account["password_hash"].encode("utf-8")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be different from your current password.")
+
+    next_version = int(account.get("auth_version") or 1) + 1
+    new_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    changed_at = now_iso()
+    await db.organisation_users.update_one(
+        {"user_id": exact_ci, "active": {"$ne": False}},
+        {"$set": {
+            "password_hash": new_hash,
+            "auth_version": next_version,
+            "password_changed_at": changed_at,
+            "updated_at": changed_at,
+        }},
+    )
+
+    from server import USERS_DB
+    USERS_DB.pop(normalized, None)
+
+    await AuditService.log_activity(
+        db,
+        action="hr_password_changed",
+        actor_user_id=user["user_id"],
+        actor_name=user["name"],
+        metadata={
+            "organisation_id": user.get("organisation_id"),
+            "all_previous_sessions_invalidated": True,
+        },
+    )
+
+    request.session.clear()
+    return {
+        "status": "password_changed",
+        "reauthentication_required": True,
+        "all_previous_sessions_invalidated": True,
+    }
+
+
+@hr_router.get("/account/activity")
+async def get_hr_account_activity(
+    request: Request,
+    user: Dict = Depends(get_current_hr_user),
+):
+    if user.get("role") not in ["hr_admin", "hr_viewer"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account activity is available only to Corporate HR accounts."
+        )
+
+    db = get_db(request)
+    allowed_actions = [
+        "hr_password_changed",
+        "hr_dashboard_viewed",
+        "hr_contract_viewed",
+        "hr_utilisation_report_viewed",
+        "hr_report_exported",
+        "hr_booking_ledger_viewed",
+        "invoice_downloaded",
+    ]
+    docs = await db.crm_activity_log.find(
+        {
+            "actor_user_id": user["user_id"],
+            "action": {"$in": allowed_actions},
+        },
+        {
+            "_id": 0,
+            "action": 1,
+            "created_at": 1,
+            "metadata.organisation_id": 1,
+            "metadata.period": 1,
+            "metadata.format": 1,
+            "metadata.caller": 1,
+        },
+    ).sort("created_at", -1).limit(25).to_list(25)
+
+    labels = {
+        "hr_password_changed": "Password changed",
+        "hr_dashboard_viewed": "Dashboard viewed",
+        "hr_contract_viewed": "Contract overview viewed",
+        "hr_utilisation_report_viewed": "Utilisation report viewed",
+        "hr_report_exported": "Aggregate report exported",
+        "hr_booking_ledger_viewed": "Booking ledger viewed",
+        "invoice_downloaded": "Invoice downloaded",
+    }
+    return {
+        "activity": [
+            {
+                "action": row.get("action"),
+                "label": labels.get(row.get("action"), "Account activity"),
+                "created_at": row.get("created_at"),
+            }
+            for row in docs
+        ]
     }
 
 

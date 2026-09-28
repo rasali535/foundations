@@ -16,7 +16,8 @@ import {
   Receipt,
   ReceiptText,
   ChevronRight,
-  ExternalLink
+  ExternalLink,
+  KeyRound
 } from 'lucide-react';
 
 const HRLayout = () => {
@@ -64,7 +65,8 @@ const HRLayout = () => {
     { label: 'Utilisation Trends', path: '/hr/utilisation', icon: TrendingUp },
     { label: 'Aggregate Reports', path: '/hr/reports', icon: BarChart3 },
     { label: 'Booking Ledger', path: '/hr/booking-ledger', icon: ReceiptText, roles: ['hr_admin', 'super_admin', 'admin'] },
-    { label: 'Invoices', path: '/hr/invoices', icon: Receipt }
+    { label: 'Invoices', path: '/hr/invoices', icon: Receipt },
+    { label: 'My Account & Security', path: '/hr/account-security', icon: KeyRound, roles: ['hr_admin', 'hr_viewer'] }
   ];
 
   const visibleNavItems = navItems.filter((item) => !item.roles || item.roles.includes(user.role));
