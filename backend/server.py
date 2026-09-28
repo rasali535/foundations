@@ -418,6 +418,8 @@ class ChatLead(BaseModel):
     inquiry_type: Optional[str] = None
     session_id: str
     notes: Optional[str] = None
+    notification_status: Optional[str] = None
+    notification_reference: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
 # ----------------- Domain 2: Clinical Intake & Triage Models -----------------
@@ -685,7 +687,11 @@ async def capture_chat_lead(payload: ChatLeadCreate, request: Request):
             lead.id,
             delivery.get("notification_error"),
         )
-    return lead
+    return ChatLead(**{
+        **lead_doc,
+        "notification_status": delivery.get("notification_status"),
+        "notification_reference": delivery.get("notification_reference"),
+    })
 
 @api_router.get("/chat/leads", response_model=List[ChatLead])
 async def list_chat_leads(user: Dict = Depends(require_role(["staff", "admin", "super_admin"]))):
