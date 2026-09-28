@@ -4,7 +4,7 @@ import bcrypt
 from httpx import AsyncClient, ASGITransport
 from mongomock_motor import AsyncMongoMockClient
 from server import app, USERS_DB, RATE_LIMIT_STORE
-from models import Therapist, Booking
+from models import Therapist, Booking, CRMClient, CRMNote
 from services.therapist_service import DEFAULT_THERAPISTS, TherapistService
 
 @pytest_asyncio.fixture
@@ -512,3 +512,89 @@ async def test_therapist_booking_scope_enforced(test_app):
             },
         )
         assert other_reschedule.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_therapist_crm_note_scope_enforced(test_app):
+    """Therapists may write notes only for assigned clients and may edit/delete only their own notes."""
+    db = test_app.state.db
+
+    assigned_client = CRMClient(
+        id="client-note-assigned",
+        first_name="Assigned",
+        last_name="Client",
+        email="assigned.note@example.com",
+        phone="+26770000001",
+        client_number="FCA-NOTE-001",
+    )
+    unassigned_client = CRMClient(
+        id="client-note-unassigned",
+        first_name="Unassigned",
+        last_name="Client",
+        email="unassigned.note@example.com",
+        phone="+26770000002",
+        client_number="FCA-NOTE-002",
+    )
+    await db.crm_clients.insert_many([
+        assigned_client.model_dump(),
+        unassigned_client.model_dump(),
+    ])
+    await db.bookings.insert_one(Booking(
+        id="booking-note-assigned",
+        client_id=assigned_client.id,
+        therapist_id="therapist-caroline-sithole",
+        therapist_name="Caroline Sithole",
+        session_type="individual",
+        session_mode="in_person",
+        starts_at="2026-11-05T08:00:00Z",
+        ends_at="2026-11-05T09:00:00Z",
+        status="confirmed",
+    ).model_dump())
+
+    other_note = CRMNote(
+        id="note-by-admin",
+        client_id=assigned_client.id,
+        author_user_id="admin",
+        author_name="Admin",
+        content="Admin-owned note",
+    )
+    await db.crm_notes.insert_one(other_note.model_dump())
+
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        login = await ac.post("/api/login", json={
+            "username": "caroline",
+            "password": "carolinepass123",
+        })
+        assert login.status_code == 200
+
+        denied = await ac.post(
+            f"/api/crm/clients/{unassigned_client.id}/notes",
+            json={"content": "Should not be allowed"}
+        )
+        assert denied.status_code == 403
+
+        own_note_res = await ac.post(
+            f"/api/crm/clients/{assigned_client.id}/notes",
+            json={"content": "Therapist-owned note"}
+        )
+        assert own_note_res.status_code == 200
+        own_note_id = own_note_res.json()["id"]
+
+        edit_other = await ac.put(
+            "/api/crm/notes/note-by-admin",
+            json={"content": "Attempted overwrite"}
+        )
+        assert edit_other.status_code == 403
+
+        delete_other = await ac.delete("/api/crm/notes/note-by-admin")
+        assert delete_other.status_code == 403
+
+        edit_own = await ac.put(
+            f"/api/crm/notes/{own_note_id}",
+            json={"content": "Updated therapist note"}
+        )
+        assert edit_own.status_code == 200
+
+        delete_own = await ac.delete(f"/api/crm/notes/{own_note_id}")
+        assert delete_own.status_code == 200
