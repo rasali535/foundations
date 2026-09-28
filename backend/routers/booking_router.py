@@ -45,7 +45,12 @@ def get_current_user(request: Request) -> Dict[str, Any]:
     role = request.session.get("role")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
-    return {"user_id": user_id, "role": role, "name": request.session.get("name", user_id)}
+    return {
+        "user_id": user_id,
+        "role": role,
+        "name": request.session.get("name", user_id),
+        "therapist_id": request.session.get("therapist_id"),
+    }
 
 
 def require_staff_or_therapist(request: Request):
@@ -53,7 +58,20 @@ def require_staff_or_therapist(request: Request):
     allowed = ["super_admin", "admin", "staff", "therapist", "clinical_admin"]
     if user.get("role") not in allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    if user.get("role") == "therapist" and not user.get("therapist_id"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Therapist account is not linked to a therapist profile")
     return user
+
+
+async def _require_therapist_booking_access(db, booking_id: str, user: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if user.get("role") != "therapist":
+        return None
+    booking_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not booking_doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+    if booking_doc.get("therapist_id") != user.get("therapist_id"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access to booking denied")
+    return booking_doc
 
 
 def require_baileys_adapter(request: Request) -> None:
@@ -255,6 +273,8 @@ async def create_single_booking(
     user: Dict = Depends(require_staff_or_therapist)
 ):
     db = get_db(request)
+    if user.get("role") == "therapist":
+        payload = payload.model_copy(update={"therapist_id": user.get("therapist_id")})
     booking, err = await BookingService.create_booking(
         db,
         request=payload,
@@ -273,6 +293,8 @@ async def create_multi_booking(
     user: Dict = Depends(require_staff_or_therapist)
 ):
     db = get_db(request)
+    if user.get("role") == "therapist":
+        payload = payload.model_copy(update={"therapist_id": user.get("therapist_id")})
     result, err = await BookingService.create_multi_booking(
         db,
         request=payload,
@@ -313,6 +335,11 @@ async def reschedule_booking(
     user: Dict = Depends(require_staff_or_therapist)
 ):
     db = get_db(request)
+    await _require_therapist_booking_access(db, booking_id, user)
+    if user.get("role") == "therapist" and payload.therapist_id and payload.therapist_id != user.get("therapist_id"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Therapists cannot transfer bookings to another therapist")
+    if user.get("role") == "therapist":
+        payload = payload.model_copy(update={"therapist_id": user.get("therapist_id")})
     booking, err = await BookingService.reschedule_booking(
         db,
         booking_id=booking_id,
@@ -333,6 +360,7 @@ async def update_booking_status(
     user: Dict = Depends(require_staff_or_therapist)
 ):
     db = get_db(request)
+    await _require_therapist_booking_access(db, booking_id, user)
     booking, err = await BookingService.update_booking_status(
         db,
         booking_id=booking_id,
