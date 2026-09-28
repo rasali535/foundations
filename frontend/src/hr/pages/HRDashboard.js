@@ -192,7 +192,7 @@ const HRDashboard = () => {
 
             <div className="mt-4 space-y-3 text-xs">
               <div className="flex justify-between items-center">
-                <span className="text-slate-500">Contract Session Pool</span>
+                <span className="text-slate-500">Monthly Session Pool</span>
                 <span className="font-black text-slate-900 text-sm">
                   {contract.allocated_sessions != null ? contract.allocated_sessions : 'Not configured'}
                 </span>
@@ -204,7 +204,7 @@ const HRDashboard = () => {
               <div className="flex justify-between items-center">
                 <span className="text-slate-500">Allocation Rule</span>
                 <span className="font-semibold text-slate-700 text-xs text-right">
-                  {contract.base_sessions_per_member || 4} per person
+                  {contract.base_sessions_per_member || 4} per person per month
                   {contract.approved_extra_sessions > 0 ? ` + ${contract.approved_extra_sessions} approved extras` : ''}
                 </span>
               </div>
@@ -222,7 +222,7 @@ const HRDashboard = () => {
               {contract.utilisation_percentage != null && (
                 <div className="pt-2">
                   <div className="flex justify-between text-[11px] font-semibold text-slate-600 mb-1">
-                    <span>Overall Pool Utilisation</span>
+                    <span>Current Month Pool Utilisation</span>
                     <span>{contract.utilisation_percentage}%</span>
                   </div>
                   <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
