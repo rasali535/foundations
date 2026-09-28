@@ -5,6 +5,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from models import (
     Booking, BookingBatch, BookingParticipant,
     BookingCreateRequest, MultiBookingCreateRequest,
+    BookingAssignmentRequest, TherapistBookingDecisionRequest,
     BookingRescheduleRequest, BookingStatusUpdateRequest,
     CRMClient, now_iso
 )
@@ -144,6 +145,383 @@ class BookingService:
                 exc.__class__.__name__
             )
 
+    # ==================== Pending Booking Request Workflow ====================
+    @staticmethod
+    async def create_booking_request(
+        db: AsyncIOMotorDatabase,
+        request: BookingCreateRequest,
+        actor_id: Optional[str] = None,
+        actor_name: Optional[str] = None,
+    ) -> Tuple[Optional[Booking], Optional[str]]:
+        """Store a client-selected slot as pending until a therapist accepts it."""
+        client = await CRMService.get_client_by_id(db, request.client_id) if request.client_id else None
+        if not client:
+            return None, "A valid intake client is required before requesting an appointment."
+
+        session_type = request.session_type.lower()
+        session_mode = request.session_mode.lower()
+        if session_type not in {"individual", "couple", "family"}:
+            return None, "Invalid session type."
+        if session_mode not in {"in_person", "virtual"}:
+            return None, "Invalid session mode."
+
+        try:
+            start_dt = parse_iso(request.starts_at)
+            end_dt = parse_iso(request.ends_at) if request.ends_at else start_dt + timedelta(minutes=60)
+        except Exception as exc:
+            return None, f"Invalid start/end timestamps: {exc}"
+        if end_dt <= start_dt:
+            return None, "Appointment end time must be after start time."
+
+        starts_at_iso = start_dt.isoformat()
+        ends_at_iso = end_dt.isoformat()
+        entitlement_ok, entitlement_error = await BookingService.check_corporate_entitlement(
+            db, client, starts_at_iso
+        )
+        if not entitlement_ok:
+            return None, entitlement_error
+
+        duplicate = await db.bookings.find_one(
+            {
+                "client_id": client.id,
+                "starts_at": starts_at_iso,
+                "status": {"$in": ["pending", "confirmed"]},
+            },
+            {"_id": 0, "id": 1},
+        )
+        if duplicate:
+            return None, "You already have an active booking request for this time."
+
+        participants = [
+            BookingParticipant(
+                client_id=client.id,
+                name=f"{client.first_name} {client.last_name}".strip(),
+                email=client.email,
+                phone=client.phone,
+                participant_role="primary_client",
+                created_at=now_iso(),
+            )
+        ]
+        for item in request.participants:
+            participants.append(
+                BookingParticipant(
+                    name=item.get("name", "Participant"),
+                    email=item.get("email"),
+                    phone=item.get("phone"),
+                    participant_role=item.get(
+                        "participant_role",
+                        "partner" if session_type == "couple" else "family_member",
+                    ),
+                    created_at=now_iso(),
+                )
+            )
+
+        booking = Booking(
+            client_id=client.id,
+            client_number=client.client_number,
+            client_name=f"{client.first_name} {client.last_name}".strip(),
+            client_email=client.email,
+            client_phone=client.phone,
+            therapist_id=None,
+            therapist_name=None,
+            assignment_status="awaiting_assignment",
+            session_type=session_type,
+            session_mode=session_mode,
+            starts_at=starts_at_iso,
+            ends_at=ends_at_iso,
+            status="pending",
+            location=request.location,
+            participants=participants,
+            notes=request.notes,
+            created_at=now_iso(),
+            updated_at=now_iso(),
+        )
+        for participant in booking.participants:
+            participant.booking_id = booking.id
+
+        await db.bookings.insert_one(booking.model_dump())
+        await AuditService.log_activity(
+            db,
+            action="booking_request_received",
+            actor_user_id=actor_id,
+            actor_name=actor_name,
+            client_id=client.id,
+            booking_id=booking.id,
+            metadata={
+                "session_type": session_type,
+                "session_mode": session_mode,
+                "starts_at": starts_at_iso,
+                "source": request.source,
+                "assignment_status": "awaiting_assignment",
+            },
+        )
+        return booking, None
+
+    @staticmethod
+    async def assign_therapist(
+        db: AsyncIOMotorDatabase,
+        booking_id: str,
+        therapist_id: str,
+        actor_id: Optional[str] = None,
+        actor_name: Optional[str] = None,
+    ) -> Tuple[Optional[Booking], Optional[str]]:
+        booking_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+        if not booking_doc:
+            return None, "Booking request not found."
+        if booking_doc.get("status") != "pending":
+            return None, "Only pending booking requests can be assigned."
+
+        therapist, err = await TherapistService.validate_and_route_therapist(
+            db,
+            session_mode=booking_doc.get("session_mode"),
+            therapist_id=therapist_id,
+        )
+        if err or not therapist:
+            return None, err or "The selected therapist is not available for this session mode."
+
+        has_conflict, conflict_error = await BookingService.check_therapist_conflict(
+            db,
+            therapist.id,
+            booking_doc["starts_at"],
+            booking_doc["ends_at"],
+            exclude_booking_id=booking_id,
+        )
+        if has_conflict:
+            return None, conflict_error
+
+        client = await CRMService.get_client_by_id(db, booking_doc["client_id"])
+        if not client:
+            return None, "Client record not found."
+
+        funding_scope = "organisation" if getattr(client, "organisation_id", None) else "private"
+        try:
+            target_start = parse_iso(booking_doc["starts_at"])
+            slots = await SchedulingService.get_available_slots(
+                db,
+                therapist_id=therapist.id,
+                start_date=target_start.date().isoformat(),
+                days_ahead=1,
+                session_type=booking_doc.get("session_type") or "individual",
+                session_mode=booking_doc.get("session_mode") or "virtual",
+                funding_scope=funding_scope,
+            )
+            exact_available = any(
+                slot.get("is_available")
+                and parse_iso(slot.get("starts_at", "")).isoformat() == target_start.isoformat()
+                for slot in slots
+                if slot.get("starts_at")
+            )
+            if not exact_available:
+                return None, "That therapist is not available for the requested time."
+        except Exception as exc:
+            logging.warning(
+                "Booking assignment availability check failed booking_id=%s therapist_id=%s error=%s",
+                booking_id,
+                therapist.id,
+                exc.__class__.__name__,
+            )
+            return None, "Live therapist availability could not be verified. Please try again."
+
+        assigned_at = now_iso()
+        update = {
+            "therapist_id": therapist.id,
+            "therapist_name": therapist.name,
+            "assignment_status": "awaiting_acceptance",
+            "assigned_at": assigned_at,
+            "assigned_by": actor_id or actor_name,
+            "therapist_response_at": None,
+            "therapist_decline_reason": None,
+            "updated_at": assigned_at,
+        }
+        await db.bookings.update_one({"id": booking_id}, {"$set": update})
+        updated_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+        booking = Booking(**updated_doc)
+
+        try:
+            await TherapistNotificationService.send_booking_whatsapp(
+                db, therapist, client, [booking]
+            )
+        except Exception as exc:
+            logging.warning(
+                "Therapist assignment notification failed booking_id=%s error=%s",
+                booking_id,
+                exc.__class__.__name__,
+            )
+
+        await AuditService.log_activity(
+            db,
+            action="booking_therapist_assigned",
+            actor_user_id=actor_id,
+            actor_name=actor_name,
+            client_id=booking.client_id,
+            booking_id=booking.id,
+            metadata={
+                "therapist_id": therapist.id,
+                "assignment_status": "awaiting_acceptance",
+            },
+        )
+        return booking, None
+
+    @staticmethod
+    async def therapist_decision(
+        db: AsyncIOMotorDatabase,
+        booking_id: str,
+        therapist_id: str,
+        decision: str,
+        reason: Optional[str] = None,
+        actor_id: Optional[str] = None,
+        actor_name: Optional[str] = None,
+    ) -> Tuple[Optional[Booking], Optional[str]]:
+        booking_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+        if not booking_doc:
+            return None, "Booking request not found."
+        if booking_doc.get("status") != "pending":
+            return None, "This booking request is no longer awaiting confirmation."
+        if booking_doc.get("therapist_id") != therapist_id:
+            return None, "This booking request is not assigned to this therapist."
+        if booking_doc.get("assignment_status") != "awaiting_acceptance":
+            return None, "This assignment is not awaiting a therapist response."
+
+        normalized = (decision or "").strip().lower()
+        if normalized not in {"accept", "decline"}:
+            return None, "Decision must be accept or decline."
+
+        response_at = now_iso()
+        if normalized == "decline":
+            await db.bookings.update_one(
+                {"id": booking_id},
+                {"$set": {
+                    "therapist_id": None,
+                    "therapist_name": None,
+                    "assignment_status": "declined",
+                    "therapist_response_at": response_at,
+                    "therapist_decline_reason": (reason or "").strip() or None,
+                    "updated_at": response_at,
+                }},
+            )
+            updated_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+            booking = Booking(**updated_doc)
+            await AuditService.log_activity(
+                db,
+                action="booking_therapist_declined",
+                actor_user_id=actor_id,
+                actor_name=actor_name,
+                client_id=booking.client_id,
+                booking_id=booking.id,
+                metadata={"therapist_id": therapist_id, "reason": (reason or "").strip() or None},
+            )
+            return booking, None
+
+        therapist = await TherapistService.get_therapist_by_id(db, therapist_id)
+        if not therapist:
+            return None, "Therapist record not found."
+        has_conflict, conflict_error = await BookingService.check_therapist_conflict(
+            db,
+            therapist_id,
+            booking_doc["starts_at"],
+            booking_doc["ends_at"],
+            exclude_booking_id=booking_id,
+        )
+        if has_conflict:
+            return None, conflict_error
+
+        client = await CRMService.get_client_by_id(db, booking_doc["client_id"])
+        if not client:
+            return None, "Client record not found."
+
+        funding_scope = "organisation" if getattr(client, "organisation_id", None) else "private"
+        try:
+            target_start = parse_iso(booking_doc["starts_at"])
+            slots = await SchedulingService.get_available_slots(
+                db,
+                therapist_id=therapist_id,
+                start_date=target_start.date().isoformat(),
+                days_ahead=1,
+                session_type=booking_doc.get("session_type") or "individual",
+                session_mode=booking_doc.get("session_mode") or "virtual",
+                funding_scope=funding_scope,
+            )
+            exact_available = any(
+                slot.get("is_available")
+                and parse_iso(slot.get("starts_at", "")).isoformat() == target_start.isoformat()
+                for slot in slots
+                if slot.get("starts_at")
+            )
+            if not exact_available:
+                return None, "The requested time is no longer available. Ask FCA to reassign or reschedule it."
+        except Exception:
+            return None, "Live availability could not be verified. Please try again."
+
+        location = booking_doc.get("location") or (
+            therapist.default_location if booking_doc.get("session_mode") == "in_person" else None
+        )
+        virtual_link = booking_doc.get("virtual_meeting_link") or (
+            therapist.virtual_meeting_link_template if booking_doc.get("session_mode") == "virtual" else None
+        )
+        booking_for_sync = Booking(**{
+            **booking_doc,
+            "location": location,
+            "virtual_meeting_link": virtual_link,
+        })
+
+        sync_fields = {}
+        if SchedulingService.provider() == "setmore":
+            try:
+                sync = await SetmoreService.create_appointment_for_booking(db, booking_for_sync, client)
+                sync_fields = {
+                    "setmore_appointment_id": sync["appointment_id"],
+                    "setmore_staff_key": sync["staff_key"],
+                    "setmore_service_key": sync["service_key"],
+                    "setmore_customer_key": sync["customer_key"],
+                    "setmore_sync_status": "synced",
+                    "setmore_synced_at": now_iso(),
+                    "setmore_sync_error": None,
+                }
+            except Exception as exc:
+                logging.error(
+                    "Setmore acceptance sync failed booking_id=%s error=%s",
+                    booking_id,
+                    exc.__class__.__name__,
+                )
+                return None, "Setmore could not confirm this appointment. Please ask FCA to review the booking."
+
+        final_fields = {
+            "status": "confirmed",
+            "assignment_status": "accepted",
+            "therapist_response_at": response_at,
+            "location": location,
+            "virtual_meeting_link": virtual_link,
+            "updated_at": now_iso(),
+            **sync_fields,
+        }
+        await db.bookings.update_one({"id": booking_id}, {"$set": final_fields})
+        updated_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+        booking = Booking(**updated_doc)
+
+        try:
+            await NotificationService.send_booking_email(db, client, [booking])
+        except Exception as exc:
+            logging.warning("Accepted booking email failed booking_id=%s error=%s", booking_id, exc.__class__.__name__)
+        try:
+            await NotificationService.send_booking_whatsapp(db, client, [booking])
+        except Exception as exc:
+            logging.warning("Accepted booking WhatsApp failed booking_id=%s error=%s", booking_id, exc.__class__.__name__)
+
+        await AuditService.log_activity(
+            db,
+            action="booking_therapist_accepted",
+            actor_user_id=actor_id,
+            actor_name=actor_name,
+            client_id=booking.client_id,
+            booking_id=booking.id,
+            metadata={
+                "therapist_id": therapist_id,
+                "status": "confirmed",
+                "assignment_status": "accepted",
+            },
+        )
+        return booking, None
+
     # ==================== Single Booking Creation ====================
     @staticmethod
     async def create_booking(
@@ -253,6 +631,9 @@ class BookingService:
             client_phone=client.phone,
             therapist_id=therapist.id,
             therapist_name=therapist.name,
+            assignment_status="accepted",
+            assigned_at=now_iso(),
+            therapist_response_at=now_iso(),
             session_type=session_type,
             session_mode=session_mode,
             starts_at=starts_at_iso,
