@@ -162,3 +162,70 @@ async def test_resend_transport_uses_verified_sender_and_reply_to(monkeypatch):
     assert captured["json"]["from"] == "Foundations Counselling Academy <notifications@academyfoundations.com>"
     assert captured["json"]["to"] == ["info@academyfoundations.com"]
     assert captured["json"]["reply_to"] == "visitor@example.com"
+
+
+@pytest.mark.asyncio
+async def test_intake_resend_alert_excludes_clinical_content(form_test_app, monkeypatch):
+    test_app, mock_db = form_test_app
+    captured = {}
+
+    async def fake_secure_intake_alert(payload):
+        captured.update(payload)
+        return {
+            "notification_status": "sent",
+            "notification_reference": "resend-intake-safe-123",
+            "notification_error": None,
+        }
+
+    monkeypatch.setattr(NotificationService, "send_secure_intake_alert", fake_secure_intake_alert)
+
+    distinctive_reason = "DISTINCTIVE_PRIVATE_THERAPY_REASON"
+    distinctive_risk = "DISTINCTIVE_PRIVATE_SAFETY_DETAIL"
+    distinctive_contact = "DISTINCTIVE_EMERGENCY_CONTACT"
+
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/api/clinical/intake", json={
+            "full_name": "Privacy Test Client",
+            "dob": "1990-01-01",
+            "phone": "+26770000111",
+            "email": "privacy-test@example.com",
+            "preferred_contact_method": "Email",
+            "emergency_contact_name": distinctive_contact,
+            "emergency_contact_relationship": "Relative",
+            "emergency_contact_phone": "+26770000222",
+            "reason_for_seeking_therapy": distinctive_reason,
+            "support_needed": ["Stress"],
+            "wellbeing_symptoms": ["Anxiety"],
+            "safety_screen": {
+                "self_harm": "No",
+                "harm_others": "No",
+                "unsafe_environment": "No",
+                "abuse_experienced": "Yes",
+                "risk_explanation": distinctive_risk,
+            },
+            "previous_mental_health_support": "No",
+            "current_medication": "No",
+            "consent_acknowledged": True,
+            "typed_signature": "Privacy Test Client",
+            "consent_date": "2026-09-28",
+        })
+
+    assert response.status_code == 200
+    result = response.json()
+    assert set(captured.keys()) == {"intake_id", "created_at", "source_type"}
+    assert captured["intake_id"] == result["intake_id"]
+
+    serialized_alert = str(captured)
+    assert distinctive_reason not in serialized_alert
+    assert distinctive_risk not in serialized_alert
+    assert distinctive_contact not in serialized_alert
+    assert "privacy-test@example.com" not in serialized_alert
+    assert "Privacy Test Client" not in serialized_alert
+
+    stored = await mock_db.crm_intake_submissions.find_one(
+        {"id": result["intake_id"]},
+        {"_id": 0}
+    )
+    assert stored["notification_status"] == "sent"
+    assert stored["notification_reference"] == "resend-intake-safe-123"
