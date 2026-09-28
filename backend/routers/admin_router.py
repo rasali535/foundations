@@ -4,6 +4,7 @@ from io import BytesIO
 from zipfile import BadZipFile, ZipFile
 import re
 import bcrypt
+from pydantic import BaseModel
 from models import (
     NotificationLog, CRMActivityLog,
     Organisation, OrganisationCreate, OrganisationUpdate,
@@ -17,6 +18,11 @@ from services.audit_service import AuditService
 from services.corporate_entitlement_service import CorporateEntitlementService
 
 admin_router = APIRouter(prefix="/admin-ops", tags=["Admin Operations"])
+
+class StaffWhatsAppAdminUpdate(BaseModel):
+    whatsapp_phone: Optional[str] = None
+    whatsapp_admin_enabled: bool = False
+
 
 def get_db(request: Request):
     return request.app.state.db
@@ -342,8 +348,66 @@ async def list_staff_users(
             "active": 1,
             "organisation_id": 1,
             "therapist_id": 1,
+            "whatsapp_phone": 1,
+            "whatsapp_admin_enabled": 1,
         },
     ).sort("name", 1).to_list(5000)
+
+
+@admin_router.patch("/staff-users/{staff_user_id:path}/whatsapp")
+async def update_staff_whatsapp_admin(
+    staff_user_id: str,
+    payload: StaffWhatsAppAdminUpdate,
+    request: Request,
+    user: Dict = Depends(require_super_admin),
+):
+    db = get_db(request)
+    normalized = str(staff_user_id or "").strip().lower()
+    account = await db.staff_users.find_one(
+        {"user_id": {"$regex": f"^{re.escape(normalized)}$", "$options": "i"}},
+        {"_id": 0},
+    )
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Staff user not found.")
+    if account.get("role") != "super_admin" and payload.whatsapp_admin_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="WhatsApp booking assignment is restricted to Super Admin accounts.",
+        )
+
+    raw = str(payload.whatsapp_phone or "").strip()
+    digits = re.sub(r"\D", "", raw)
+    clean_phone = f"+{digits}" if raw.startswith("+") and 8 <= len(digits) <= 15 else None
+    if payload.whatsapp_admin_enabled and not clean_phone:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter a valid international WhatsApp number, for example +2677XXXXXXX.",
+        )
+
+    await db.staff_users.update_one(
+        {"user_id": account.get("user_id")},
+        {"$set": {
+            "whatsapp_phone": clean_phone,
+            "whatsapp_admin_enabled": bool(payload.whatsapp_admin_enabled),
+            "updated_at": now_iso(),
+        }},
+    )
+    await AuditService.log_activity(
+        db,
+        action="super_admin_whatsapp_updated",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        metadata={
+            "staff_user_id": normalized,
+            "enabled": bool(payload.whatsapp_admin_enabled),
+        },
+    )
+    return {
+        "status": "updated",
+        "user_id": normalized,
+        "whatsapp_phone": clean_phone,
+        "whatsapp_admin_enabled": bool(payload.whatsapp_admin_enabled),
+    }
 
 
 @admin_router.delete("/staff-users/{staff_user_id:path}")
