@@ -225,10 +225,7 @@ class WhatsAppBookingBotService:
             )
         lines = ["Available appointments:"]
         for index, slot in enumerate(slots, 1):
-            lines.append(
-                f"{index}. {_format_cat(slot['starts_at'])} — "
-                f"{slot.get('therapist_name') or 'FCA therapist'}"
-            )
+            lines.append(f"{index}. {_format_cat(slot['starts_at'])}")
         lines.append("\nReply with the appointment number, or MENU to go back.")
         return "\n".join(lines)
 
@@ -432,8 +429,8 @@ class WhatsAppBookingBotService:
                 "Confirm this appointment?\n\n"
                 f"{_format_cat(selected['starts_at'])}\n"
                 f"{context.get('session_type', 'session').capitalize()} — "
-                f"{'Virtual' if context.get('session_mode') == 'virtual' else 'In-Person'}\n"
-                f"Therapist: {selected.get('therapist_name') or 'FCA therapist'}\n\n"
+                f"{'Virtual' if context.get('session_mode') == 'virtual' else 'In-Person'}\n\n"
+                "A suitable therapist will be assigned based on availability and your counselling needs.\n\n"
                 "1. Confirm\n2. Choose another time"
             )
 
@@ -489,8 +486,8 @@ class WhatsAppBookingBotService:
                 )
             return (
                 "Your FCA appointment has been booked successfully. ✅\n"
-                f"{_format_cat(booking.starts_at)}\n"
-                f"Therapist: {booking.therapist_name or 'FCA therapist'}\n\n"
+                f"{_format_cat(booking.starts_at)}\n\n"
+                "A suitable therapist will be assigned based on availability and your counselling needs.\n\n"
                 "A booking confirmation has also been sent. Send MENU for more options."
             )
 
