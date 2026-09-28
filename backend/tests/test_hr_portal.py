@@ -227,6 +227,8 @@ async def test_aggregate_metrics_and_contract_calculations(hr_test_app):
         {"client_id": "client-02", "therapist_id": "therapist-caroline-sithole", "session_type": "individual", "session_mode": "in_person", "status": "completed", "starts_at": "2026-09-05T10:00:00Z", "ends_at": "2026-09-05T11:00:00Z"},
         {"client_id": "client-02", "therapist_id": "therapist-alpheaus-chiwaze", "session_type": "individual", "session_mode": "virtual", "status": "confirmed", "starts_at": "2026-09-12T11:00:00Z", "ends_at": "2026-09-12T12:00:00Z"},
         {"client_id": "client-02", "therapist_id": "therapist-caroline-sithole", "session_type": "couple", "session_mode": "in_person", "status": "cancelled", "starts_at": "2026-09-19T10:00:00Z", "ends_at": "2026-09-19T11:00:00Z"},
+        # Previous-month organisation booking: MUST NOT consume the current monthly pool.
+        {"client_id": "client-01", "therapist_id": "therapist-caroline-sithole", "session_type": "individual", "session_mode": "in_person", "status": "completed", "starts_at": "2026-08-20T08:00:00Z", "ends_at": "2026-08-20T09:00:00Z"},
         # Private Client (MUST NOT be counted in BTC metrics)
         {"client_id": "client-03", "therapist_id": "therapist-caroline-sithole", "session_type": "individual", "session_mode": "in_person", "status": "completed", "starts_at": "2026-09-01T08:00:00Z", "ends_at": "2026-09-01T09:00:00Z"},
     ]
@@ -272,8 +274,10 @@ async def test_aggregate_metrics_and_contract_calculations(hr_test_app):
         assert data["session_modes"]["in_person"]["count"] == 5
         assert data["session_modes"]["in_person"]["percentage"] == 62.5
 
-        # Contract: Allocated 200, Used 7 (5 completed + 2 confirmed), Remaining 193, Utilisation = 3.5%
+        # Contract is monthly: 200 allocated for September, 7 used in September.
+        # The completed August booking must not reduce September's pool.
         assert data["contract"]["allocated_sessions"] == 200
+        assert data["contract"]["allocation_month"] == "2026-09"
         assert data["contract"]["sessions_used"] == 7
         assert data["contract"]["sessions_remaining"] == 193
         assert data["contract"]["utilisation_percentage"] == 3.5
