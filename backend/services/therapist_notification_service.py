@@ -22,6 +22,10 @@ WHATSAPP_THERAPIST_TEMPLATE_NAME = os.environ.get(
     "WHATSAPP_THERAPIST_TEMPLATE_NAME", "fca_therapist_booking_notification"
 )
 WHATSAPP_TEMPLATE_LANGUAGE = os.environ.get("WHATSAPP_TEMPLATE_LANGUAGE", "en")
+WHATSAPP_THERAPIST_TEMPLATE_LANGUAGE = os.environ.get(
+    "WHATSAPP_THERAPIST_TEMPLATE_LANGUAGE",
+    WHATSAPP_TEMPLATE_LANGUAGE,
+).strip()
 CAT_TZ = ZoneInfo("Africa/Gaborone")
 
 
@@ -38,6 +42,43 @@ def _format_booking_datetime(value: str) -> tuple[str, str]:
         dt = dt.replace(tzinfo=timezone.utc)
     dt = dt.astimezone(CAT_TZ)
     return dt.strftime("%a %d %b %Y"), dt.strftime("%H:%M CAT")
+
+
+def _meta_error_code(response: Optional[requests.Response]) -> Optional[int]:
+    if response is None:
+        return None
+    try:
+        body = response.json()
+    except Exception:
+        return None
+    if not isinstance(body, dict):
+        return None
+    error = body.get("error")
+    if isinstance(error, dict):
+        try:
+            return int(error.get("code"))
+        except (TypeError, ValueError):
+            return None
+    try:
+        return int(body.get("code"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _therapist_language_candidates() -> List[str]:
+    """Try the configured therapist locale first, then safe English fallbacks."""
+    candidates = [
+        WHATSAPP_THERAPIST_TEMPLATE_LANGUAGE,
+        WHATSAPP_TEMPLATE_LANGUAGE,
+        "en_US",
+        "en",
+    ]
+    ordered: List[str] = []
+    for value in candidates:
+        clean = str(value or "").strip()
+        if clean and clean not in ordered:
+            ordered.append(clean)
+    return ordered
 
 
 def _safe_provider_error(response: Optional[requests.Response] = None, exc: Optional[Exception] = None) -> str:
@@ -227,50 +268,52 @@ class TherapistNotificationService:
         first = bookings[0]
         date_str, time_str = _format_booking_datetime(first.starts_at)
         mode = "In-Person" if first.session_mode == "in_person" else "Virtual"
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": recipient,
-            "type": "template",
-            "template": {
-                "name": WHATSAPP_THERAPIST_TEMPLATE_NAME,
-                "language": {"code": WHATSAPP_TEMPLATE_LANGUAGE},
-                "components": [
-                    {
-                        "type": "body",
-                        "parameters": [
-                            {"type": "text", "parameter_name": "therapist_name", "text": str(target.get("name") or "Therapist")},
-                            {"type": "text", "parameter_name": "client_name", "text": f"{client.first_name} {client.last_name}".strip() or "Client"},
-                            {"type": "text", "parameter_name": "client_number", "text": client.client_number},
-                            {"type": "text", "parameter_name": "appointment_date", "text": date_str},
-                            {"type": "text", "parameter_name": "appointment_time", "text": time_str},
-                            {"type": "text", "parameter_name": "session_type", "text": first.session_type.capitalize()},
-                            {"type": "text", "parameter_name": "session_mode", "text": mode}
-                        ]
-                    },
-                    {
-                        "type": "button",
-                        "sub_type": "quick_reply",
-                        "index": "0",
-                        "parameters": [{
-                            "type": "payload",
-                            "payload": f"FCA_BOOKING_ACCEPT:{first.id}"
-                        }]
-                    },
-                    {
-                        "type": "button",
-                        "sub_type": "quick_reply",
-                        "index": "1",
-                        "parameters": [{
-                            "type": "payload",
-                            "payload": f"FCA_BOOKING_DECLINE:{first.id}"
-                        }]
-                    }
-                ]
+        def _build_payload(language_code: str) -> Dict[str, Any]:
+            return {
+                "messaging_product": "whatsapp",
+                "to": recipient,
+                "type": "template",
+                "template": {
+                    "name": WHATSAPP_THERAPIST_TEMPLATE_NAME,
+                    "language": {"code": language_code},
+                    "components": [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "parameter_name": "therapist_name", "text": str(target.get("name") or "Therapist")},
+                                {"type": "text", "parameter_name": "client_name", "text": f"{client.first_name} {client.last_name}".strip() or "Client"},
+                                {"type": "text", "parameter_name": "client_number", "text": client.client_number},
+                                {"type": "text", "parameter_name": "appointment_date", "text": date_str},
+                                {"type": "text", "parameter_name": "appointment_time", "text": time_str},
+                                {"type": "text", "parameter_name": "session_type", "text": first.session_type.capitalize()},
+                                {"type": "text", "parameter_name": "session_mode", "text": mode}
+                            ]
+                        },
+                        {
+                            "type": "button",
+                            "sub_type": "quick_reply",
+                            "index": "0",
+                            "parameters": [{
+                                "type": "payload",
+                                "payload": f"FCA_BOOKING_ACCEPT:{first.id}"
+                            }]
+                        },
+                        {
+                            "type": "button",
+                            "sub_type": "quick_reply",
+                            "index": "1",
+                            "parameters": [{
+                                "type": "payload",
+                                "payload": f"FCA_BOOKING_DECLINE:{first.id}"
+                            }]
+                        }
+                    ]
+                }
             }
-        }
+
         url = f"{WHATSAPP_API_URL}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
 
-        def _send_provider():
+        def _send_provider(payload: Dict[str, Any]):
             return requests.post(
                 url,
                 json=payload,
@@ -281,31 +324,52 @@ class TherapistNotificationService:
                 timeout=15
             )
 
-
         try:
-            response = await asyncio.to_thread(_send_provider)
-            if response.status_code in (200, 201, 202):
-                body = response.json() if response.content else {}
-                log_entry.status = "sent"
-                log_entry.sent_at = now_iso()
-                messages = body.get("messages") if isinstance(body, dict) else None
-                meta_id = messages[0].get("id") if messages and isinstance(messages[0], dict) else None
-                log_entry.provider_reference = str(
-                    meta_id or body.get("message_id") or body.get("id") or "meta-accepted"
-                )
-                logging.info(
-                    "Therapist WhatsApp notification accepted via Meta: therapist_id=%s recipient=%s",
-                    therapist_id,
-                    _mask_recipient(raw_recipient)
-                )
-            else:
-                log_entry.status = "failed"
-                log_entry.error_message = f"Meta therapist notification rejected: {_safe_provider_error(response=response)}"
+            response = None
+            attempted_languages: List[str] = []
+            for language_code in _therapist_language_candidates():
+                attempted_languages.append(language_code)
+                payload = _build_payload(language_code)
+                response = await asyncio.to_thread(_send_provider, payload)
+
+                if response.status_code in (200, 201, 202):
+                    body = response.json() if response.content else {}
+                    log_entry.status = "sent"
+                    log_entry.sent_at = now_iso()
+                    messages = body.get("messages") if isinstance(body, dict) else None
+                    meta_id = messages[0].get("id") if messages and isinstance(messages[0], dict) else None
+                    log_entry.provider_reference = str(
+                        meta_id or body.get("message_id") or body.get("id") or "meta-accepted"
+                    )
+                    logging.info(
+                        "Therapist WhatsApp notification accepted via Meta: therapist_id=%s recipient=%s template=%s language=%s",
+                        therapist_id,
+                        _mask_recipient(raw_recipient),
+                        WHATSAPP_THERAPIST_TEMPLATE_NAME,
+                        language_code,
+                    )
+                    break
+
+                error_code = _meta_error_code(response)
                 logging.warning(
-                    "Therapist WhatsApp notification rejected: therapist_id=%s detail=%s",
+                    "Therapist WhatsApp template attempt rejected: therapist_id=%s template=%s language=%s code=%s detail=%s",
                     therapist_id,
-                    _safe_provider_error(response=response)
+                    WHATSAPP_THERAPIST_TEMPLATE_NAME,
+                    language_code,
+                    error_code,
+                    _safe_provider_error(response=response),
                 )
+                if error_code != 132001:
+                    break
+
+            if log_entry.status != "sent":
+                log_entry.status = "failed"
+                detail = _safe_provider_error(response=response)
+                log_entry.error_message = (
+                    f"Meta therapist notification rejected: {detail}; "
+                    f"template={WHATSAPP_THERAPIST_TEMPLATE_NAME}; "
+                    f"languages={','.join(attempted_languages)}"
+                )[:500]
         except Exception as exc:
             log_entry.status = "failed"
             log_entry.error_message = f"Therapist WhatsApp delivery error: {_safe_provider_error(exc=exc)}"
