@@ -47,23 +47,29 @@ EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', 'dummy_key')
 
 # ----------------- In-Memory Rate Limiting Engine -----------------
 RATE_LIMIT_STORE: Dict[str, List[float]] = {}
-def check_rate_limit(request: Request, limit: int = 15, window_seconds: int = 60):
+def check_rate_limit(
+    request: Request,
+    limit: int = 15,
+    window_seconds: int = 60,
+    bucket: Optional[str] = None,
+):
     client_ip = request.client.host if request.client else "127.0.0.1"
+    store_key = f"{client_ip}:{bucket}" if bucket else client_ip
     now = time.time()
-    if client_ip not in RATE_LIMIT_STORE:
-        RATE_LIMIT_STORE[client_ip] = []
-    
-    RATE_LIMIT_STORE[client_ip] = [t for t in RATE_LIMIT_STORE[client_ip] if now - t < window_seconds]
-    
-    if len(RATE_LIMIT_STORE[client_ip]) >= limit:
-        retry_after = int(window_seconds - (now - RATE_LIMIT_STORE[client_ip][0]))
+    if store_key not in RATE_LIMIT_STORE:
+        RATE_LIMIT_STORE[store_key] = []
+
+    RATE_LIMIT_STORE[store_key] = [t for t in RATE_LIMIT_STORE[store_key] if now - t < window_seconds]
+
+    if len(RATE_LIMIT_STORE[store_key]) >= limit:
+        retry_after = int(window_seconds - (now - RATE_LIMIT_STORE[store_key][0]))
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Rate limit exceeded. Please retry shortly.",
             headers={"Retry-After": str(max(retry_after, 1))}
         )
-    
-    RATE_LIMIT_STORE[client_ip].append(now)
+
+    RATE_LIMIT_STORE[store_key].append(now)
 
 from contextlib import asynccontextmanager
 
@@ -473,8 +479,11 @@ async def login(request: Request, payload: Optional[LoginRequest] = None, userna
     user_key = raw_key.strip().lower() if raw_key else ""
     user_pass = payload.password if payload else password
 
-    # Slow credential-stuffing/brute-force attempts without changing normal login UX.
-    check_rate_limit(request, limit=10, window_seconds=300)
+    # Slow credential-stuffing/brute-force attempts without locking out a whole
+    # corporate NAT after a few normal logins.
+    check_rate_limit(request, limit=60, window_seconds=300, bucket="login-ip")
+    if user_key:
+        check_rate_limit(request, limit=10, window_seconds=300, bucket=f"login-user:{user_key}")
 
     target_db = request.app.state.db if hasattr(request.app.state, 'db') and request.app.state.db is not None else db
     if not user_key:
