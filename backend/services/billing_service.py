@@ -3,6 +3,7 @@ from decimal import Decimal
 import io
 import logging
 import html
+from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from uuid import uuid4
 from fastapi import HTTPException, status
@@ -25,7 +26,7 @@ from services.audit_service import AuditService
 # ReportLab imports for safe PDF generation
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 
@@ -658,9 +659,23 @@ class BillingService:
         issuer_subtitle = "<br/>".join(safe(v) for v in issuer_subtitle_parts if v)
 
         # Header Block
+        logo_path = Path(__file__).resolve().parents[1] / "assets" / "foundations-logo.png"
+        brand_parts = []
+        if logo_path.exists():
+            brand_parts.append(RLImage(str(logo_path), width=72, height=72))
+        brand_parts.append(Paragraph(safe(issuer_name).upper(), title_style))
+        brand_table = Table([[part] for part in brand_parts], colWidths=[330])
+        brand_table.setStyle(TableStyle([
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ]))
+
         header_table_data = [
             [
-                Paragraph(safe(issuer_name).upper(), title_style),
+                brand_table,
                 Paragraph(f"INVOICE<br/><b>{safe(invoice.invoice_number)}</b>", ParagraphStyle(
                     'InvNum', parent=styles['Heading2'], fontName='Helvetica-Bold', fontSize=14, leading=17, alignment=TA_RIGHT, textColor=colors.HexColor("#0f766e")
                 ))
