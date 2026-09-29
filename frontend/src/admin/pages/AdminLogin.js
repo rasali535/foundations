@@ -46,7 +46,7 @@ const AdminLogin = () => {
           Staff & Admin Portal
         </h2>
         <p className="mt-1 text-xs text-slate-400">
-          Foundations Counselling & Advisory • Pameltex Psychosocial Services
+          Foundations Counselling Academy • Pameltex Psychosocial Services
         </p>
       </div>
 
