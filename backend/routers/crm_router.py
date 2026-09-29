@@ -443,25 +443,56 @@ async def link_client_to_organisation_history(
         )
 
     booking_ids = list(dict.fromkeys(payload.booking_ids or []))
-    if not booking_ids:
+    manual_sessions = list(payload.historical_sessions or [])
+    if not booking_ids and not manual_sessions:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Select at least one previous booking date to attribute to this organisation.",
+            detail="Select an existing previous booking or add at least one historical session.",
         )
 
-    bookings = await db.bookings.find(
-        {"id": {"$in": booking_ids}, "client_id": client_id},
-        {"_id": 0},
-    ).to_list(len(booking_ids))
-    if len(bookings) != len(booking_ids):
-        found_ids = {row.get("id") for row in bookings}
-        missing = [booking_id for booking_id in booking_ids if booking_id not in found_ids]
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"One or more selected bookings do not belong to this client: {', '.join(missing[:5])}",
-        )
+    bookings = []
+    if booking_ids:
+        bookings = await db.bookings.find(
+            {"id": {"$in": booking_ids}, "client_id": client_id},
+            {"_id": 0},
+        ).to_list(len(booking_ids))
+        if len(bookings) != len(booking_ids):
+            found_ids = {row.get("id") for row in bookings}
+            missing = [booking_id for booking_id in booking_ids if booking_id not in found_ids]
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"One or more selected bookings do not belong to this client: {', '.join(missing[:5])}",
+            )
 
     now = datetime.now(timezone.utc)
+    validated_manual_sessions = []
+    for index, session in enumerate(manual_sessions):
+        if session.session_type not in ["individual", "couple", "family"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Historical session {index + 1} has an invalid session type.",
+            )
+        if session.session_mode not in ["in_person", "virtual"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Historical session {index + 1} has an invalid session mode.",
+            )
+        try:
+            starts_at = datetime.fromisoformat(str(session.starts_at or "").replace("Z", "+00:00"))
+            if starts_at.tzinfo is None:
+                starts_at = starts_at.replace(tzinfo=timezone.utc)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Historical session {index + 1} has an invalid date.",
+            )
+        if starts_at > now:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Future dates cannot be added as historical organisation sessions.",
+            )
+        validated_manual_sessions.append((session, starts_at))
+
     for booking in bookings:
         try:
             starts_at = datetime.fromisoformat(str(booking.get("starts_at") or "").replace("Z", "+00:00"))
@@ -531,10 +562,11 @@ async def link_client_to_organisation_history(
         )
 
     linked_at = now_iso()
+    organisation_contact_id = contact_doc.get("id") if contact_doc else client.get("organisation_contact_id")
     client_update = {
         "organisation_id": payload.organisation_id,
         "organisation_name": organisation.get("name"),
-        "organisation_contact_id": contact_doc.get("id") if contact_doc else client.get("organisation_contact_id"),
+        "organisation_contact_id": organisation_contact_id,
         "organisation_linked_at": linked_at,
         "organisation_link_source": "historical_migration",
         "updated_at": linked_at,
@@ -544,21 +576,62 @@ async def link_client_to_organisation_history(
     booking_update = {
         "organisation_id": payload.organisation_id,
         "organisation_name": organisation.get("name"),
-        "organisation_contact_id": contact_doc.get("id") if contact_doc else client.get("organisation_contact_id"),
+        "organisation_contact_id": organisation_contact_id,
         "organisation_attribution_source": "historical_migration",
         "organisation_attributed_at": linked_at,
         "organisation_attributed_by": user.get("user_id"),
         "updated_at": linked_at,
     }
-    await db.bookings.update_many(
-        {"id": {"$in": booking_ids}, "client_id": client_id},
-        {"$set": booking_update},
-    )
+    if booking_ids:
+        await db.bookings.update_many(
+            {"id": {"$in": booking_ids}, "client_id": client_id},
+            {"$set": booking_update},
+        )
 
+    created_historical_ids = []
+    if validated_manual_sessions:
+        imported_bookings = []
+        for session, starts_at in validated_manual_sessions:
+            booking_id = str(__import__("uuid").uuid4())
+            created_historical_ids.append(booking_id)
+            ends_at = starts_at + timedelta(hours=1)
+            imported_bookings.append({
+                "id": booking_id,
+                "booking_batch_id": None,
+                "client_id": client_id,
+                "client_number": client.get("client_number"),
+                "client_name": " ".join(
+                    part for part in [client.get("first_name"), client.get("last_name")] if part
+                ).strip() or None,
+                "client_email": client.get("email"),
+                "client_phone": client.get("phone"),
+                "organisation_id": payload.organisation_id,
+                "organisation_name": organisation.get("name"),
+                "organisation_contact_id": organisation_contact_id,
+                "organisation_attribution_source": "historical_migration",
+                "organisation_attributed_at": linked_at,
+                "organisation_attributed_by": user.get("user_id"),
+                "therapist_id": None,
+                "therapist_name": None,
+                "assignment_status": "accepted",
+                "session_type": session.session_type,
+                "session_mode": session.session_mode,
+                "starts_at": starts_at.isoformat(),
+                "ends_at": ends_at.isoformat(),
+                "status": "completed",
+                "participants": [],
+                "notes": session.notes or "Historical session imported by admin.",
+                "active_invoice_id": None,
+                "created_at": linked_at,
+                "updated_at": linked_at,
+            })
+        await db.bookings.insert_many(imported_bookings)
+
+    all_attributed_ids = booking_ids + created_historical_ids
     attributed = await db.bookings.find(
-        {"id": {"$in": booking_ids}, "client_id": client_id},
+        {"id": {"$in": all_attributed_ids}, "client_id": client_id},
         {"_id": 0},
-    ).sort("starts_at", 1).to_list(len(booking_ids))
+    ).sort("starts_at", 1).to_list(len(all_attributed_ids))
 
     await AuditService.log_activity(
         db,
@@ -570,7 +643,8 @@ async def link_client_to_organisation_history(
             "organisation_id": payload.organisation_id,
             "organisation_name": organisation.get("name"),
             "organisation_contact_id": contact_doc.get("id") if contact_doc else None,
-            "booking_ids": booking_ids,
+            "booking_ids": all_attributed_ids,
+            "created_historical_booking_ids": created_historical_ids,
             "booking_dates": [row.get("starts_at") for row in attributed],
             "historical_booking_count": len(attributed),
             "added_to_roster": bool(payload.add_to_roster),
