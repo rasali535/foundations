@@ -125,6 +125,39 @@ class HRReportingService:
         return client_ids
 
     @staticmethod
+    async def _organisation_booking_query(
+        db: AsyncIOMotorDatabase,
+        org_id: str,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Resolve bookings attributable to an organisation without sweeping in private history.
+
+        Explicit booking-level attribution is authoritative. Older corporate clients that
+        pre-date booking-level attribution retain the legacy client-link fallback. Clients
+        migrated through the historical-link workflow are excluded from that fallback so
+        only the bookings an admin explicitly selected are counted historically.
+        """
+        legacy_client_ids = await db.crm_clients.distinct(
+            "id",
+            {
+                "organisation_id": org_id,
+                "organisation_link_source": {"$ne": "historical_migration"},
+            },
+        )
+        attribution = {
+            "$or": [
+                {"organisation_id": org_id},
+                {
+                    "organisation_id": None,
+                    "client_id": {"$in": legacy_client_ids},
+                },
+            ]
+        }
+        if extra:
+            return {"$and": [attribution, extra]}
+        return attribution
+
+    @staticmethod
     def _resolve_period_dates(period: str, custom_start: Optional[str] = None, custom_end: Optional[str] = None) -> Tuple[Optional[str], Optional[str], str]:
         now = datetime.now(timezone.utc)
         if period == "current_month":
@@ -164,12 +197,12 @@ class HRReportingService:
         org_name = org.name if org else "Corporate Client"
 
         start_dt, end_dt, period_label = HRReportingService._resolve_period_dates(period)
-        client_ids = await HRReportingService._get_org_client_ids(db, org_id)
-
-        # Build booking query
-        query: Dict[str, Any] = {"client_id": {"$in": client_ids}}
+        period_filter: Dict[str, Any] = {}
         if start_dt and end_dt:
-            query["starts_at"] = {"$gte": start_dt, "$lte": end_dt}
+            period_filter["starts_at"] = {"$gte": start_dt, "$lte": end_dt}
+        query = await HRReportingService._organisation_booking_query(
+            db, org_id, period_filter or None
+        )
 
         bookings = await db.bookings.find(query, {"_id": 0}).to_list(10000)
 
@@ -245,13 +278,15 @@ class HRReportingService:
                 is_configured=False
             )
 
-        client_ids = await HRReportingService._get_org_client_ids(db, org_id)
         month_start, month_end = CorporateEntitlementService.month_bounds_utc()
-        query: Dict[str, Any] = {
-            "client_id": {"$in": client_ids},
-            "status": {"$in": ENTITLEMENT_STATUSES},
-            "starts_at": {"$gte": month_start, "$lt": month_end},
-        }
+        query = await HRReportingService._organisation_booking_query(
+            db,
+            org_id,
+            {
+                "status": {"$in": ENTITLEMENT_STATUSES},
+                "starts_at": {"$gte": month_start, "$lt": month_end},
+            },
+        )
 
         sessions_used = await db.bookings.count_documents(query)
         pool = await CorporateEntitlementService.organisation_pool_summary(db, org_id)
@@ -284,10 +319,10 @@ class HRReportingService:
         granularity: str = "monthly",
         threshold: int = HR_MIN_REPORTING_COUNT
     ) -> Dict[str, Any]:
-        client_ids = await HRReportingService._get_org_client_ids(db, org_id)
         org = await HRReportingService.get_organisation(db, org_id)
+        query = await HRReportingService._organisation_booking_query(db, org_id)
 
-        bookings = await db.bookings.find({"client_id": {"$in": client_ids}}, {"_id": 0}).sort("starts_at", 1).to_list(10000)
+        bookings = await db.bookings.find(query, {"_id": 0}).sort("starts_at", 1).to_list(10000)
 
         # Aggregate by period key (e.g. YYYY-MM)
         trend_buckets: Dict[str, Dict[str, int]] = {}
@@ -354,8 +389,8 @@ class HRReportingService:
         org_id: str,
         threshold: int = HR_MIN_REPORTING_COUNT
     ) -> Dict[str, Any]:
-        client_ids = await HRReportingService._get_org_client_ids(db, org_id)
-        bookings = await db.bookings.find({"client_id": {"$in": client_ids}}, {"_id": 0}).to_list(10000)
+        query = await HRReportingService._organisation_booking_query(db, org_id)
+        bookings = await db.bookings.find(query, {"_id": 0}).to_list(10000)
 
         total = len(bookings)
         ind_count = sum(1 for b in bookings if b.get("session_type") == "individual")
