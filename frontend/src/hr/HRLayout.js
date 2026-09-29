@@ -98,7 +98,7 @@ const HRLayout = () => {
           </div>
           <div>
             <h1 className="text-sm font-bold text-white tracking-wide">FCA Corporate Portal</h1>
-            <p className="text-[11px] text-slate-400">Foundations Advisory</p>
+            <p className="text-[11px] text-slate-400">Foundations Counselling Academy</p>
           </div>
         </div>
 
@@ -232,7 +232,7 @@ const HRLayout = () => {
               <h2 className="text-base sm:text-lg font-bold text-slate-800 capitalize">
                 {location.pathname.split('/')[2]?.replace('-', ' ') || 'Corporate Portal'}
               </h2>
-              <p className="text-[11px] text-slate-400 hidden sm:block">Foundations Counselling & Advisory</p>
+              <p className="text-[11px] text-slate-400 hidden sm:block">Foundations Counselling Academy</p>
             </div>
           </div>
 
