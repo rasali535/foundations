@@ -70,6 +70,9 @@ const AdminClientDetail = () => {
   const [organisations, setOrganisations] = useState([]);
   const [selectedOrganisationId, setSelectedOrganisationId] = useState('');
   const [selectedHistoricalBookingIds, setSelectedHistoricalBookingIds] = useState([]);
+  const [historicalSessionRows, setHistoricalSessionRows] = useState([
+    { starts_at: '', session_type: 'individual', session_mode: 'in_person', notes: '' }
+  ]);
   const [addToRoster, setAddToRoster] = useState(true);
   const [orgLinkBusy, setOrgLinkBusy] = useState(false);
   const [orgLinkError, setOrgLinkError] = useState('');
@@ -132,6 +135,9 @@ const AdminClientDetail = () => {
   const handleOpenOrganisationLink = async () => {
     setOrgLinkError('');
     setSelectedHistoricalBookingIds([]);
+    setHistoricalSessionRows([
+      { starts_at: '', session_type: 'individual', session_mode: 'in_person', notes: '' }
+    ]);
     setAddToRoster(true);
     try {
       const res = await api.get('/admin-ops/organisations');
@@ -154,14 +160,45 @@ const AdminClientDetail = () => {
     );
   };
 
+  const addHistoricalSessionRow = () => {
+    setHistoricalSessionRows(prev => [
+      ...prev,
+      { starts_at: '', session_type: 'individual', session_mode: 'in_person', notes: '' }
+    ]);
+  };
+
+  const updateHistoricalSessionRow = (index, field, value) => {
+    setHistoricalSessionRows(prev =>
+      prev.map((row, rowIndex) => rowIndex === index ? { ...row, [field]: value } : row)
+    );
+  };
+
+  const removeHistoricalSessionRow = (index) => {
+    setHistoricalSessionRows(prev => {
+      const next = prev.filter((_, rowIndex) => rowIndex !== index);
+      return next.length > 0
+        ? next
+        : [{ starts_at: '', session_type: 'individual', session_mode: 'in_person', notes: '' }];
+    });
+  };
+
   const handleHistoricalOrganisationLink = async (e) => {
     e.preventDefault();
     if (!selectedOrganisationId) {
       setOrgLinkError('Choose an organisation.');
       return;
     }
-    if (selectedHistoricalBookingIds.length === 0) {
-      setOrgLinkError('Select at least one previous booking date.');
+    const manualSessions = historicalSessionRows
+      .filter(row => row.starts_at)
+      .map(row => ({
+        starts_at: new Date(row.starts_at).toISOString(),
+        session_type: row.session_type,
+        session_mode: row.session_mode,
+        notes: row.notes?.trim() || null
+      }));
+
+    if (selectedHistoricalBookingIds.length === 0 && manualSessions.length === 0) {
+      setOrgLinkError('Select an existing booking or add at least one historical session.');
       return;
     }
 
@@ -171,10 +208,14 @@ const AdminClientDetail = () => {
       await api.post(`/crm/clients/${id}/organisation-link`, {
         organisation_id: selectedOrganisationId,
         booking_ids: selectedHistoricalBookingIds,
+        historical_sessions: manualSessions,
         add_to_roster: addToRoster
       });
       setOrgLinkModalOpen(false);
       setSelectedHistoricalBookingIds([]);
+      setHistoricalSessionRows([
+        { starts_at: '', session_type: 'individual', session_mode: 'in_person', notes: '' }
+      ]);
       await fetchProfile();
     } catch (err) {
       setOrgLinkError(err.response?.data?.detail || 'Could not link historical organisation sessions.');
@@ -829,10 +870,88 @@ const AdminClientDetail = () => {
                   </span>
                 </label>
 
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900">Add sessions from before the portal</h4>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        Add as many historical sessions as needed. Each one will be saved as completed on its original date and included in billing for that month.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addHistoricalSessionRow}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Add Session
+                    </button>
+                  </div>
+
+                  <div className="mt-3 space-y-3">
+                    {historicalSessionRows.map((row, index) => (
+                      <div key={index} className="p-3 rounded-xl bg-white border border-indigo-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-bold text-indigo-700">Historical Session {index + 1}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeHistoricalSessionRow(index)}
+                            className="p-1 rounded text-rose-500 hover:bg-rose-50"
+                            title="Remove historical session"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div className="sm:col-span-1">
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">Date & time</label>
+                            <input
+                              type="datetime-local"
+                              value={row.starts_at}
+                              max={new Date().toISOString().slice(0, 16)}
+                              onChange={(e) => updateHistoricalSessionRow(index, 'starts_at', e.target.value)}
+                              className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">Session type</label>
+                            <select
+                              value={row.session_type}
+                              onChange={(e) => updateHistoricalSessionRow(index, 'session_type', e.target.value)}
+                              className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs"
+                            >
+                              <option value="individual">Individual</option>
+                              <option value="couple">Couple</option>
+                              <option value="family">Family</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">Mode</label>
+                            <select
+                              value={row.session_mode}
+                              onChange={(e) => updateHistoricalSessionRow(index, 'session_mode', e.target.value)}
+                              className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs"
+                            >
+                              <option value="in_person">In-Person</option>
+                              <option value="virtual">Virtual</option>
+                            </select>
+                          </div>
+                        </div>
+                        <input
+                          value={row.notes}
+                          onChange={(e) => updateHistoricalSessionRow(index, 'notes', e.target.value)}
+                          placeholder="Optional note"
+                          className="mt-2 w-full px-2.5 py-2 border border-slate-200 rounded-lg text-xs"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <div>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h4 className="text-xs font-bold text-slate-900">Previous booking dates</h4>
+                      <h4 className="text-xs font-bold text-slate-900">Previous booking dates already in the portal</h4>
                       <p className="text-[10px] text-slate-500 mt-0.5">
                         Only checked sessions will be attributed to this organisation historically. Original dates and statuses are preserved.
                       </p>
@@ -899,10 +1018,14 @@ const AdminClientDetail = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={orgLinkBusy || !selectedOrganisationId || selectedHistoricalBookingIds.length === 0}
+                  disabled={
+                    orgLinkBusy ||
+                    !selectedOrganisationId ||
+                    (selectedHistoricalBookingIds.length === 0 && !historicalSessionRows.some(row => row.starts_at))
+                  }
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow disabled:opacity-50"
                 >
-                  {orgLinkBusy ? 'Linking...' : 'Link Organisation & Selected Dates'}
+                  {orgLinkBusy ? 'Saving...' : 'Save Organisation & Historical Sessions'}
                 </button>
               </div>
             </form>
