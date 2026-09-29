@@ -94,9 +94,17 @@ class CRMClientUpdate(BaseModel):
 
 # ==================== Intake Submission Models ====================
 
+class HistoricalOrganisationSessionInput(BaseModel):
+    starts_at: str
+    session_type: str = "individual"
+    session_mode: str = "in_person"
+    notes: Optional[str] = None
+
+
 class HistoricalOrganisationLinkRequest(BaseModel):
     organisation_id: str
     booking_ids: List[str] = Field(default_factory=list)
+    historical_sessions: List[HistoricalOrganisationSessionInput] = Field(default_factory=list)
     add_to_roster: bool = True
 
 
