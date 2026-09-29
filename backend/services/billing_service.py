@@ -662,7 +662,17 @@ class BillingService:
         logo_path = Path(__file__).resolve().parents[1] / "assets" / "foundations-logo.png"
         brand_parts = []
         if logo_path.exists():
-            brand_parts.append(RLImage(str(logo_path), width=72, height=72))
+            logo = RLImage(str(logo_path))
+            max_logo_width = 150
+            max_logo_height = 64
+            scale = min(
+                max_logo_width / float(logo.imageWidth),
+                max_logo_height / float(logo.imageHeight),
+                1.0,
+            )
+            logo.drawWidth = logo.imageWidth * scale
+            logo.drawHeight = logo.imageHeight * scale
+            brand_parts.append(logo)
         brand_parts.append(Paragraph(safe(issuer_name).upper(), title_style))
         brand_table = Table([[part] for part in brand_parts], colWidths=[330])
         brand_table.setStyle(TableStyle([
