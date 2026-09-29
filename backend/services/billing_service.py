@@ -62,21 +62,24 @@ class BillingService:
     ) -> List[Dict[str, Any]]:
         """
         Find billable, uninvoiced sessions for an organisation within a date range.
-        Mandatory rules:
-        1. Client must belong to organisation_id
-        2. status in ['completed', 'late_cancelled_billable']
-        3. starts_at falls within [start_date, end_date]
-        4. Exclude any booking already linked to an active (non-cancelled) invoice
+
+        Organisation attribution rules:
+        1. A booking explicitly stamped with organisation_id is authoritative. This
+           includes historical sessions selected during a migration/link operation.
+        2. Older corporate bookings that predate booking-level attribution may still
+           be billed via the client's current organisation link, but only when the
+           booking has no organisation_id at all.
+        3. status must be one of ['completed', 'late_cancelled_billable'].
+        4. starts_at must fall within [start_date, end_date].
+        5. Any booking already linked to an active invoice is excluded.
         """
-        # Find all client IDs for this organisation
+        # Current organisation members are used only for the legacy fallback below.
+        # Explicit booking-level organisation attribution always takes precedence.
         client_docs = await db.crm_clients.find(
             {"organisation_id": organisation_id},
             {"id": 1, "_id": 0}
         ).to_list(10000)
-        
         client_ids = [c["id"] for c in client_docs if "id" in c]
-        if not client_ids:
-            return []
 
         # Find all booking IDs already attached to an active invoice (draft, issued, paid)
         active_invoices = await db.invoices.find(
@@ -93,10 +96,21 @@ class BillingService:
             ).to_list(50000)
         already_invoiced_booking_ids = set(l["booking_id"] for l in linked_booking_docs if "booking_id" in l)
 
-        # Query completed or late_cancelled_billable bookings for these clients
+        # Query all potentially billable bookings and resolve organisation ownership
+        # from the booking snapshot first. This makes selected historical sessions
+        # immediately visible on invoice preview/generation for the attributed org.
         booking_cursor = db.bookings.find({
-            "client_id": {"$in": client_ids},
-            "status": {"$in": ["completed", "late_cancelled_billable"]}
+            "status": {"$in": ["completed", "late_cancelled_billable"]},
+            "$or": [
+                {"organisation_id": organisation_id},
+                {
+                    "client_id": {"$in": client_ids},
+                    "$or": [
+                        {"organisation_id": None},
+                        {"organisation_id": {"$exists": False}},
+                    ],
+                },
+            ],
         })
         all_completed = await booking_cursor.to_list(20000)
 
