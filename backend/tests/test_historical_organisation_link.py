@@ -5,6 +5,7 @@ from mongomock_motor import AsyncMongoMockClient
 
 from models import BookingCreateRequest, CRMClient
 from services.booking_service import BookingService
+from services.billing_service import BillingService
 from services.corporate_entitlement_service import CorporateEntitlementService
 from services.hr_service import HRReportingService
 from services.scheduling_service import SchedulingService
@@ -189,3 +190,99 @@ def test_admin_ui_exposes_historical_organisation_date_selection():
     assert '@crm_router.post("/clients/{client_id}/organisation-link")' in router
     assert '"organisation_attribution_source": "historical_migration"' in router
     assert '"booking_dates": [row.get("starts_at") for row in attributed]' in router
+
+
+@pytest.mark.asyncio
+async def test_historically_attributed_session_is_billable_for_selected_organisation():
+    client = AsyncMongoMockClient()
+    db = client["historical_org_billing"]
+
+    await db.organisations.insert_one({
+        "id": "org-bill-hist",
+        "name": "Historical Billing Employer",
+        "code": "HIST-BILL",
+        "billing_currency": "BWP",
+    })
+    await db.crm_clients.insert_one({
+        "id": "client-bill-hist",
+        "organisation_id": "org-bill-hist",
+        "organisation_link_source": "historical_migration",
+    })
+    await db.bookings.insert_many([
+        {
+            "id": "selected-historical-session",
+            "client_id": "client-bill-hist",
+            "organisation_id": "org-bill-hist",
+            "organisation_attribution_source": "historical_migration",
+            "starts_at": "2026-08-11T09:00:00+00:00",
+            "ends_at": "2026-08-11T10:00:00+00:00",
+            "status": "completed",
+            "session_type": "individual",
+            "session_mode": "in_person",
+        },
+        {
+            "id": "private-history-not-selected",
+            "client_id": "client-bill-hist",
+            "organisation_id": None,
+            "organisation_attribution_source": None,
+            "starts_at": "2026-08-18T09:00:00+00:00",
+            "ends_at": "2026-08-18T10:00:00+00:00",
+            "status": "completed",
+            "session_type": "individual",
+            "session_mode": "in_person",
+        },
+    ])
+
+    eligible = await BillingService.get_uninvoiced_completed_sessions(
+        db,
+        organisation_id="org-bill-hist",
+        start_date="2026-08-01",
+        end_date="2026-08-31",
+    )
+
+    # Historical-migration clients must bill only the explicitly attributed
+    # sessions; their unrelated private history must stay private.
+    assert [row["id"] for row in eligible] == ["selected-historical-session"]
+
+    preview = await BillingService.preview_invoice(
+        db,
+        organisation_id="org-bill-hist",
+        start_date="2026-08-01",
+        end_date="2026-08-31",
+    )
+    assert preview.total_sessions == 1
+    assert preview.total == 350.0
+
+
+@pytest.mark.asyncio
+async def test_legacy_unstamped_corporate_session_remains_billable():
+    client = AsyncMongoMockClient()
+    db = client["legacy_org_billing"]
+
+    await db.organisations.insert_one({
+        "id": "org-bill-legacy",
+        "name": "Legacy Billing Employer",
+        "code": "LEG-BILL",
+        "billing_currency": "BWP",
+    })
+    await db.crm_clients.insert_one({
+        "id": "client-bill-legacy",
+        "organisation_id": "org-bill-legacy",
+    })
+    await db.bookings.insert_one({
+        "id": "legacy-unstamped-session",
+        "client_id": "client-bill-legacy",
+        "starts_at": "2026-08-09T09:00:00+00:00",
+        "ends_at": "2026-08-09T10:00:00+00:00",
+        "status": "completed",
+        "session_type": "individual",
+        "session_mode": "virtual",
+    })
+
+    eligible = await BillingService.get_uninvoiced_completed_sessions(
+        db,
+        organisation_id="org-bill-legacy",
+        start_date="2026-08-01",
+        end_date="2026-08-31",
+    )
+    assert [row["id"] for row in eligible] == ["legacy-unstamped-session"]
