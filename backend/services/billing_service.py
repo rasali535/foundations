@@ -77,9 +77,13 @@ class BillingService:
         # Explicit booking-level organisation attribution always takes precedence.
         client_docs = await db.crm_clients.find(
             {"organisation_id": organisation_id},
-            {"id": 1, "_id": 0}
+            {"id": 1, "organisation_link_source": 1, "_id": 0}
         ).to_list(10000)
-        client_ids = [c["id"] for c in client_docs if "id" in c]
+        legacy_client_ids = [
+            c["id"]
+            for c in client_docs
+            if c.get("id") and c.get("organisation_link_source") != "historical_migration"
+        ]
 
         # Find all booking IDs already attached to an active invoice (draft, issued, paid)
         active_invoices = await db.invoices.find(
@@ -104,7 +108,7 @@ class BillingService:
             "$or": [
                 {"organisation_id": organisation_id},
                 {
-                    "client_id": {"$in": client_ids},
+                    "client_id": {"$in": legacy_client_ids},
                     "$or": [
                         {"organisation_id": None},
                         {"organisation_id": {"$exists": False}},
