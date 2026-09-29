@@ -48,7 +48,7 @@ const HRLogin = () => {
             Corporate Wellness Portal
           </h2>
           <p className="mt-2 text-xs text-slate-400 font-medium max-w-sm mx-auto">
-            Foundations Counselling & Advisory • Aggregate Partner Reporting
+            Foundations Counselling Academy • Aggregate Partner Reporting
           </p>
         </div>
 
