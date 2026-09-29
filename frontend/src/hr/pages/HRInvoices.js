@@ -122,7 +122,7 @@ const HRInvoices = () => {
             <Receipt className="w-10 h-10 mx-auto text-slate-300" />
             <p className="text-sm font-bold text-slate-700">No Corporate Invoices Yet</p>
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              Issued billing statements will appear here once finalized by Foundations Counselling & Advisory.
+              Issued billing statements will appear here once finalized by Foundations Counselling Academy.
             </p>
           </div>
         ) : (
