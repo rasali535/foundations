@@ -498,7 +498,7 @@ class SessionAllocationApprovalRequest(BaseModel):
 
 class InvoiceProfile(BaseModel):
     legal_name: str = "Foundations Counselling Academy"
-    trading_name: Optional[str] = "Foundations Counselling & Advisory"
+    trading_name: Optional[str] = "Foundations Counselling Academy"
     registration_number: Optional[str] = None
     tax_number: Optional[str] = None
     address: str = "Plot 18680 Khuhurutse St, Phase 2, Gaborone, Botswana"
