@@ -323,3 +323,27 @@ async def test_legacy_unstamped_corporate_session_remains_billable():
         end_date="2026-08-31",
     )
     assert [row["id"] for row in eligible] == ["legacy-unstamped-session"]
+
+
+def test_historical_import_allows_two_sessions_in_same_calendar_week():
+    payload = HistoricalOrganisationLinkRequest(
+        organisation_id="org-same-week",
+        historical_sessions=[
+            {
+                "starts_at": "2026-08-04T09:00:00+02:00",
+                "session_type": "individual",
+                "session_mode": "in_person",
+                "notes": "Historical exception: first session",
+            },
+            {
+                "starts_at": "2026-08-06T14:00:00+02:00",
+                "session_type": "individual",
+                "session_mode": "in_person",
+                "notes": "Historical exception: second session",
+            },
+        ],
+    )
+
+    assert len(payload.historical_sessions) == 2
+    assert payload.historical_sessions[0].starts_at[:10] == "2026-08-04"
+    assert payload.historical_sessions[1].starts_at[:10] == "2026-08-06"
