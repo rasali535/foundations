@@ -423,8 +423,8 @@ class HRReportingService:
         org_id: str,
         threshold: int = HR_MIN_REPORTING_COUNT
     ) -> Dict[str, Any]:
-        client_ids = await HRReportingService._get_org_client_ids(db, org_id)
-        bookings = await db.bookings.find({"client_id": {"$in": client_ids}}, {"_id": 0}).to_list(10000)
+        query = await HRReportingService._organisation_booking_query(db, org_id)
+        bookings = await db.bookings.find(query, {"_id": 0}).to_list(10000)
 
         total = len(bookings)
         in_person_count = sum(1 for b in bookings if b.get("session_mode") == "in_person")
