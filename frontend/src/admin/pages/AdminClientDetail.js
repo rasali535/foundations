@@ -875,7 +875,7 @@ const AdminClientDetail = () => {
                     <div>
                       <h4 className="text-xs font-bold text-slate-900">Add sessions from before the portal</h4>
                       <p className="text-[10px] text-slate-500 mt-0.5">
-                        Add as many historical sessions as needed. Each one will be saved as completed on its original date and included in billing for that month.
+                        Add as many historical sessions as needed. Historical imports may include two or more sessions in the same week. Each one is saved as completed on its original date and included in billing for that month.
                       </p>
                     </div>
                     <button
