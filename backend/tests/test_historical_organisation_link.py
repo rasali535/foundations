@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from mongomock_motor import AsyncMongoMockClient
 
-from models import BookingCreateRequest, CRMClient
+from models import BookingCreateRequest, CRMClient, HistoricalOrganisationLinkRequest
 from services.booking_service import BookingService
 from services.billing_service import BillingService
 from services.corporate_entitlement_service import CorporateEntitlementService
@@ -178,6 +178,38 @@ async def test_new_booking_request_inherits_linked_organisation(monkeypatch):
     assert booking.organisation_attribution_source == "current_client_link"
 
 
+def test_historical_link_request_accepts_multiple_manual_sessions():
+    payload = HistoricalOrganisationLinkRequest(
+        organisation_id="org-multi-history",
+        booking_ids=[],
+        historical_sessions=[
+            {
+                "starts_at": "2026-08-05T09:00:00+02:00",
+                "session_type": "individual",
+                "session_mode": "in_person",
+            },
+            {
+                "starts_at": "2026-08-12T14:00:00+02:00",
+                "session_type": "couple",
+                "session_mode": "virtual",
+            },
+            {
+                "starts_at": "2026-08-19T11:00:00+02:00",
+                "session_type": "family",
+                "session_mode": "in_person",
+            },
+        ],
+        add_to_roster=True,
+    )
+
+    assert len(payload.historical_sessions) == 3
+    assert [row.session_type for row in payload.historical_sessions] == [
+        "individual",
+        "couple",
+        "family",
+    ]
+
+
 def test_admin_ui_exposes_historical_organisation_date_selection():
     root = Path(__file__).resolve().parents[2]
     source = (root / "frontend" / "src" / "admin" / "pages" / "AdminClientDetail.js").read_text(encoding="utf-8")
@@ -186,9 +218,14 @@ def test_admin_ui_exposes_historical_organisation_date_selection():
     assert "Link Historical Organisation Sessions" in source
     assert "Previous booking dates" in source
     assert "selectedHistoricalBookingIds" in source
+    assert "historicalSessionRows" in source
+    assert "Add Session" in source
+    assert "historical_sessions: manualSessions" in source
     assert "/organisation-link" in source
     assert '@crm_router.post("/clients/{client_id}/organisation-link")' in router
     assert '"organisation_attribution_source": "historical_migration"' in router
+    assert "created_historical_ids" in router
+    assert "await db.bookings.insert_many(imported_bookings)" in router
     assert '"booking_dates": [row.get("starts_at") for row in attributed]' in router
 
 
