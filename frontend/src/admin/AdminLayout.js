@@ -47,7 +47,7 @@ const AdminLayout = () => {
           </div>
           <h2 className="text-xl font-bold text-slate-800">Authentication Required</h2>
           <p className="text-sm text-slate-600 mt-2">
-            You must be logged into the Foundations Counselling & Advisory staff portal to access this area.
+            You must be logged into the Foundations Counselling Academy staff portal to access this area.
           </p>
           <button
             onClick={() => navigate('/admin/login', { state: { from: location } })}
@@ -105,7 +105,7 @@ const AdminLayout = () => {
           </div>
           <div>
             <h1 className="text-sm font-bold text-white tracking-wide">FCA CRM & Portal</h1>
-            <p className="text-[11px] text-slate-400">Foundations Advisory</p>
+            <p className="text-[11px] text-slate-400">Foundations Counselling Academy</p>
           </div>
         </div>
 
