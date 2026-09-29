@@ -46,6 +46,8 @@ class CRMClient(BaseModel):
     organisation_id: Optional[str] = None  # Nullable for private clients
     organisation_name: Optional[str] = None
     organisation_contact_id: Optional[str] = None  # Corporate roster member, when applicable
+    organisation_linked_at: Optional[str] = None
+    organisation_link_source: Optional[str] = None  # intake, admin, historical_migration
     status: str = "active"  # active, inactive, archived, flagged_review
     tags: List[str] = Field(default_factory=list)
     setmore_customer_key: Optional[str] = None
@@ -85,10 +87,18 @@ class CRMClientUpdate(BaseModel):
     organisation_id: Optional[str] = None
     organisation_name: Optional[str] = None
     organisation_contact_id: Optional[str] = None
+    organisation_linked_at: Optional[str] = None
+    organisation_link_source: Optional[str] = None
     status: Optional[str] = None
     tags: Optional[List[str]] = None
 
 # ==================== Intake Submission Models ====================
+
+class HistoricalOrganisationLinkRequest(BaseModel):
+    organisation_id: str
+    booking_ids: List[str] = Field(default_factory=list)
+    add_to_roster: bool = True
+
 
 class CRMIntakeSubmission(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -225,6 +235,12 @@ class Booking(BaseModel):
     client_name: Optional[str] = None
     client_email: Optional[str] = None
     client_phone: Optional[str] = None
+    organisation_id: Optional[str] = None
+    organisation_name: Optional[str] = None
+    organisation_contact_id: Optional[str] = None
+    organisation_attribution_source: Optional[str] = None  # current_client_link, historical_migration
+    organisation_attributed_at: Optional[str] = None
+    organisation_attributed_by: Optional[str] = None
     therapist_id: Optional[str] = None
     therapist_name: Optional[str] = None
     assignment_status: str = "awaiting_assignment"  # awaiting_assignment, awaiting_acceptance, accepted, declined

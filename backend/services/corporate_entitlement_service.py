@@ -104,33 +104,58 @@ class CorporateEntitlementService:
         return 0
 
     @staticmethod
+    def _client_booking_attribution_filter(client: Any) -> Dict[str, Any]:
+        def value(field: str):
+            return client.get(field) if isinstance(client, dict) else getattr(client, field, None)
+
+        client_id = str(value("id") or "")
+        organisation_id = value("organisation_id")
+        link_source = value("organisation_link_source")
+
+        if link_source == "historical_migration" and organisation_id:
+            return {
+                "client_id": client_id,
+                "organisation_id": organisation_id,
+            }
+
+        if organisation_id:
+            return {
+                "client_id": client_id,
+                "$or": [
+                    {"organisation_id": organisation_id},
+                    {"organisation_id": None},
+                ],
+            }
+
+        return {"client_id": client_id}
+
+    @staticmethod
     async def contact_usage(
         db: AsyncIOMotorDatabase,
-        client_id: str,
+        client: Any,
         reference: Optional[Any] = None,
     ) -> int:
         start_iso, end_iso = CorporateEntitlementService.month_bounds_utc(reference)
-        return await db.bookings.count_documents(
-            {
-                "client_id": client_id,
-                "starts_at": {"$gte": start_iso, "$lt": end_iso},
-                "status": {"$in": ENTITLEMENT_STATUSES},
-            }
-        )
+        query = CorporateEntitlementService._client_booking_attribution_filter(client)
+        query.update({
+            "starts_at": {"$gte": start_iso, "$lt": end_iso},
+            "status": {"$in": ENTITLEMENT_STATUSES},
+        })
+        return await db.bookings.count_documents(query)
 
     @staticmethod
     async def has_weekly_booking(
         db: AsyncIOMotorDatabase,
-        client_id: str,
+        client: Any,
         reference: Any,
         exclude_booking_id: Optional[str] = None,
     ) -> bool:
         start_iso, end_iso = CorporateEntitlementService.week_bounds_utc(reference)
-        query: Dict[str, Any] = {
-            "client_id": client_id,
+        query = CorporateEntitlementService._client_booking_attribution_filter(client)
+        query.update({
             "starts_at": {"$gte": start_iso, "$lt": end_iso},
             "status": {"$in": ENTITLEMENT_STATUSES},
-        }
+        })
         if exclude_booking_id:
             query["id"] = {"$ne": exclude_booking_id}
         return await db.bookings.find_one(query, {"_id": 1}) is not None
@@ -165,7 +190,7 @@ class CorporateEntitlementService:
         extra = CorporateEntitlementService._approved_extra_for_month(contact, month_key)
         limit = max(base + extra, 0)
         used = await CorporateEntitlementService.contact_usage(
-            db, str(client_id), reference=reference
+            db, client, reference=reference
         )
         return {
             "base": base,
@@ -199,9 +224,8 @@ class CorporateEntitlementService:
                 f"{entitlement['month']}. Additional sessions require therapist approval."
             )
 
-        client_id = client.get("id") if isinstance(client, dict) else getattr(client, "id", None)
         if await CorporateEntitlementService.has_weekly_booking(
-            db, str(client_id), starts_at, exclude_booking_id=exclude_booking_id
+            db, client, starts_at, exclude_booking_id=exclude_booking_id
         ):
             return False, (
                 "Corporate counselling allows one session per calendar week. "

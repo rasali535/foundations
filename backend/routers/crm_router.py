@@ -2,7 +2,8 @@ from fastapi import APIRouter, HTTPException, Depends, Request, status, Query
 from typing import List, Dict, Any, Optional
 from models import (
     CRMClient, CRMClientCreate, CRMClientUpdate,
-    CRMNote, CRMNoteCreate, CRMNoteUpdate
+    CRMNote, CRMNoteCreate, CRMNoteUpdate,
+    HistoricalOrganisationLinkRequest, now_iso
 )
 from services.crm_service import CRMService
 from services.intake_service import IntakeService
@@ -410,6 +411,181 @@ async def update_client_profile(
     if not updated:
         raise HTTPException(status_code=404, detail="Client not found")
     return updated
+
+@crm_router.post("/clients/{client_id}/organisation-link")
+async def link_client_to_organisation_history(
+    client_id: str,
+    payload: HistoricalOrganisationLinkRequest,
+    request: Request,
+    user: Dict = Depends(require_crm_access),
+):
+    """Link an existing client to an organisation and attribute selected past bookings."""
+    if user.get("role") not in ["super_admin", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin permissions are required for historical organisation attribution.",
+        )
+
+    db = get_db(request)
+    client = await db.crm_clients.find_one({"id": client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found.")
+
+    organisation = await db.organisations.find_one({"id": payload.organisation_id}, {"_id": 0})
+    if not organisation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found.")
+
+    current_org_id = client.get("organisation_id")
+    if current_org_id and current_org_id != payload.organisation_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Client is already linked to a different organisation. Remove or reconcile that link before migrating historical bookings.",
+        )
+
+    booking_ids = list(dict.fromkeys(payload.booking_ids or []))
+    if not booking_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Select at least one previous booking date to attribute to this organisation.",
+        )
+
+    bookings = await db.bookings.find(
+        {"id": {"$in": booking_ids}, "client_id": client_id},
+        {"_id": 0},
+    ).to_list(len(booking_ids))
+    if len(bookings) != len(booking_ids):
+        found_ids = {row.get("id") for row in bookings}
+        missing = [booking_id for booking_id in booking_ids if booking_id not in found_ids]
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"One or more selected bookings do not belong to this client: {', '.join(missing[:5])}",
+        )
+
+    now = datetime.now(timezone.utc)
+    for booking in bookings:
+        try:
+            starts_at = datetime.fromisoformat(str(booking.get("starts_at") or "").replace("Z", "+00:00"))
+            if starts_at.tzinfo is None:
+                starts_at = starts_at.replace(tzinfo=timezone.utc)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A selected historical booking has an invalid date.",
+            )
+        if starts_at > now:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Future bookings cannot be marked as historical organisation sessions.",
+            )
+        existing_booking_org = booking.get("organisation_id")
+        if existing_booking_org and existing_booking_org != payload.organisation_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A selected booking is already attributed to a different organisation.",
+            )
+
+    contact_doc = None
+    email = str(client.get("email") or "").strip().lower()
+    if payload.add_to_roster:
+        if not email or "@" not in email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Client needs a valid email address before being added to the organisation roster.",
+            )
+        contact_doc = await db.organisation_contacts.find_one(
+            {"organisation_id": payload.organisation_id, "email_normalized": email},
+            {"_id": 0},
+        )
+        contact_fields = {
+            "name": f"{client.get('first_name') or ''} {client.get('last_name') or ''}".strip() or "Employee",
+            "email": email,
+            "email_normalized": email,
+            "phone": client.get("phone") or None,
+            "contact_type": "employee",
+            "active": True,
+            "updated_at": now_iso(),
+        }
+        if contact_doc:
+            await db.organisation_contacts.update_one(
+                {"id": contact_doc["id"]},
+                {"$set": contact_fields},
+            )
+        else:
+            contact_id = str(__import__("uuid").uuid4())
+            contact_doc = {
+                "id": contact_id,
+                "organisation_id": payload.organisation_id,
+                **contact_fields,
+                "job_title": None,
+                "department": None,
+                "base_session_allocation": 4,
+                "extra_sessions_approved": 0,
+                "extra_sessions_by_month": {},
+                "created_at": now_iso(),
+            }
+            await db.organisation_contacts.insert_one(contact_doc)
+
+        contact_doc = await db.organisation_contacts.find_one(
+            {"organisation_id": payload.organisation_id, "email_normalized": email},
+            {"_id": 0},
+        )
+
+    linked_at = now_iso()
+    client_update = {
+        "organisation_id": payload.organisation_id,
+        "organisation_name": organisation.get("name"),
+        "organisation_contact_id": contact_doc.get("id") if contact_doc else client.get("organisation_contact_id"),
+        "organisation_linked_at": linked_at,
+        "organisation_link_source": "historical_migration",
+        "updated_at": linked_at,
+    }
+    await db.crm_clients.update_one({"id": client_id}, {"$set": client_update})
+
+    booking_update = {
+        "organisation_id": payload.organisation_id,
+        "organisation_name": organisation.get("name"),
+        "organisation_contact_id": contact_doc.get("id") if contact_doc else client.get("organisation_contact_id"),
+        "organisation_attribution_source": "historical_migration",
+        "organisation_attributed_at": linked_at,
+        "organisation_attributed_by": user.get("user_id"),
+        "updated_at": linked_at,
+    }
+    await db.bookings.update_many(
+        {"id": {"$in": booking_ids}, "client_id": client_id},
+        {"$set": booking_update},
+    )
+
+    attributed = await db.bookings.find(
+        {"id": {"$in": booking_ids}, "client_id": client_id},
+        {"_id": 0},
+    ).sort("starts_at", 1).to_list(len(booking_ids))
+
+    await AuditService.log_activity(
+        db,
+        action="client_historical_organisation_linked",
+        actor_user_id=user.get("user_id"),
+        actor_name=user.get("name"),
+        client_id=client_id,
+        metadata={
+            "organisation_id": payload.organisation_id,
+            "organisation_name": organisation.get("name"),
+            "organisation_contact_id": contact_doc.get("id") if contact_doc else None,
+            "booking_ids": booking_ids,
+            "booking_dates": [row.get("starts_at") for row in attributed],
+            "historical_booking_count": len(attributed),
+            "added_to_roster": bool(payload.add_to_roster),
+        },
+    )
+
+    updated_client = await db.crm_clients.find_one({"id": client_id}, {"_id": 0})
+    return {
+        "client": updated_client,
+        "organisation": {"id": organisation.get("id"), "name": organisation.get("name")},
+        "roster_contact": contact_doc,
+        "historical_bookings": attributed,
+        "historical_booking_count": len(attributed),
+    }
+
 
 # ==================== Administrative CRM Notes ====================
 @crm_router.post("/clients/{client_id}/notes", response_model=CRMNote)

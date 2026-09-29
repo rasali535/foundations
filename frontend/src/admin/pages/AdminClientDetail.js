@@ -65,6 +65,15 @@ const AdminClientDetail = () => {
   const [intakeModalOpen, setIntakeModalOpen] = useState(false);
   const [intakeLoading, setIntakeLoading] = useState(false);
 
+  // Historical organisation migration state
+  const [orgLinkModalOpen, setOrgLinkModalOpen] = useState(false);
+  const [organisations, setOrganisations] = useState([]);
+  const [selectedOrganisationId, setSelectedOrganisationId] = useState('');
+  const [selectedHistoricalBookingIds, setSelectedHistoricalBookingIds] = useState([]);
+  const [addToRoster, setAddToRoster] = useState(true);
+  const [orgLinkBusy, setOrgLinkBusy] = useState(false);
+  const [orgLinkError, setOrgLinkError] = useState('');
+
   const handleOpenIntake = async (intakeId) => {
     setIntakeLoading(true);
     setIntakeModalOpen(true);
@@ -119,6 +128,60 @@ const AdminClientDetail = () => {
     fetchProfile();
     fetchTherapists();
   }, [fetchProfile, fetchTherapists]);
+
+  const handleOpenOrganisationLink = async () => {
+    setOrgLinkError('');
+    setSelectedHistoricalBookingIds([]);
+    setAddToRoster(true);
+    try {
+      const res = await api.get('/admin-ops/organisations');
+      const rows = res.data || [];
+      setOrganisations(rows);
+      const preferred = profile?.client?.organisation_id || rows[0]?.id || '';
+      setSelectedOrganisationId(preferred);
+      setOrgLinkModalOpen(true);
+    } catch (err) {
+      setOrgLinkError(err.response?.data?.detail || 'Could not load organisations.');
+      setOrgLinkModalOpen(true);
+    }
+  };
+
+  const toggleHistoricalBooking = (bookingId) => {
+    setSelectedHistoricalBookingIds(prev =>
+      prev.includes(bookingId)
+        ? prev.filter(idValue => idValue !== bookingId)
+        : [...prev, bookingId]
+    );
+  };
+
+  const handleHistoricalOrganisationLink = async (e) => {
+    e.preventDefault();
+    if (!selectedOrganisationId) {
+      setOrgLinkError('Choose an organisation.');
+      return;
+    }
+    if (selectedHistoricalBookingIds.length === 0) {
+      setOrgLinkError('Select at least one previous booking date.');
+      return;
+    }
+
+    setOrgLinkBusy(true);
+    setOrgLinkError('');
+    try {
+      await api.post(`/crm/clients/${id}/organisation-link`, {
+        organisation_id: selectedOrganisationId,
+        booking_ids: selectedHistoricalBookingIds,
+        add_to_roster: addToRoster
+      });
+      setOrgLinkModalOpen(false);
+      setSelectedHistoricalBookingIds([]);
+      await fetchProfile();
+    } catch (err) {
+      setOrgLinkError(err.response?.data?.detail || 'Could not link historical organisation sessions.');
+    } finally {
+      setOrgLinkBusy(false);
+    }
+  };
 
   const handleAddNote = async (e) => {
     e.preventDefault();
@@ -251,13 +314,24 @@ const AdminClientDetail = () => {
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Directory</span>
         </Link>
-        <button
-          onClick={() => setBookModalOpen(true)}
-          className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow transition"
-        >
-          <CalendarPlus className="w-4 h-4" />
-          <span>Book Appointment</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {['super_admin', 'admin'].includes(user?.role) && (
+            <button
+              onClick={handleOpenOrganisationLink}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-xl border border-indigo-100 transition"
+            >
+              <Building2 className="w-4 h-4" />
+              <span>{client.organisation_id ? 'Add Historical Org Sessions' : 'Assign Organisation'}</span>
+            </button>
+          )}
+          <button
+            onClick={() => setBookModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow transition"
+          >
+            <CalendarPlus className="w-4 h-4" />
+            <span>Book Appointment</span>
+          </button>
+        </div>
       </div>
 
       {/* Client Overview Card */}
@@ -472,6 +546,11 @@ const AdminClientDetail = () => {
                           <span className={`text-[10px] font-semibold px-2 py-0.2 rounded-full ${statusConf.badge}`}>
                             {statusConf.label}
                           </span>
+                          {b.organisation_name && (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+                              {b.organisation_name}
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-slate-500 mt-1">
                           Therapist: <strong className="text-slate-700">{b.therapist_name}</strong>
@@ -687,6 +766,146 @@ const AdminClientDetail = () => {
                 );
               })
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Historical Organisation Attribution Modal */}
+      {orgLinkModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Link Historical Organisation Sessions</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Assign {client.first_name} to an organisation and select the exact previous booking dates that were organisation-sponsored.
+                </p>
+              </div>
+              <button onClick={() => setOrgLinkModalOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleHistoricalOrganisationLink} className="flex-1 min-h-0 flex flex-col">
+              <div className="p-5 space-y-4 overflow-y-auto">
+                {orgLinkError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{typeof orgLinkError === 'string' ? orgLinkError : 'Could not complete organisation link.'}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Organisation</label>
+                  <select
+                    value={selectedOrganisationId}
+                    onChange={(e) => setSelectedOrganisationId(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs"
+                  >
+                    <option value="">Choose organisation</option>
+                    {organisations.map(org => (
+                      <option key={org.id} value={org.id}>{org.name}</option>
+                    ))}
+                  </select>
+                  {client.organisation_id && (
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Current organisation: {client.organisation_name || client.organisation_id}
+                    </p>
+                  )}
+                </div>
+
+                <label className="flex items-start gap-2 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                  <input
+                    type="checkbox"
+                    checked={addToRoster}
+                    onChange={(e) => setAddToRoster(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block text-xs font-bold text-emerald-900">Add / match client on employee roster</span>
+                    <span className="block text-[10px] text-emerald-800 mt-0.5">
+                      Uses the client email as the roster key and activates the corporate entitlement going forward.
+                    </span>
+                  </span>
+                </label>
+
+                <div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900">Previous booking dates</h4>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        Only checked sessions will be attributed to this organisation historically. Original dates and statuses are preserved.
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded-lg">
+                      {selectedHistoricalBookingIds.length} selected
+                    </span>
+                  </div>
+
+                  <div className="mt-3 border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden">
+                    {bookings.filter(b => new Date(b.starts_at).getTime() <= Date.now()).length === 0 ? (
+                      <div className="p-5 text-center text-xs text-slate-400">No previous bookings are available for historical attribution.</div>
+                    ) : (
+                      bookings
+                        .filter(b => new Date(b.starts_at).getTime() <= Date.now())
+                        .sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at))
+                        .map((booking) => {
+                          const dt = formatSessionDateTime(booking.starts_at);
+                          const alreadyOtherOrg = booking.organisation_id && booking.organisation_id !== selectedOrganisationId;
+                          const selected = selectedHistoricalBookingIds.includes(booking.id);
+                          return (
+                            <label
+                              key={booking.id}
+                              className={`flex items-start gap-3 p-3 ${alreadyOtherOrg ? 'opacity-50 bg-slate-50' : 'hover:bg-slate-50 cursor-pointer'}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                disabled={alreadyOtherOrg}
+                                onChange={() => toggleHistoricalBooking(booking.id)}
+                                className="mt-1"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-xs font-bold text-slate-900">{dt.full}</span>
+                                  <span className="text-[10px] capitalize text-slate-500">{booking.session_type} · {booking.session_mode === 'virtual' ? 'Virtual' : 'In-Person'}</span>
+                                  <span className="text-[10px] font-semibold text-slate-500">{booking.status}</span>
+                                </div>
+                                {booking.organisation_name && (
+                                  <p className="text-[10px] text-indigo-700 mt-1">
+                                    Already attributed to {booking.organisation_name}
+                                  </p>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-100 text-[10px] text-amber-800">
+                  Historical dates remain in their original month. They will not consume the client&apos;s current-month allocation.
+                </div>
+              </div>
+
+              <div className="p-4 border-t border-slate-100 flex justify-end gap-2 bg-white">
+                <button
+                  type="button"
+                  onClick={() => setOrgLinkModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={orgLinkBusy || !selectedOrganisationId || selectedHistoricalBookingIds.length === 0}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow disabled:opacity-50"
+                >
+                  {orgLinkBusy ? 'Linking...' : 'Link Organisation & Selected Dates'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
