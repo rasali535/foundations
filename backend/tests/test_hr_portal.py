@@ -1,6 +1,7 @@
 import pytest
 import pytest_asyncio
 import bcrypt
+from datetime import datetime, timezone
 from httpx import AsyncClient, ASGITransport
 from mongomock_motor import AsyncMongoMockClient
 from server import app, USERS_DB, RATE_LIMIT_STORE
@@ -29,6 +30,20 @@ def scan_dict_for_pii(obj, path=""):
         for idx, item in enumerate(obj):
             findings.extend(scan_dict_for_pii(item, f"{path}[{idx}]"))
     return findings
+
+
+@pytest.fixture
+def september_reporting_clock(monkeypatch):
+    """Keep September reporting fixtures independent of the CI execution date."""
+    class SeptemberDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            fixed = cls(2026, 9, 28, 12, tzinfo=timezone.utc)
+            return fixed.astimezone(tz) if tz else fixed.replace(tzinfo=None)
+
+    # Dashboard selection and monthly contract allocation read separate clocks.
+    monkeypatch.setattr("services.hr_service.datetime", SeptemberDateTime)
+    monkeypatch.setattr("services.corporate_entitlement_service.datetime", SeptemberDateTime)
 
 
 @pytest_asyncio.fixture
@@ -166,7 +181,7 @@ async def test_multi_tenant_isolation_and_cross_tenant_block(hr_test_app):
 
 
 @pytest.mark.asyncio
-async def test_aggregate_metrics_and_contract_calculations(hr_test_app):
+async def test_aggregate_metrics_and_contract_calculations(hr_test_app, september_reporting_clock):
     """Verify accurate aggregation of session types, modes, attendance, and contract utilisation."""
     test_app, mock_db = hr_test_app
     transport = ASGITransport(app=test_app)
@@ -426,7 +441,7 @@ async def test_safe_aggregate_csv_export_and_audit_logging(hr_test_app):
 
 
 @pytest.mark.asyncio
-async def test_exact_aggregate_counts_are_not_masked_below_five(hr_test_app):
+async def test_exact_aggregate_counts_are_not_masked_below_five(hr_test_app, september_reporting_clock):
     test_app, mock_db = hr_test_app
     transport = ASGITransport(app=test_app)
 
