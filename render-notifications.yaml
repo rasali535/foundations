@@ -1,0 +1,40 @@
+# Apply after merging and configuring the same provider secrets as foundations-api.
+services:
+  - type: cron
+    name: foundations-notifications
+    runtime: python
+    region: oregon
+    rootDir: backend
+    schedule: "*/5 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python notification_cron.py
+    plan: starter
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.16"
+      - key: MONGO_URL
+        sync: false
+      - key: DB_NAME
+        value: foundations_db
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_TEMPLATE_LANGUAGE
+        sync: false
+      - key: WHATSAPP_THERAPIST_TEMPLATE_NAME
+        value: fca_therapist_booking_notification
+      - key: WHATSAPP_THERAPIST_TEMPLATE_LANGUAGE
+        value: en_US
+      - key: WHATSAPP_ADMIN_TEMPLATE_LANGUAGE
+        sync: false
+      - key: META_GRAPH_API_VERSION
+        sync: false
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: EMAIL_FROM
+        sync: false
+      - key: CONTACT_NOTIFICATION_TO
+        value: info@academyfoundations.com
+      - key: RESEND_API_KEY
+        sync: false

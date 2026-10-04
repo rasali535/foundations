@@ -1116,3 +1116,88 @@ async def approve_client_extra_sessions(
         db, client, reference=f"{month_key}-01T00:00:00+02:00"
     )
     return {"status": "approved", "month": month_key, "entitlement": entitlement}
+
+# Operational alerts contain references only; clinical records stay in CRM.
+@admin_router.get('/alerts')
+async def list_admin_alerts(request: Request, user: Dict = Depends(require_admin)):
+    db = get_db(request)
+    user_id = user['user_id']
+    alerts = await db.admin_alerts.find({'read_by': {'$ne': user_id}}, {'_id': 0, 'read_by': 0}).sort('created_at', -1).limit(50).to_list(50)
+    unread = await db.admin_alerts.count_documents({'read_by': {'$ne': user_id}})
+    failures = await db.notification_outbox.count_documents({'status': {'$in': ['failed', 'delivery_unknown']}})
+    return {'alerts': alerts, 'unread': unread, 'failures': failures}
+
+
+@admin_router.post('/alerts/read')
+async def acknowledge_admin_alerts(request: Request, user: Dict = Depends(require_admin)):
+    payload = await request.json()
+    keys = payload.get('event_keys')
+    if not isinstance(keys, list) or len(keys) > 50 or any(not isinstance(key, str) for key in keys):
+        raise HTTPException(status_code=400, detail='Supply up to 50 alert references.')
+    await get_db(request).admin_alerts.update_many({'event_key': {'$in': keys}}, {'$addToSet': {'read_by': user['user_id']}})
+    return {'status': 'acknowledged'}
+
+
+@admin_router.get('/notification-queue')
+async def list_notification_queue(request: Request, user: Dict = Depends(require_admin)):
+    return await get_db(request).notification_outbox.find(
+        {}, {'_id': 0, 'event_key': 1, 'kind': 1, 'status': 1, 'attempts': 1,
+             'error_message': 1, 'created_at': 1, 'updated_at': 1, 'next_attempt_at': 1},
+    ).sort('created_at', -1).limit(100).to_list(100)
+
+
+@admin_router.post('/notification-queue/retry')
+async def retry_notification(request: Request, user: Dict = Depends(require_admin)):
+    from services.notification_outbox import utc_now
+    payload = await request.json()
+    key = payload.get('event_key')
+    if not isinstance(key, str):
+        raise HTTPException(status_code=400, detail='A notification reference is required.')
+    result = await get_db(request).notification_outbox.update_one(
+        {'event_key': key, 'status': 'failed'},
+        {'$set': {'status': 'pending', 'attempts': 0, 'next_attempt_at': utc_now().isoformat(), 'error_message': None}},
+    )
+    if not result.modified_count:
+        raise HTTPException(status_code=409, detail='Only a confirmed failed notification can be retried. Unknown delivery requires verification.')
+    await AuditService.log_activity(get_db(request), action='notification_retry_requested', actor_user_id=user['user_id'], metadata={'event_key': key})
+    return {'status': 'pending'}
+
+@admin_router.post('/notifications/{notification_id}/retry')
+async def retry_failed_transmission(notification_id: str, request: Request, user: Dict = Depends(require_admin)):
+    from services.notification_outbox import NotificationOutbox, utc_now, utc_datetime, initial_failure_status
+    db = get_db(request)
+    log = await db.notification_log.find_one({'id': notification_id, 'channel': 'whatsapp', 'status': 'failed'}, {'_id': 0})
+    if not log or initial_failure_status(log.get('error_message')) == 'delivery_unknown':
+        raise HTTPException(status_code=409, detail='A confirmed failed WhatsApp message is required; verify unknown delivery first.')
+    existing = await db.notification_outbox.find_one({'payload.notification_id': notification_id}, {'_id': 0})
+    if existing:
+        await db.notification_outbox.update_one({'event_key': existing['event_key'], 'status': 'failed'}, {'$set': {
+            'status': 'pending', 'attempts': 0, 'next_attempt_at': utc_now().isoformat(), 'error_message': None,
+        }})
+        return {'status': 'queued', 'event_key': existing['event_key']}
+    key = None
+    if log.get('booking_id'):
+        booking = await db.bookings.find_one({'id': log['booking_id']}, {'_id': 0})
+        if not booking or booking.get('status') not in ('pending', 'confirmed') or utc_datetime(booking['starts_at']) <= utc_now():
+            raise HTTPException(status_code=409, detail='This booking is no longer eligible for a notification.')
+        if log.get('template') == 'therapist_booking_confirmation':
+            if not booking.get('therapist_id'):
+                raise HTTPException(status_code=409, detail='No therapist is currently assigned.')
+            key = f"therapist:{booking['id']}:{booking['therapist_id']}:{booking.get('assigned_at') or booking.get('updated_at')}"
+            kind, payload = 'therapist', {'booking_id': booking['id'], 'therapist_id': booking['therapist_id']}
+        elif log.get('template') in ('booking_confirmation', 'fca_booking_confirmation', 'fca_virtual_session_link'):
+            start = utc_datetime(booking['starts_at']).isoformat()
+            key = f"client-booking:{booking['id']}:{start}"
+            kind, payload = 'client_booking', {'booking_id': booking['id'], 'starts_at': start}
+    elif log.get('template') == 'fca_intake_received':
+        key = f"intake-client-retry:{notification_id}"
+        kind, payload = 'client_intake', {'client_id': log['client_id']}
+    if not key:
+        raise HTTPException(status_code=409, detail='Use the delivery queue to retry this notification.')
+    await NotificationOutbox.enqueue(db, key, kind, payload)
+    # Never reset an accepted, processing, delivered, read or unknown job.
+    await db.notification_outbox.update_one({'event_key': key, 'status': 'failed'}, {'$set': {
+        'status': 'pending', 'attempts': 0, 'next_attempt_at': utc_now().isoformat(), 'error_message': None,
+    }})
+    await AuditService.log_activity(db, action='notification_retry_requested', actor_user_id=user['user_id'], metadata={'notification_id': notification_id})
+    return {'status': 'queued', 'event_key': key}

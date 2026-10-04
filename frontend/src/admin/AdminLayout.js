@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAdminAuth } from './AdminAuthContext';
+import AdminNotificationBell from './AdminNotificationBell';
 import InstallPortalButton from '../components/InstallPortalButton';
 import {
   LayoutDashboard,
@@ -231,6 +232,7 @@ const AdminLayout = () => {
             </h2>
           </div>
           <div className="flex items-center gap-3">
+            {['admin', 'super_admin'].includes(user.role) && <AdminNotificationBell />}
             <div className="hidden sm:flex items-center gap-2">
               <span className="text-xs text-slate-500">Operating in:</span>
               <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">

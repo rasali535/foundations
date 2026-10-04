@@ -21,6 +21,10 @@ WHATSAPP_TEMPLATE_LANGUAGE = os.environ.get("WHATSAPP_TEMPLATE_LANGUAGE", "en")
 # Canonical Foundations template catalogue. Keep these names aligned with Meta.
 TEMPLATES = {
     "intake_received": "fca_intake_received",
+    "admin_intake_received": os.environ.get("WHATSAPP_ADMIN_INTAKE_TEMPLATE", "fca_admin_intake_received"),
+    "admin_booking_pending": os.environ.get("WHATSAPP_ADMIN_BOOKING_TEMPLATE", "fca_admin_booking_pending"),
+    "admin_booking_declined": os.environ.get("WHATSAPP_ADMIN_DECLINED_TEMPLATE", "fca_admin_booking_declined"),
+    "booking_reminder_6h": os.environ.get("WHATSAPP_REMINDER_6H_TEMPLATE", "fca_booking_reminder_6h"),
     "booking_confirmation": "fca_booking_confirmation",
     "booking_reminder_24h": "fca_booking_reminder_24h",
     "booking_reminder_2h": "fca_booking_reminder_2h",
@@ -114,7 +118,7 @@ class MetaWhatsAppTemplateService:
                 "type": "template",
                 "template": {
                     "name": template_name,
-                    "language": {"code": language or WHATSAPP_TEMPLATE_LANGUAGE},
+                    "language": {"code": language or (os.environ.get("WHATSAPP_ADMIN_TEMPLATE_LANGUAGE", WHATSAPP_TEMPLATE_LANGUAGE) if event.startswith("admin_") else WHATSAPP_TEMPLATE_LANGUAGE)},
                     "components": [{"type": "body", "parameters": parameters}],
                 },
             }

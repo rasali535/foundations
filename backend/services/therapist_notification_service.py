@@ -197,6 +197,16 @@ class TherapistNotificationService:
         therapist_id: str
     ) -> NotificationLog:
         await db.notification_log.insert_one(log_entry.model_dump())
+        from services.notification_outbox import NotificationOutbox, initial_failure_status, utc_now
+        from datetime import timedelta
+        if log_entry.status == "failed" and log_entry.booking_id:
+            booking = await db.bookings.find_one({"id": log_entry.booking_id}, {"_id": 0})
+            if booking:
+                await NotificationOutbox.enqueue(db,
+                    f"therapist:{log_entry.booking_id}:{therapist_id}:{booking.get('assigned_at') or booking.get('updated_at')}",
+                    "therapist", {"booking_id": log_entry.booking_id, "therapist_id": therapist_id},
+                    (utc_now() + timedelta(minutes=2)).isoformat(),
+                    status=initial_failure_status(log_entry.error_message), error=log_entry.error_message)
         await AuditService.log_activity(
             db,
             action=f"therapist_whatsapp_{'sent' if log_entry.status == 'sent' else 'failed'}",

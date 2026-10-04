@@ -49,6 +49,7 @@ const IntakeForm = () => {
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitSuccess, setSubmitSuccess] = useState(false);
+    const [phoneCountryCode, setPhoneCountryCode] = useState('');
     const [intakeResult, setIntakeResult] = useState(null);
     const [bookingMode, setBookingMode] = useState('virtual');
     const [bookingSlots, setBookingSlots] = useState([]);
@@ -176,7 +177,7 @@ const IntakeForm = () => {
         if (step === 1) {
             if (!formData.full_name.trim()) return 'Full Name is required.';
             if (!formData.email.trim()) return 'Email Address is required.';
-            if (!formData.phone.trim()) return 'Phone Number is required.';
+            if (!/^\+[1-9]\d{7,14}$/.test(formData.phone.replace(/[\s().-]/g, ''))) return 'Enter your phone number with its country code, for example +26771234567.';
         }
         if (step === 2) {
             if (!formData.emergency_name.trim()) return 'Emergency Contact Name is required.';
@@ -293,12 +294,12 @@ const IntakeForm = () => {
                 const backendError = await backendRes.json().catch(() => ({}));
                 if (corporateCode) {
                     throw new Error(
-                        backendError.detail ||
+                        (Array.isArray(backendError.detail) ? backendError.detail.map(item => item.msg).join('; ') : backendError.detail) ||
                         'This corporate intake link is invalid or inactive. Please request a new link from Foundations.'
                     );
                 }
                 throw new Error(
-                    backendError.detail ||
+                    (Array.isArray(backendError.detail) ? backendError.detail.map(item => item.msg).join('; ') : backendError.detail) ||
                     'Failed to submit your intake securely. Please contact our clinic directly at info@academyfoundations.com.'
                 );
             }
@@ -527,8 +528,23 @@ const IntakeForm = () => {
 
                                                 <div className="form-group">
                                                     <label htmlFor="phone">Phone Number <span className="required-star">*</span></label>
-                                                    <input 
-                                                        type="tel" 
+                                                    <select aria-label="Phone country code" value={phoneCountryCode} onChange={(e) => {
+                                                        const next = e.target.value;
+                                                        setPhoneCountryCode(next);
+                                                        if (next) {
+                                                            const local = formData.phone.startsWith('+') ? '' : formData.phone.replace(/[^0-9]/g, '');
+                                                            updateFormData({ phone: next + local });
+                                                        }
+                                                    }}>
+                                                        <option value="">Enter full international number</option>
+                                                        <option value="+267">Botswana (+267)</option>
+                                                        <option value="+263">Zimbabwe (+263)</option>
+                                                        <option value="+27">South Africa (+27)</option>
+                                                        <option value="+260">Zambia (+260)</option>
+                                                        <option value="+264">Namibia (+264)</option>
+                                                    </select>
+                                                    <input
+                                                        type="tel"
                                                         id="phone"
                                                         value={formData.phone} 
                                                         onChange={(e) => updateFormData({ phone: e.target.value })}

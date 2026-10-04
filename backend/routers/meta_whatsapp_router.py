@@ -408,9 +408,20 @@ async def _process_status_updates(db: Any, payload: Dict[str, Any]) -> None:
             update_fields["failed_at"] = now
             update_fields["error_message"] = error_summary
 
+        status_filter = {"provider_reference": message_id}
+        if meta_status == "sent":
+            status_filter["status"] = {"$nin": ["delivered", "read", "failed"]}
+        elif meta_status == "delivered":
+            status_filter["status"] = {"$ne": "read"}
+        elif meta_status == "failed":
+            status_filter["status"] = {"$nin": ["delivered", "read"]}
         result = await db.notification_log.update_many(
-            {"provider_reference": message_id},
+            status_filter,
             {"$set": update_fields},
+        )
+        await db.notification_outbox.update_many(
+            status_filter,
+            {"$set": {"status": meta_status, "updated_at": now, "error_message": error_summary}},
         )
         if result.matched_count:
             logging.info(

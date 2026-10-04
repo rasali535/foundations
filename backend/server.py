@@ -14,7 +14,7 @@ import hmac
 import hashlib
 import base64
 from pathlib import Path
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 import bcrypt
 from typing import List, Optional, Dict, Any
 import uuid
@@ -27,6 +27,7 @@ from models import (
 from services.therapist_service import TherapistService
 from services.intake_service import IntakeService
 from services.whatsapp_reminder_dispatcher import WhatsAppReminderDispatcher
+from services.notification_outbox import NotificationOutbox
 from routers.crm_router import crm_router
 from routers.booking_router import booking_router
 from routers.therapist_router import therapist_router
@@ -111,6 +112,7 @@ async def lifespan(app: FastAPI):
         await db.notification_log.create_index([("client_id", 1)])
         await db.resend_webhook_events.create_index([("event_id", 1)], unique=True)
         await db.resend_inbound_messages.create_index([("email_id", 1)], unique=True, sparse=True)
+        await NotificationOutbox.indexes(db)
         await db.whatsapp_dispatch_claims.create_index([("event_key", 1)], unique=True)
         
         # Seed default therapists if missing
@@ -439,6 +441,12 @@ class ClinicalSafetyScreen(BaseModel):
     risk_explanation: Optional[str] = None
 
 class ClinicalIntakeCreate(BaseModel):
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, value):
+        from services.phone_validation import international_phone
+        return international_phone(value)
+
     full_name: str
     dob: str
     age: Optional[str] = None

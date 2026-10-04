@@ -362,6 +362,10 @@ class NotificationLog(BaseModel):
     content_summary: Optional[str] = None
     provider_reference: Optional[str] = None
     error_message: Optional[str] = None
+    meta_status: Optional[str] = None
+    delivered_at: Optional[str] = None
+    read_at: Optional[str] = None
+    failed_at: Optional[str] = None
     sent_at: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
