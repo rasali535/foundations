@@ -1,3 +1,4 @@
+import NotificationQueue from '../NotificationQueue';
 import React, { useState, useEffect } from 'react';
 import { api, useAdminAuth } from '../AdminAuthContext';
 import {
@@ -24,6 +25,8 @@ const AdminSettings = () => {
   const { user } = useAdminAuth();
   const isSuperAdmin = user?.role === 'super_admin';
   const [config, setConfig] = useState(null);
+  const [retryMessage, setRetryMessage] = useState('');
+  const [retryingNotification, setRetryingNotification] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditTotal, setAuditTotal] = useState(0);
@@ -373,7 +376,10 @@ const AdminSettings = () => {
         </div>
       </div>
 
+      <NotificationQueue />
+
       {/* Notification Logs Table */}
+      {retryMessage && <p role="status" className="text-sm text-slate-700">{retryMessage}</p>}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 space-y-4">
         <h3 className="font-bold text-slate-900 text-sm sm:text-base flex items-center gap-2">
           <Mail className="w-4 h-4 text-emerald-600" />
@@ -403,10 +409,20 @@ const AdminSettings = () => {
                     <td className="py-2.5 px-3">{n.subject || n.template}</td>
                     <td className="py-2.5 px-3">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        n.status === 'sent' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                        ['sent', 'delivered', 'read'].includes(n.status) ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                       }`}>
-                        {n.status}
+                        {n.status === 'sent' ? 'accepted by provider' : n.status}
                       </span>
+                      {n.error_message && <p className="text-xs text-rose-700 mt-1">{n.error_message}</p>}
+                      {n.channel === 'whatsapp' && n.status === 'failed' && <button disabled={retryingNotification === n.id} className="text-xs underline text-emerald-800 mt-1 disabled:opacity-50" onClick={async () => {
+                        setRetryingNotification(n.id);
+                        try {
+                          await api.post(`/admin-ops/notifications/${encodeURIComponent(n.id)}/retry`);
+                          setRetryMessage('Retry requested. Check the delivery queue for progress.');
+                        } catch (err) {
+                          setRetryMessage(err.response?.data?.detail || 'Could not retry this message.');
+                        } finally { setRetryingNotification(null); }
+                      }}>Retry after correcting settings</button>}
                     </td>
                     <td className="py-2.5 px-3 text-slate-500">{formatSessionDateTime(n.sent_at || n.created_at).full}</td>
                   </tr>

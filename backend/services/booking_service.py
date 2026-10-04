@@ -12,6 +12,7 @@ from models import (
 from services.crm_service import CRMService
 from services.therapist_service import TherapistService
 from services.notification_service import NotificationService
+from services.notification_outbox import NotificationOutbox
 from services.therapist_notification_service import TherapistNotificationService
 from services.audit_service import AuditService
 from services.meta_whatsapp_template_service import MetaWhatsAppTemplateService
@@ -22,7 +23,10 @@ from services.corporate_entitlement_service import CorporateEntitlementService
 
 def parse_iso(dt_str: str) -> datetime:
     clean = dt_str.replace("Z", "+00:00")
-    return datetime.fromisoformat(clean)
+    dt = datetime.fromisoformat(clean)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 class BookingService:
@@ -261,6 +265,10 @@ class BookingService:
                 "assignment_status": "awaiting_assignment",
             },
         )
+        await NotificationOutbox.admin_alert(
+            db, "admin_booking_pending", booking.id, booking.client_id,
+            booking_id=booking.id, url="/admin/bookings",
+        )
         return booking, None
 
     @staticmethod
@@ -276,6 +284,8 @@ class BookingService:
             return None, "Booking request not found."
         if booking_doc.get("status") != "pending":
             return None, "Only pending booking requests can be assigned."
+        if booking_doc.get("assignment_status") not in ("awaiting_assignment", "declined"):
+            return None, "This booking is already assigned or awaiting a therapist response."
 
         therapist, err = await TherapistService.validate_and_route_therapist(
             db,
@@ -340,7 +350,13 @@ class BookingService:
             "therapist_decline_reason": None,
             "updated_at": assigned_at,
         }
-        await db.bookings.update_one({"id": booking_id}, {"$set": update})
+        claimed = await db.bookings.update_one({
+            "id": booking_id, "status": "pending",
+            "assignment_status": booking_doc.get("assignment_status"),
+            "updated_at": booking_doc.get("updated_at"),
+        }, {"$set": update})
+        if not claimed.modified_count:
+            return None, "Another administrator updated this booking. Refresh before assigning."
         updated_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
         booking = Booking(**updated_doc)
 
@@ -416,6 +432,10 @@ class BookingService:
                 client_id=booking.client_id,
                 booking_id=booking.id,
                 metadata={"therapist_id": therapist_id, "reason": (reason or "").strip() or None},
+            )
+            await NotificationOutbox.admin_alert(
+                db, "admin_booking_declined", f"{booking.id}:{response_at}", booking.client_id,
+                booking_id=booking.id, url="/admin/bookings",
             )
             return booking, None
 

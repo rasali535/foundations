@@ -377,6 +377,7 @@ class NotificationService:
     @staticmethod
     async def _persist_log(db: AsyncIOMotorDatabase, log_entry: NotificationLog) -> NotificationLog:
         await db.notification_log.insert_one(log_entry.model_dump())
+        await NotificationService._queue_failed_whatsapp(db, log_entry)
         await AuditService.log_activity(
             db,
             action=f"{log_entry.channel}_{'sent' if log_entry.status == 'sent' else 'failed'}",
@@ -390,6 +391,20 @@ class NotificationService:
             }
         )
         return log_entry
+
+    @staticmethod
+    async def _queue_failed_whatsapp(db, log_entry):
+        if log_entry.channel != "whatsapp" or log_entry.status != "failed" or not log_entry.booking_id:
+            return
+        from services.notification_outbox import NotificationOutbox, initial_failure_status, utc_datetime, utc_now
+        from datetime import timedelta
+        booking = await db.bookings.find_one({"id": log_entry.booking_id}, {"_id": 0})
+        if booking:
+            starts_at = utc_datetime(booking["starts_at"]).isoformat()
+            await NotificationOutbox.enqueue(db, f"client-booking:{booking['id']}:{starts_at}", "client_booking",
+                {"booking_id": booking["id"], "starts_at": starts_at},
+                (utc_now() + timedelta(minutes=2)).isoformat(),
+                status=initial_failure_status(log_entry.error_message), error=log_entry.error_message)
 
     # ==================== Confirmation Content ====================
     @staticmethod
@@ -605,7 +620,7 @@ class NotificationService:
             if event == "booking_confirmation":
                 variables["session_type"] = session_type
 
-            return await MetaWhatsAppTemplateService.send(
+            result = await MetaWhatsAppTemplateService.send(
                 db,
                 phone=raw_recipient,
                 event=event,
@@ -614,8 +629,8 @@ class NotificationService:
                 booking_id=primary_booking_id,
                 booking_batch_id=booking_batch_id,
             )
-
-
+            await NotificationService._queue_failed_whatsapp(db, result)
+            return result
 
         except Exception as exc:
             log_entry.status = "failed"

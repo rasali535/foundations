@@ -22,6 +22,10 @@ class IntakeService:
         3. Save intake record in crm_intake_submissions linked to client_id
         4. Log immutable audit entry
         """
+        from services.phone_validation import international_phone
+        from services.notification_outbox import NotificationOutbox
+        payload = dict(payload)
+        payload["phone"] = international_phone(payload.get("phone"))
         # Safety / Triage assessment
         safety = payload.get("safety_screen", {})
         if isinstance(safety, dict):
@@ -151,6 +155,11 @@ class IntakeService:
 
         await db.crm_intake_submissions.insert_one(intake_record.model_dump())
 
+        await NotificationOutbox.admin_alert(
+            db, "admin_intake_received", intake_record.id, crm_client.id,
+            url=f"/admin/crm/clients/{crm_client.id}",
+        )
+
         # Notify FCA that a secure intake is waiting in the portal. The email
         # intentionally contains no client identity or clinical intake content.
         try:
@@ -168,6 +177,9 @@ class IntakeService:
                 }}
             )
             if intake_alert.get("notification_status") != "sent":
+                await NotificationOutbox.enqueue(db, f"intake-email:{intake_record.id}", "intake_email", {
+                    "intake_id": intake_record.id, "created_at": intake_record.created_at, "source_type": source_type,
+                })
                 logging.warning(
                     "INTAKE_ALERT resend_failed intake_id=%s error=%s",
                     intake_record.id,
@@ -185,13 +197,16 @@ class IntakeService:
         # deliberately never placed in WhatsApp template variables.
         try:
             if getattr(crm_client, "phone", None) and MetaWhatsAppTemplateService.configured():
-                await MetaWhatsAppTemplateService.send(
+                acknowledgement = await MetaWhatsAppTemplateService.send(
                     db,
                     phone=crm_client.phone,
                     event="intake_received",
                     variables={"client_name": crm_client.first_name or "Client"},
                     client_id=crm_client.id,
                 )
+                from services.notification_outbox import retryable
+                if acknowledgement.status == "failed" and retryable(acknowledgement.error_message):
+                    await NotificationOutbox.enqueue(db, f"intake-client:{intake_record.id}", "client_intake", {"client_id": crm_client.id, "notification_id": acknowledgement.id})
         except Exception as exc:
             # Intake persistence must never fail because a notification provider is unavailable.
             __import__("logging").warning(

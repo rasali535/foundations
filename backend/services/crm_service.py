@@ -71,7 +71,13 @@ class CRMService:
             if doc:
                 # Update phone/details if provided
                 update_fields = {}
-                if phone and not doc.get("phone"):
+                from services.phone_validation import international_phone
+                try:
+                    international_phone(doc.get("phone"))
+                    current_phone_valid = True
+                except ValueError:
+                    current_phone_valid = False
+                if phone and not current_phone_valid:
                     update_fields["phone"] = phone
                 if update_fields:
                     update_fields["updated_at"] = now_iso()
