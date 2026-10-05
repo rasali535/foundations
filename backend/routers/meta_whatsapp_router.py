@@ -12,7 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
 from services.aliana_conversation_service import AlianaConversationService
-from services.booking_service import BookingService
+from services.booking_service import BookingService, parse_iso
 from services.therapist_service import TherapistService
 from services.scheduling_service import SchedulingService
 from models import now_iso
@@ -138,9 +138,7 @@ async def _available_therapists_for_booking(db: Any, booking: Dict[str, Any]) ->
                     {"_id": 0, "organisation_id": 1},
                 )
                 funding_scope = "organisation" if client and client.get("organisation_id") else "private"
-                start_dt = __import__("datetime").datetime.fromisoformat(
-                    str(booking["starts_at"]).replace("Z", "+00:00")
-                )
+                start_dt = parse_iso(str(booking["starts_at"]))
                 slots = await SchedulingService.get_available_slots(
                     db,
                     therapist_id=therapist.id,
@@ -153,9 +151,7 @@ async def _available_therapists_for_booking(db: Any, booking: Dict[str, Any]) ->
                 )
                 if not any(
                     slot.get("is_available")
-                    and __import__("datetime").datetime.fromisoformat(
-                        str(slot.get("starts_at") or "").replace("Z", "+00:00")
-                    ).isoformat() == start_dt.isoformat()
+                    and parse_iso(str(slot["starts_at"])) == start_dt
                     for slot in slots
                     if slot.get("starts_at")
                 ):

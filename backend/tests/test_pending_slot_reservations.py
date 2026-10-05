@@ -116,7 +116,8 @@ async def test_failed_reschedule_retains_old_hold_and_rolls_back_new_claims():
 
 
 @pytest.mark.asyncio
-async def test_whatsapp_assignment_lists_therapist_for_own_reserved_booking(monkeypatch):
+@pytest.mark.parametrize('slot_offset_hours', [0, 2, -5])
+async def test_whatsapp_assignment_lists_therapist_for_own_reserved_booking(monkeypatch, slot_offset_hours):
     from types import SimpleNamespace
     from routers.meta_whatsapp_router import _available_therapists_for_booking
     from services.therapist_service import TherapistService
@@ -127,7 +128,10 @@ async def test_whatsapp_assignment_lists_therapist_for_own_reserved_booking(monk
     monkeypatch.setattr(SetmoreService,'configured',staticmethod(lambda:True))
     monkeypatch.setattr(TherapistService,'list_therapists',AsyncMock(return_value=[SimpleNamespace(id='caroline',name='Caroline Sithole')]))
     async def slots(*args,**kwargs):
-        return [{'starts_at':pending.starts_at,'ends_at':pending.ends_at,'is_available':True}]
+        slot_timezone = timezone(timedelta(hours=slot_offset_hours))
+        return [{'starts_at':datetime.fromisoformat(pending.starts_at).astimezone(slot_timezone).isoformat(),
+                 'ends_at':datetime.fromisoformat(pending.ends_at).astimezone(slot_timezone).isoformat(),
+                 'is_available':True}]
     monkeypatch.setattr(SetmoreService,'available_slots',slots)
     listed=await _available_therapists_for_booking(db,pending.model_dump())
     assert listed == [{'id':'caroline','name':'Caroline Sithole'}]
@@ -135,3 +139,10 @@ async def test_whatsapp_assignment_lists_therapist_for_own_reserved_booking(monk
     # gateway continues hiding its held interval from everyone else.
     public=await SchedulingService.get_available_slots(db,'caroline',start.date().isoformat(),1)
     assert public[0]['is_available'] is False
+    # Matching timezone offsets must not make a different instant eligible.
+    async def later_slots(*args, **kwargs):
+        return [{'starts_at':(start+timedelta(hours=2)).isoformat(),
+                 'ends_at':(start+timedelta(hours=3)).isoformat(),
+                 'is_available':True}]
+    monkeypatch.setattr(SetmoreService,'available_slots',later_slots)
+    assert await _available_therapists_for_booking(db,pending.model_dump()) == []
