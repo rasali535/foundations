@@ -113,3 +113,25 @@ async def test_failed_reschedule_retains_old_hold_and_rolls_back_new_claims():
     assert len(newholds)==60
     other,error=await BookingService.create_booking_request(db,request('client-1',start))
     assert other and not error
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_assignment_lists_therapist_for_own_reserved_booking(monkeypatch):
+    from types import SimpleNamespace
+    from routers.meta_whatsapp_router import _available_therapists_for_booking
+    from services.therapist_service import TherapistService
+    db,start=await setup()
+    pending,error=await BookingService.create_booking_request(db,request('client-0',start))
+    assert not error
+    monkeypatch.setattr(SchedulingService,'provider',staticmethod(lambda:'setmore'))
+    monkeypatch.setattr(SetmoreService,'configured',staticmethod(lambda:True))
+    monkeypatch.setattr(TherapistService,'list_therapists',AsyncMock(return_value=[SimpleNamespace(id='caroline',name='Caroline Sithole')]))
+    async def slots(*args,**kwargs):
+        return [{'starts_at':pending.starts_at,'ends_at':pending.ends_at,'is_available':True}]
+    monkeypatch.setattr(SetmoreService,'available_slots',slots)
+    listed=await _available_therapists_for_booking(db,pending.model_dump())
+    assert listed == [{'id':'caroline','name':'Caroline Sithole'}]
+    # The exception is confined to allocation of this booking: the public
+    # gateway continues hiding its held interval from everyone else.
+    public=await SchedulingService.get_available_slots(db,'caroline',start.date().isoformat(),1)
+    assert public[0]['is_available'] is False
