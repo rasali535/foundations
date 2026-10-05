@@ -1,4 +1,5 @@
 // Centralized UI mappings for Foundations Counselling CRM & Booking Platform
+import { CLINICAL_TIME_ZONE, clinicalDate } from '../utils/clinicalTime';
 
 export const SESSION_TYPE_COLORS = {
   individual: {
@@ -53,13 +54,13 @@ export const STATUS_CONFIG = {
 };
 
 export const formatSessionDateTime = (isoString) => {
-  if (!isoString) return 'N/A';
+  if (!isoString) return { date: 'N/A', time: '', full: 'N/A' };
   try {
-    const d = new Date(isoString);
+    const d = clinicalDate(isoString);
     return {
-      date: d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
-      time: d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
-      full: d.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      date: d.toLocaleDateString('en-GB', { timeZone: CLINICAL_TIME_ZONE, day: '2-digit', month: 'short', year: 'numeric' }),
+      time: d.toLocaleTimeString('en-GB', { timeZone: CLINICAL_TIME_ZONE, hour: '2-digit', minute: '2-digit' }),
+      full: d.toLocaleDateString('en-GB', { timeZone: CLINICAL_TIME_ZONE, weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     };
   } catch (e) {
     return { date: isoString, time: '', full: isoString };

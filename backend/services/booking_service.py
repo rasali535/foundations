@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Optional, Tuple
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from models import (
@@ -831,7 +832,8 @@ class BookingService:
                 db, therapist.id, s_iso, e_iso
             )
             if has_conflict:
-                return None, f"Slot #{idx} ({s.starts_at[:10]} {s.starts_at[11:16]} UTC) cannot be booked: {conflict_msg}"
+                local_start = parse_iso(s.starts_at).astimezone(ZoneInfo("Africa/Gaborone"))
+                return None, f"Slot #{idx} ({local_start.strftime('%Y-%m-%d %H:%M CAT')}) cannot be booked: {conflict_msg}"
 
             validated_slots.append((s_iso, e_iso, s.notes))
 

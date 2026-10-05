@@ -1,3 +1,4 @@
+import { formatCatDateTime } from '../utils/clinicalTime';
 import { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import SEO from '../components/SEO';
@@ -413,7 +414,7 @@ const IntakeForm = () => {
                                                     {bookingSlots.slice(0, 30).map((slot) => (
                                                         <div key={slot.starts_at} className={`checkbox-card ${selectedSlot?.starts_at === slot.starts_at ? 'checked' : ''}`} onClick={() => setSelectedSlot(slot)}>
                                                             <div className="checkbox-ui">{selectedSlot?.starts_at === slot.starts_at ? <span className="check-mark">✓</span> : null}</div>
-                                                            <span className="checkbox-label">{new Date(slot.starts_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                                                            <span className="checkbox-label">{formatCatDateTime(slot.starts_at)}</span>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -429,7 +430,7 @@ const IntakeForm = () => {
                                 {bookingSuccess && (
                                     <div className="intake-booking-card" style={{ marginTop: '24px' }}>
                                         <h3>Booking request received</h3>
-                                        <p>Your requested {bookingSuccess.session_mode === 'virtual' ? 'virtual' : 'in-person'} counselling time is {new Date(bookingSuccess.starts_at).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })}.</p>
+                                        <p>Your requested {bookingSuccess.session_mode === 'virtual' ? 'virtual' : 'in-person'} counselling time is {formatCatDateTime(bookingSuccess.starts_at)}.</p>
                                         <p><strong>Status: Awaiting confirmation.</strong></p>
                                         <p>FCA will assign an available therapist. You will receive a booking confirmation only after the therapist accepts the appointment.</p>
                                     </div>

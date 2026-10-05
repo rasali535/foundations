@@ -1,3 +1,4 @@
+import { catInputToIso, utcClockToCat, catClockToUtc } from '../../utils/clinicalTime';
 import React, { useState, useEffect } from 'react';
 import { api } from '../AdminAuthContext';
 import {
@@ -87,6 +88,8 @@ const AdminTherapists = () => {
 
       const payload = {
         ...baseTherapistForm,
+        working_hours_start: catClockToUtc(therapistForm.working_hours_start),
+        working_hours_end: catClockToUtc(therapistForm.working_hours_end),
         specializations: typeof therapistForm.specializations === 'string'
           ? therapistForm.specializations.split(',').map(s => s.trim()).filter(Boolean)
           : therapistForm.specializations
@@ -129,8 +132,8 @@ const AdminTherapists = () => {
     try {
       await api.post('/therapists/blocks', {
         ...blockForm,
-        starts_at: new Date(blockForm.starts_at).toISOString(),
-        ends_at: new Date(blockForm.ends_at).toISOString()
+        starts_at: catInputToIso(blockForm.starts_at),
+        ends_at: catInputToIso(blockForm.ends_at)
       });
       setBlockModalOpen(false);
       setBlockForm({
@@ -283,7 +286,7 @@ const AdminTherapists = () => {
               <div className="p-3 bg-slate-50 rounded-xl space-y-1 text-xs">
                 <div className="flex justify-between text-slate-600">
                   <span>Hours:</span>
-                  <strong className="text-slate-800">{t.working_hours_start} - {t.working_hours_end} UTC</strong>
+                  <strong className="text-slate-800">{utcClockToCat(t.working_hours_start || '08:00')} - {utcClockToCat(t.working_hours_end || '17:00')} CAT</strong>
                 </div>
                 <div className="flex justify-between text-slate-600">
                   <span>Slot Length:</span>
@@ -326,8 +329,8 @@ const AdminTherapists = () => {
                       supports_in_person: t.supports_in_person,
                       supports_virtual: t.supports_virtual,
                       specializations: Array.isArray(t.specializations) ? t.specializations.join(', ') : '',
-                      working_hours_start: t.working_hours_start || '08:00',
-                      working_hours_end: t.working_hours_end || '17:00',
+                      working_hours_start: utcClockToCat(t.working_hours_start || '08:00'),
+                      working_hours_end: utcClockToCat(t.working_hours_end || '17:00'),
                       default_location: t.default_location || ''
                     });
                     setActionError('');
@@ -356,8 +359,8 @@ const AdminTherapists = () => {
               <tr>
                 <th className="py-2.5 px-3">Therapist ID</th>
                 <th className="py-2.5 px-3">Type</th>
-                <th className="py-2.5 px-3">Start Time (UTC)</th>
-                <th className="py-2.5 px-3">End Time (UTC)</th>
+                <th className="py-2.5 px-3">Start Time (CAT)</th>
+                <th className="py-2.5 px-3">End Time (CAT)</th>
                 <th className="py-2.5 px-3">Reason</th>
                 <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
@@ -506,7 +509,7 @@ const AdminTherapists = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Working Hours Start</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Working Hours Start (CAT)</label>
                   <input
                     type="text"
                     value={therapistForm.working_hours_start}
@@ -516,7 +519,7 @@ const AdminTherapists = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Working Hours End</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Working Hours End (CAT)</label>
                   <input
                     type="text"
                     value={therapistForm.working_hours_end}
@@ -604,7 +607,7 @@ const AdminTherapists = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Start Time (UTC) *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Start Time (CAT) *</label>
                   <input
                     type="datetime-local"
                     required
@@ -614,7 +617,7 @@ const AdminTherapists = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">End Time (UTC) *</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">End Time (CAT) *</label>
                   <input
                     type="datetime-local"
                     required

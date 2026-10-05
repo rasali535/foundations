@@ -5,7 +5,7 @@ import { api } from '../AdminAuthContext';
 const formatTime = (value) => {
   if (!value) return '—';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('en-GB', { timeZone: 'Africa/Gaborone' }) + ' CAT';
 };
 
 const DeliveryBadge = ({ status }) => {

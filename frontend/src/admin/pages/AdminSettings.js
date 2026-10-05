@@ -364,11 +364,11 @@ const AdminSettings = () => {
               <h3 className="font-bold text-slate-900 text-sm">Clinical Timezone</h3>
             </div>
             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800">
-              CAT (UTC+2)
+              CAT
             </span>
           </div>
           <p className="text-xs text-slate-500">
-            Database timestamps are standardized in ISO UTC and converted consistently to Central Africa Time.
+            All displayed dates and times use Central Africa Time (Africa/Gaborone).
           </p>
           <div className="p-2.5 bg-slate-50 rounded-lg text-xs font-mono text-slate-600">
             Standard: Central Africa Time / Gaborone

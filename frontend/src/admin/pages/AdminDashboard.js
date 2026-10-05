@@ -191,7 +191,7 @@ const AdminDashboard = () => {
                       <div className="flex items-start gap-3.5">
                         <div className="flex flex-col items-center justify-center w-14 h-14 bg-slate-100 border border-slate-200 rounded-xl text-slate-800 shrink-0">
                           <span className="text-xs font-bold text-slate-900">{dt.time}</span>
-                          <span className="text-[10px] text-slate-500">UTC</span>
+                          <span className="text-[10px] text-slate-500">CAT</span>
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
