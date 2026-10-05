@@ -149,6 +149,7 @@ async def _available_therapists_for_booking(db: Any, booking: Dict[str, Any]) ->
                     session_type=booking.get("session_type") or "individual",
                     session_mode=mode or "virtual",
                     funding_scope=funding_scope,
+                    exclude_booking_id=booking.get("id"),
                 )
                 if not any(
                     slot.get("is_available")
