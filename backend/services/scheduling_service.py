@@ -28,6 +28,7 @@ class SchedulingService:
         session_type: str = "individual",
         session_mode: str = "virtual",
         funding_scope: str = "private",
+        exclude_booking_id: str = None,
     ) -> List[Dict[str, Any]]:
         provider = SchedulingService.provider()
         if provider not in {"internal", "setmore"}:
@@ -36,7 +37,7 @@ class SchedulingService:
         if provider == "setmore":
             if not SetmoreService.configured():
                 raise RuntimeError("Setmore scheduling is selected but SETMORE_REFRESH_TOKEN is missing.")
-            return await SetmoreService.available_slots(
+            slots = await SetmoreService.available_slots(
                 db,
                 therapist_id=therapist_id,
                 start_date=start_date,
@@ -46,9 +47,12 @@ class SchedulingService:
                 funding_scope=funding_scope,
             )
 
-        return await TherapistService.get_available_slots(
-            db,
-            therapist_id=therapist_id,
-            start_date_str=start_date,
-            days_ahead=days_ahead,
-        )
+        else:
+            slots = await TherapistService.get_available_slots(
+                db,
+                therapist_id=therapist_id,
+                start_date_str=start_date,
+                days_ahead=days_ahead,
+            )
+        from services.slot_reservation_service import SlotReservationService
+        return await SlotReservationService.filter_slots(db, slots, exclude_booking_id)

@@ -262,6 +262,11 @@ class WhatsAppBookingBotService:
         if not sender or not raw_text:
             return None
 
+        from services.client_reschedule_service import ClientRescheduleService
+        reschedule_reply = await ClientRescheduleService.handle(db, sender, raw_text, WhatsAppBookingBotService)
+        if reschedule_reply is not None:
+            return reschedule_reply
+
         token = None
         token_match = re.match(r"^BOOK\s+([A-Za-z0-9_-]{10,128})$", raw_text, flags=re.IGNORECASE)
         if token_match:

@@ -292,11 +292,12 @@ async def _handle_therapist_booking_decision(
     payload: str,
 ) -> Optional[str]:
     match = re.fullmatch(r"FCA_BOOKING_(ACCEPT|DECLINE):([A-Za-z0-9-]{8,128})", payload or "")
-    if not match:
+    reschedule_match = re.fullmatch(r"RESCHEDULE\s+([A-Za-z0-9-]{8,128})", payload or "", re.IGNORECASE)
+    if not match and not reschedule_match:
         return None
 
-    decision = "accept" if match.group(1) == "ACCEPT" else "decline"
-    booking_id = match.group(2)
+    decision = "reschedule" if reschedule_match else ("accept" if match.group(1) == "ACCEPT" else "decline")
+    booking_id = reschedule_match.group(1) if reschedule_match else match.group(2)
 
     therapist = None
     therapist_rows = await db.therapists.find(
@@ -313,6 +314,11 @@ async def _handle_therapist_booking_decision(
             "FCA could not match this WhatsApp number to an active therapist profile. "
             "Please use the number registered in your therapist settings or contact administration."
         )
+
+    if reschedule_match:
+        from services.client_reschedule_service import ClientRescheduleService
+        booking, error = await ClientRescheduleService.request(db, booking_id, therapist["id"])
+        return f"Could not request rescheduling: {error}" if error else "The client reschedule request has been queued for WhatsApp delivery."
 
     booking, error = await BookingService.therapist_decision(
         db,
@@ -333,7 +339,8 @@ async def _handle_therapist_booking_decision(
 
     return (
         "Appointment declined.\n"
-        "The booking request has been returned to FCA administration for reassignment."
+        "The booking request has been returned to FCA administration for reassignment.\n"
+        f"To ask the client to choose another date instead, reply RESCHEDULE {booking.id}"
     )
 
 
@@ -355,7 +362,10 @@ def _extract_message_text(message: Dict[str, Any]) -> Optional[str]:
 
     if message_type == "button":
         button = message.get("button") or {}
-        return str(button.get("text") or button.get("payload") or "").strip() or None
+        payload = str(button.get("payload") or "").strip()
+        if payload.startswith("FCA_RESCHEDULE:"):
+            return payload
+        return str(button.get("text") or payload or "").strip() or None
 
     return None
 
@@ -523,8 +533,8 @@ async def _process_webhook_payload(db: Any, payload: Dict[str, Any]) -> None:
             if result.matched_count > 0 and result.upserted_id is None:
                 continue
 
-        if decision_payload:
-            decision_reply = await _handle_therapist_booking_decision(db, sender, decision_payload)
+        if decision_payload or re.fullmatch(r"RESCHEDULE\s+[A-Za-z0-9-]{8,128}", text or "", re.IGNORECASE):
+            decision_reply = await _handle_therapist_booking_decision(db, sender, decision_payload or text)
             if decision_reply is not None:
                 metadata = value.get("metadata") or {}
                 await _send_meta_text(sender, decision_reply, metadata.get("phone_number_id"))

@@ -134,6 +134,7 @@ class CorporateEntitlementService:
         db: AsyncIOMotorDatabase,
         client: Any,
         reference: Optional[Any] = None,
+        exclude_booking_id: Optional[str] = None,
     ) -> int:
         start_iso, end_iso = CorporateEntitlementService.month_bounds_utc(reference)
         query = CorporateEntitlementService._client_booking_attribution_filter(client)
@@ -141,6 +142,8 @@ class CorporateEntitlementService:
             "starts_at": {"$gte": start_iso, "$lt": end_iso},
             "status": {"$in": ENTITLEMENT_STATUSES},
         })
+        if exclude_booking_id:
+            query["id"] = {"$ne": exclude_booking_id}
         return await db.bookings.count_documents(query)
 
     @staticmethod
@@ -165,6 +168,7 @@ class CorporateEntitlementService:
         db: AsyncIOMotorDatabase,
         client: Any,
         reference: Optional[Any] = None,
+        exclude_booking_id: Optional[str] = None,
     ) -> Optional[Dict[str, int]]:
         def value(field: str):
             return client.get(field) if isinstance(client, dict) else getattr(client, field, None)
@@ -190,7 +194,7 @@ class CorporateEntitlementService:
         extra = CorporateEntitlementService._approved_extra_for_month(contact, month_key)
         limit = max(base + extra, 0)
         used = await CorporateEntitlementService.contact_usage(
-            db, client, reference=reference
+            db, client, reference=reference, exclude_booking_id=exclude_booking_id
         )
         return {
             "base": base,

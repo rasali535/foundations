@@ -256,6 +256,8 @@ class Booking(BaseModel):
     assigned_by: Optional[str] = None
     therapist_response_at: Optional[str] = None
     therapist_decline_reason: Optional[str] = None
+    declined_by_therapist_id: Optional[str] = None
+    reschedule_request_id: Optional[str] = None
     session_type: str  # individual, couple, family
     session_mode: str  # in_person, virtual
     starts_at: str  # UTC ISO timestamp
@@ -329,6 +331,7 @@ class BookingAssignmentRequest(BaseModel):
 class TherapistBookingDecisionRequest(BaseModel):
     decision: str  # accept, decline
     reason: Optional[str] = None
+    request_reschedule: bool = False
 
 
 class BookingRescheduleRequest(BaseModel):

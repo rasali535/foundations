@@ -296,6 +296,7 @@ async def therapist_booking_decision(
         therapist_id=user.get("therapist_id"),
         decision=payload.decision,
         reason=payload.reason,
+        request_reschedule=payload.request_reschedule,
         actor_id=user.get("user_id"),
         actor_name=user.get("name"),
     )

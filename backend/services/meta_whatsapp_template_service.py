@@ -29,6 +29,7 @@ TEMPLATES = {
     "booking_reminder_24h": "fca_booking_reminder_24h",
     "booking_reminder_2h": "fca_booking_reminder_2h",
     "booking_rescheduled": "fca_booking_rescheduled",
+    "reschedule_request": "fca_reschedule_request",
     "booking_cancelled": "fca_booking_cancelled",
     # The reviewed virtual template tells the client that access arrives 3 hours before.
     "virtual_session_confirmation": "fca_virtual_session_link",
@@ -103,6 +104,8 @@ class MetaWhatsAppTemplateService:
             log.status = "failed"
             log.error_message = "Meta WhatsApp Cloud API is not configured"
         else:
+            variables = dict(variables)
+            variables_request_id = variables.pop("reschedule_request_id", None)
             parameters = [
                 {
                     "type": "text",
@@ -122,6 +125,11 @@ class MetaWhatsAppTemplateService:
                     "components": [{"type": "body", "parameters": parameters}],
                 },
             }
+            if event == "reschedule_request":
+                payload["template"]["components"].append({
+                    "type": "button", "sub_type": "quick_reply", "index": "0",
+                    "parameters": [{"type": "payload", "payload": f"FCA_RESCHEDULE:{booking_id}:{variables_request_id}"}],
+                })
             url = f"{WHATSAPP_API_URL}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
 
             def _post():
