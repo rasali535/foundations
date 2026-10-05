@@ -55,12 +55,14 @@ async def _month_remaining(
     db: AsyncIOMotorDatabase,
     client_doc: Dict[str, Any],
     month_key: Tuple[int, int],
+    exclude_booking_id: str = None,
 ) -> Tuple[Tuple[int, int], int]:
     year, month = month_key
     start_iso, end_iso = _month_bounds_utc(year, month)
     limit = int(client_doc.get("monthly_session_limit") or 4)
     used = await db.bookings.count_documents(
         {
+            **({"id": {"$ne": exclude_booking_id}} if exclude_booking_id else {}),
             "client_id": client_doc["id"],
             "starts_at": {"$gte": start_iso, "$lt": end_iso},
             "status": {"$in": ENTITLEMENT_STATUSES},
@@ -74,6 +76,7 @@ async def fast_slot_options(
     client_doc: Dict[str, Any],
     session_mode: str,
     session_type: str = "individual",
+    exclude_booking_id: str = None,
 ) -> List[Dict[str, Any]]:
     """Return eligible bookable slots from the active self-service horizon.
 
@@ -108,6 +111,7 @@ async def fast_slot_options(
                 session_mode=session_mode,
                 session_type=session_type,
                 funding_scope="organisation" if client_doc.get("organisation_id") else "private",
+                **({"exclude_booking_id": exclude_booking_id} if exclude_booking_id else {}),
             )
             for therapist in therapists
         ),
@@ -167,7 +171,8 @@ async def fast_slot_options(
             month_key = CorporateEntitlementService.month_key(starts_at)
             if month_key not in month_cache:
                 month_cache[month_key] = await CorporateEntitlementService.remaining_for_client(
-                    db, client_doc, reference=starts_at
+                    db, client_doc, reference=starts_at,
+                    **({"exclude_booking_id": exclude_booking_id} if exclude_booking_id else {})
                 )
             entitlement = month_cache[month_key]
             if entitlement and entitlement["remaining"] <= 0:
@@ -177,7 +182,8 @@ async def fast_slot_options(
             week_start, _ = CorporateEntitlementService.week_bounds_utc(starts_at)
             if week_start not in week_cache:
                 week_cache[week_start] = await CorporateEntitlementService.has_weekly_booking(
-                    db, client_doc["id"], starts_at
+                    db, client_doc, starts_at,
+                    **({"exclude_booking_id": exclude_booking_id} if exclude_booking_id else {})
                 )
             if week_cache[week_start]:
                 continue
@@ -204,7 +210,7 @@ async def fast_slot_options(
     candidates.sort(key=lambda item: item["starts_at"])
     month_keys = sorted({item["_month_key"] for item in candidates})
     remaining_results = await asyncio.gather(
-        *(_month_remaining(db, client_doc, key) for key in month_keys)
+        *(_month_remaining(db, client_doc, key, exclude_booking_id) for key in month_keys)
     )
     remaining_by_month = dict(remaining_results)
 

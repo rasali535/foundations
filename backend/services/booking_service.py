@@ -63,6 +63,11 @@ class BookingService:
         if req_end <= req_start:
             return True, "Appointment end time must be after start time."
 
+        from services.slot_reservation_service import SlotReservationService
+        pending = await SlotReservationService.busy(db, exclude_booking_id)
+        if any(SlotReservationService.overlaps(req_start, req_end, b) for b in pending):
+            return True, "This time is reserved by another pending appointment."
+
         # 1. Check existing active bookings
         query = {
             "therapist_id": therapist_id,
@@ -249,7 +254,12 @@ class BookingService:
         for participant in booking.participants:
             participant.booking_id = booking.id
 
-        await db.bookings.insert_one(booking.model_dump())
+        from services.slot_reservation_service import SlotReservationService, SlotUnavailable
+        try:
+            async with SlotReservationService.hold(db, booking.id, booking.starts_at, booking.ends_at):
+                await db.bookings.insert_one(booking.model_dump())
+        except SlotUnavailable as exc:
+            return None, str(exc)
         await AuditService.log_activity(
             db,
             action="booking_request_received",
@@ -321,6 +331,7 @@ class BookingService:
                     session_type=booking_doc.get("session_type") or "individual",
                     session_mode=booking_doc.get("session_mode") or "virtual",
                     funding_scope=funding_scope,
+                    exclude_booking_id=booking_id,
                 )
                 exact_available = any(
                     slot.get("is_available")
@@ -348,6 +359,7 @@ class BookingService:
             "assigned_by": actor_id or actor_name,
             "therapist_response_at": None,
             "therapist_decline_reason": None,
+            "reschedule_request_id": None,
             "updated_at": assigned_at,
         }
         claimed = await db.bookings.update_one({
@@ -394,6 +406,7 @@ class BookingService:
         reason: Optional[str] = None,
         actor_id: Optional[str] = None,
         actor_name: Optional[str] = None,
+        request_reschedule: bool = False,
     ) -> Tuple[Optional[Booking], Optional[str]]:
         booking_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
         if not booking_doc:
@@ -411,17 +424,21 @@ class BookingService:
 
         response_at = now_iso()
         if normalized == "decline":
-            await db.bookings.update_one(
-                {"id": booking_id},
+            result = await db.bookings.update_one(
+                {"id": booking_id, "status": "pending", "therapist_id": therapist_id,
+                 "assignment_status": "awaiting_acceptance"},
                 {"$set": {
                     "therapist_id": None,
                     "therapist_name": None,
                     "assignment_status": "declined",
                     "therapist_response_at": response_at,
                     "therapist_decline_reason": (reason or "").strip() or None,
+                    "declined_by_therapist_id": therapist_id,
                     "updated_at": response_at,
                 }},
             )
+            if not result.modified_count:
+                return None, "This assignment has already changed. Refresh and try again."
             updated_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
             booking = Booking(**updated_doc)
             await AuditService.log_activity(
@@ -437,6 +454,9 @@ class BookingService:
                 db, "admin_booking_declined", f"{booking.id}:{response_at}", booking.client_id,
                 booking_id=booking.id, url="/admin/bookings",
             )
+            if request_reschedule:
+                from services.client_reschedule_service import ClientRescheduleService
+                return await ClientRescheduleService.request(db, booking_id, therapist_id)
             return booking, None
 
         therapist = await TherapistService.get_therapist_by_id(db, therapist_id)
@@ -468,6 +488,7 @@ class BookingService:
                     session_type=booking_doc.get("session_type") or "individual",
                     session_mode=booking_doc.get("session_mode") or "virtual",
                     funding_scope=funding_scope,
+                    exclude_booking_id=booking_id,
                 )
                 exact_available = any(
                     slot.get("is_available")
@@ -523,6 +544,8 @@ class BookingService:
             **sync_fields,
         }
         await db.bookings.update_one({"id": booking_id}, {"$set": final_fields})
+        from services.slot_reservation_service import SlotReservationService
+        await SlotReservationService.release(db, booking_id)
         updated_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
         booking = Booking(**updated_doc)
 
@@ -1146,6 +1169,10 @@ class BookingService:
         await db.bookings.update_one({"id": booking_id}, {"$set": update_fields})
         updated_doc = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
         updated_booking = Booking(**updated_doc)
+
+        if updated_booking.status != "pending":
+            from services.slot_reservation_service import SlotReservationService
+            await SlotReservationService.release(db, booking_id)
 
         action_name = f"booking_{request.status}"
         await AuditService.log_activity(

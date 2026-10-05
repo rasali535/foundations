@@ -115,7 +115,18 @@ class NotificationOutbox:
                 return 'cancelled', None, None
             if utc_datetime(booking['starts_at']) <= utc_now():
                 return 'expired', None, None
-            if job['kind'] == 'client_booking':
+            if job['kind'] == 'reschedule_request':
+                if booking.get('assignment_status') != 'declined' or booking.get('reschedule_request_id') != p['request_id']:
+                    return 'cancelled', None, None
+                client = await db.crm_clients.find_one({'id': booking['client_id']}, {'_id': 0})
+                if not client:
+                    return 'failed', None, 'Client record unavailable'
+                local = utc_datetime(booking['starts_at']).astimezone(ZoneInfo('Africa/Gaborone'))
+                result = await MetaWhatsAppTemplateService.send(db, phone=client.get('phone'),
+                    event='reschedule_request', variables={'client_name': client.get('first_name') or 'Client',
+                    'appointment_date': local.strftime('%a %d %b %Y'), 'appointment_time': local.strftime('%H:%M CAT'),
+                    'reschedule_request_id': p['request_id']}, client_id=client['id'], booking_id=booking['id'])
+            elif job['kind'] == 'client_booking':
                 if booking.get('status') != 'confirmed':
                     return 'cancelled', None, None
                 client = await db.crm_clients.find_one({'id': booking['client_id']}, {'_id': 0})

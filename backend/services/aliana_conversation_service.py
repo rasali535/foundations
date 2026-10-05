@@ -93,8 +93,9 @@ class AlianaConversationService:
             active_booking_state = session.get("state", "menu") != "menu" or session.get("handoff_active")
             token_command = upper.startswith("BOOK ") and len(raw.split()) == 2
 
-            if active_booking_state or upper in booking_commands or token_command or wants_booking:
-                booking_text = "BOOK" if wants_booking and not active_booking_state else raw
+            if active_booking_state or upper in booking_commands or token_command or upper.startswith("FCA_RESCHEDULE:") or upper == "CHOOSE ANOTHER DATE" or wants_booking:
+                explicit_command = upper in booking_commands or token_command or upper.startswith("FCA_RESCHEDULE:") or upper == "CHOOSE ANOTHER DATE"
+                booking_text = "BOOK" if wants_booking and not active_booking_state and not explicit_command else raw
                 booking_reply = await WhatsAppBookingBotService.handle_inbound(db, sender_id, booking_text)
                 if booking_reply:
                     return booking_reply

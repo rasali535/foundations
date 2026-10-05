@@ -229,7 +229,7 @@ const AdminBookings = () => {
     }
   };
 
-  const handleTherapistDecision = async (booking, decision) => {
+  const handleTherapistDecision = async (booking, decision, requestReschedule = false) => {
     let reason = null;
     if (decision === 'decline') {
       reason = window.prompt('Optional reason for declining this appointment:') || null;
@@ -237,7 +237,7 @@ const AdminBookings = () => {
     setActionLoading(true);
     setActionError('');
     try {
-      await api.post(`/bookings/${booking.id}/therapist-decision`, { decision, reason });
+      await api.post(`/bookings/${booking.id}/therapist-decision`, { decision, reason, request_reschedule: requestReschedule });
       await fetchBookings(page);
     } catch (err) {
       setActionError(err.response?.data?.detail || `Could not ${decision} appointment.`);
@@ -481,6 +481,11 @@ const AdminBookings = () => {
                                 className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold rounded-lg disabled:opacity-50"
                               >
                                 Decline
+                              </button>
+                              <button type="button" disabled={actionLoading}
+                                onClick={() => handleTherapistDecision(booking, 'decline', true)}
+                                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold rounded-lg disabled:opacity-50">
+                                Decline and request reschedule
                               </button>
                             </>
                           )}

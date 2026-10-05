@@ -77,3 +77,23 @@ Intake accepts explicit international numbers only. The country selector is a
 user choice, not automatic inference. Existing invalid client numbers are not
 bulk-modified: correct them in CRM from verified client information. A new intake
 with an explicit valid number can repair an invalid number matched by email.
+
+## Therapist-requested client rescheduling
+
+Create/approve the Utility template `fca_reschedule_request` in the configured client template locale, with named body parameters `client_name`, `appointment_date`, `appointment_time` and one quick reply button at index 0 labelled **Choose another date**. Suggested body:
+
+> Hello {{client_name}}, your Foundations Counselling Academy appointment for {{appointment_date}} at {{appointment_time}} could not be confirmed. Please tap Choose another date to select a different available date and time.
+
+Therapists can choose **Decline and request reschedule** in the portal. Existing WhatsApp Decline continues to return the appointment to administrators; the response provides `RESCHEDULE <booking-id>` to optionally request another date. This command only works from the active registered therapist who declined that booking. No edit to the therapist accept/decline template is required.
+
+The client template sends an appointment/request-specific button payload. Only the matching client may use it. Dates and times come from live availability, with monthly and corporate weekly limits checked while excluding the appointment being replaced. Confirming updates the same pending booking, clears assignment and virtual access details, and alerts configured administrators for allocation. The client confirmation is sent only after therapist acceptance. Reassignment or a completed change invalidates old buttons; queued reschedule messages are also cancelled when stale. Existing reminder jobs for the old start time are cancelled by the outbox and new reminders use the accepted new time. The existing 35-day availability horizon applies.
+
+For `fca_booking_confirmation`, the static **View office location** website button can use `https://maps.app.goo.gl/CqogXGHwU7MdiF3Q7`. It needs Meta approval but no API button parameters.
+
+## Reserving requests before therapist allocation
+
+A pending request reserves its appointment interval globally, across modes and therapist choices, until acceptance, cancellation, or a successful move. It reserves the selected time rather than the entire day. SchedulingService overlays Mongo pending requests on both internal and Setmore availability, so website and WhatsApp use the same rule. Assignment and acceptance exclude the booking's own hold during live availability checks.
+
+New pending requests and client reschedules acquire unique Mongo `_id` claims for each UTC minute touched by the interval. These claims prevent concurrent clients from passing an availability check and then inserting overlapping requests. Adjacent minute-aligned appointments remain available. A failed move releases its new claims and preserves the original interval; a successful move releases the old interval. Existing pending records without claims are also considered busy, using parsed timestamps including historical CAT offsets. Existing duplicates are not silently changed.
+
+The built-in `_id` index on `booking_slot_holds` provides uniqueness; no database migration or environment variable is required. Confirmation and non-pending status updates release pending claims. Stale claims attached to closed bookings are ignored and reclaimed. Claims from a worker crash before its booking insert fail closed instead of expiring while a writer might still be active; if an unexpected reserved slot has no associated booking, administrators should review and remove the orphan hold after verifying the interrupted write has stopped.

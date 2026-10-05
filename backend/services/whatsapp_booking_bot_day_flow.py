@@ -156,6 +156,11 @@ def install_day_first_flow(service_cls) -> None:
         if not sender or not raw_text:
             return await original_handle(db, sender_value, text_value)
 
+        from services.client_reschedule_service import ClientRescheduleService
+        reschedule_reply = await ClientRescheduleService.handle(db, sender, raw_text, service_cls)
+        if reschedule_reply is not None:
+            return reschedule_reply
+
         upper_text = raw_text.upper()
         if upper_text in {"MENU", "START", "HELP", "BOT"} or upper_text.startswith("BOOK "):
             return await original_handle(db, sender_value, text_value)
