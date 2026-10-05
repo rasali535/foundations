@@ -241,7 +241,7 @@ const HRAccountSecurity = () => {
                       <p className="text-sm font-semibold text-slate-800">{item.label}</p>
                       <p className="text-[11px] text-slate-400 mt-0.5">
                         {timestamp && !Number.isNaN(timestamp.getTime())
-                          ? timestamp.toLocaleString()
+                          ? timestamp.toLocaleString('en-GB', { timeZone: 'Africa/Gaborone' }) + ' CAT'
                           : 'Time unavailable'}
                       </p>
                     </div>

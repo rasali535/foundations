@@ -2,11 +2,24 @@ import pytest
 from mongomock_motor import AsyncMongoMockClient
 
 from routers.meta_whatsapp_router import (
+    _booking_summary,
     _handle_super_admin_assignment_flow,
     _resolve_super_admin_by_whatsapp,
 )
 from services.booking_service import BookingService
 from services.scheduling_service import SchedulingService
+
+
+@pytest.mark.parametrize('value', ['2026-10-06T12:00:00Z', '2026-10-06T14:00:00+02:00', '2026-10-06T12:00:00'])
+def test_admin_booking_summary_uses_cat(value):
+    summary = _booking_summary({'starts_at': value, 'session_mode': 'virtual', 'session_type': 'individual'}, 1)
+    assert 'Tue 06 Oct 2026, 14:00 CAT' in summary
+    assert 'UTC' not in summary
+
+
+def test_admin_booking_summary_uses_cat_calendar_day():
+    summary = _booking_summary({'starts_at': '2026-12-31T22:30:00Z'}, 1)
+    assert 'Fri 01 Jan 2027, 00:30 CAT' in summary
 
 
 @pytest.mark.asyncio

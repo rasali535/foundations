@@ -1,3 +1,4 @@
+import { catDateKey } from '../../utils/clinicalTime';
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../AdminAuthContext';
@@ -18,7 +19,7 @@ import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { SESSION_TYPE_COLORS, SESSION_MODE_CONFIG, STATUS_CONFIG, formatSessionDateTime } from '../AdminConstants';
 
 const AdminCalendar = () => {
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(() => new Date(`${catDateKey(new Date())}T12:00:00`));
   const [viewMode, setViewMode] = useState('month'); // month, week, day
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -88,7 +89,7 @@ const AdminCalendar = () => {
   };
 
   const setToday = () => {
-    setCurrentDate(new Date());
+    setCurrentDate(new Date(`${catDateKey(new Date())}T12:00:00`));
   };
 
   // Helper to build month grid days
@@ -219,11 +220,11 @@ const AdminCalendar = () => {
               }
 
               const isToday =
-                new Date().toISOString().substring(0, 10) === item.dateStr;
+                catDateKey(new Date()) === item.dateStr;
 
               // Find bookings for this day
               const dayBookings = bookings.filter(
-                b => b.starts_at && b.starts_at.substring(0, 10) === item.dateStr
+                b => b.starts_at && catDateKey(b.starts_at) === item.dateStr
               );
 
               return (
@@ -252,7 +253,7 @@ const AdminCalendar = () => {
                   <div className="space-y-1 overflow-y-auto max-h-24">
                     {dayBookings.map((b) => {
                       const typeConf = SESSION_TYPE_COLORS[b.session_type] || SESSION_TYPE_COLORS.individual;
-                      const timeStr = b.starts_at.substring(11, 16);
+                      const timeStr = formatSessionDateTime(b.starts_at).time;
 
                       return (
                         <button
@@ -293,7 +294,7 @@ const AdminCalendar = () => {
                   <div key={b.id} className="py-3 flex items-center justify-between">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-xs text-slate-900">{dt.full} UTC</span>
+                        <span className="font-bold text-xs text-slate-900">{dt.full} CAT</span>
                         <span className={`text-[10px] font-semibold px-2 py-0.2 rounded-full ${typeConf.badge}`}>
                           {typeConf.label}
                         </span>
@@ -345,7 +346,7 @@ const AdminCalendar = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 bg-slate-50 rounded-xl space-y-1">
                   <p className="text-[10px] font-bold text-slate-500 uppercase">Date & Time</p>
-                  <p className="font-bold text-slate-800">{formatSessionDateTime(selectedBooking.starts_at).full} UTC</p>
+                  <p className="font-bold text-slate-800">{formatSessionDateTime(selectedBooking.starts_at).full} CAT</p>
                 </div>
                 <div className="p-3 bg-slate-50 rounded-xl space-y-1">
                   <p className="text-[10px] font-bold text-slate-500 uppercase">Therapist</p>

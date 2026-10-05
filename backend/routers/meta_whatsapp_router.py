@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 import requests
@@ -108,8 +109,8 @@ async def _save_admin_assignment_session(
 def _booking_summary(row: Dict[str, Any], index: int) -> str:
     raw = str(row.get("starts_at") or "")
     try:
-        dt = __import__("datetime").datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        when = dt.strftime("%a %d %b %Y, %H:%M UTC")
+        dt = parse_iso(raw).astimezone(ZoneInfo("Africa/Gaborone"))
+        when = dt.strftime("%a %d %b %Y, %H:%M CAT")
     except Exception:
         when = raw or "Unknown time"
     mode = "Virtual" if row.get("session_mode") == "virtual" else "In-Person"

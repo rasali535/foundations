@@ -1,3 +1,4 @@
+import { catInputToIso } from '../../utils/clinicalTime';
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useAdminAuth } from '../AdminAuthContext';
@@ -146,7 +147,7 @@ const AdminBookings = () => {
     try {
       await api.post('/bookings', {
         ...singleForm,
-        starts_at: new Date(singleForm.starts_at).toISOString(),
+        starts_at: catInputToIso(singleForm.starts_at),
         send_notifications: true
       });
       setSingleModalOpen(false);
@@ -166,7 +167,7 @@ const AdminBookings = () => {
 
     const validSlots = multiForm.slots
       .filter(s => s.starts_at)
-      .map(s => ({ starts_at: new Date(s.starts_at).toISOString() }));
+      .map(s => ({ starts_at: catInputToIso(s.starts_at) }));
 
     if (validSlots.length === 0) {
       setActionError('Please specify at least one slot date/time.');
@@ -197,7 +198,7 @@ const AdminBookings = () => {
     setActionLoading(true);
     try {
       await api.post(`/bookings/${selectedBooking.id}/reschedule`, {
-        new_starts_at: new Date(rescheduleForm.new_starts_at).toISOString(),
+        new_starts_at: catInputToIso(rescheduleForm.new_starts_at),
         therapist_id: rescheduleForm.therapist_id || selectedBooking.therapist_id,
         reason: rescheduleForm.reason,
         send_notifications: true
@@ -391,7 +392,7 @@ const AdminBookings = () => {
                     <tr key={booking.id} className="hover:bg-slate-50/80 transition">
                       <td className="py-3.5 px-4">
                         <div className="font-bold text-slate-900 text-sm">{dt.date}</div>
-                        <div className="text-slate-500 text-[11px] font-medium">{dt.time} UTC</div>
+                        <div className="text-slate-500 text-[11px] font-medium">{dt.time} CAT</div>
                         {booking.booking_batch_id && (
                           <span className="text-[9px] font-semibold text-indigo-600 bg-indigo-50 px-1 py-0.2 rounded mt-0.5 inline-block">
                             Monthly Batch
@@ -656,7 +657,7 @@ const AdminBookings = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Start Date & Time (UTC) *</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Start Date & Time (CAT) *</label>
                 <input
                   type="datetime-local"
                   required
@@ -793,7 +794,7 @@ const AdminBookings = () => {
               {/* Multi-Slots Section */}
               <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800">Monthly Session Dates & Times (UTC)</span>
+                  <span className="text-xs font-bold text-slate-800">Monthly Session Dates & Times (CAT)</span>
                   <span className="text-[10px] text-slate-400">Atomic Conflict Pre-Check</span>
                 </div>
                 {multiForm.slots.map((slot, idx) => (
@@ -856,7 +857,7 @@ const AdminBookings = () => {
               </p>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">New Start Time (UTC) *</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">New Start Time (CAT) *</label>
                 <input
                   type="datetime-local"
                   required

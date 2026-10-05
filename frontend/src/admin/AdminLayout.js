@@ -236,7 +236,7 @@ const AdminLayout = () => {
             <div className="hidden sm:flex items-center gap-2">
               <span className="text-xs text-slate-500">Operating in:</span>
               <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
-                CAT (UTC+2)
+                CAT
               </span>
             </div>
             <div className="h-4 w-px bg-slate-200 hidden sm:block"></div>
