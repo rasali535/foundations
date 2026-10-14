@@ -189,6 +189,17 @@ class BookingService:
 
         starts_at_iso = start_dt.isoformat()
         ends_at_iso = end_dt.isoformat()
+        # Self-service interval restriction applies to all client types.
+        # Count pending and completed/non-cancelled sessions, in either direction.
+        lower = (start_dt - timedelta(days=6)).isoformat()
+        upper = (start_dt + timedelta(days=6)).isoformat()
+        near_session = await db.bookings.find_one({
+            "client_id": client.id,
+            "starts_at": {"$gt": lower, "$lt": upper},
+            "status": {"$in": ["pending", "confirmed", "completed", "late_cancelled_billable", "no_show"]},
+        }, {"_id": 0, "id": 1})
+        if near_session:
+            return None, "Please allow at least 6 full days (144 hours) between your counselling sessions."
         entitlement_ok, entitlement_error = await BookingService.check_corporate_entitlement(
             db, client, starts_at_iso
         )
