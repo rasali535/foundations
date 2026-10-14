@@ -159,10 +159,15 @@ async def fast_slot_options(
         return []
 
     # Hide times inside a rolling six-day window of an existing client session.
-    existing = await db.bookings.find({
+    existing_query = {
         "client_id": client_doc["id"],
         "status": {"$in": ENTITLEMENT_STATUSES},
-    }, {"_id": 0, "starts_at": 1}).to_list(1000)
+    }
+    if exclude_booking_id:
+        existing_query["id"] = {"$ne": exclude_booking_id}
+    existing = await db.bookings.find(
+        existing_query, {"_id": 0, "starts_at": 1}
+    ).to_list(1000)
     previous_starts = [_parse_iso(row["starts_at"]) for row in existing if row.get("starts_at")]
     candidates = [
         item for item in candidates
