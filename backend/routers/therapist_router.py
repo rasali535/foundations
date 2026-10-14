@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, status, Query
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from models import (
@@ -53,6 +54,21 @@ async def list_therapists(
     return await TherapistService.list_therapists(db, active_only=active_only, session_mode=session_mode)
 
 
+
+async def check_block_access(request: Request, therapist_id: str):
+    user = get_current_user(request)
+    if user["role"] in ("super_admin", "admin", "clinical_admin"):
+        return user
+    if user["role"] != "therapist":
+        raise HTTPException(status_code=403, detail="Access denied")
+    account = await get_db(request).staff_users.find_one(
+        {"user_id": user["user_id"], "role": "therapist", "active": {"$ne": False}},
+        {"_id": 0, "therapist_id": 1},
+    )
+    if not account or account.get("therapist_id") != therapist_id:
+        raise HTTPException(status_code=403, detail="Only your own availability can be modified")
+    return user
+
 # ==================== Blocks / Leave Management ====================
 # Static /blocks routes MUST be registered before /{therapist_id}; otherwise FastAPI
 # can resolve the literal word "blocks" as a therapist_id and return a false 404.
@@ -60,9 +76,28 @@ async def list_therapists(
 async def create_therapist_block(
     payload: TherapistBlockCreate,
     request: Request,
-    user: Dict = Depends(require_admin)
+    user: Dict = Depends(require_staff_or_above)
 ):
+    await check_block_access(request, payload.therapist_id)
     db = get_db(request)
+    try:
+        start = datetime.fromisoformat(payload.starts_at.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(payload.ends_at.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid interval")
+    if not start.tzinfo or not end.tzinfo or end <= start or start.astimezone(timezone.utc) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=422, detail="Block must be a future time interval in CAT")
+    if (end - start).days > 365:
+        raise HTTPException(status_code=422, detail="Block may not exceed one year")
+    if not await db.therapists.find_one({"id": payload.therapist_id}):
+        raise HTTPException(status_code=404, detail="Therapist not found")
+    # Do not silently cancel confirmed sessions when a therapist blocks time.
+    bookings = await db.bookings.find({"therapist_id": payload.therapist_id, "status": {"$in": ["pending", "confirmed"]}}, {"_id": 0, "starts_at": 1, "ends_at": 1}).to_list(1000)
+    for b in bookings:
+        a = datetime.fromisoformat(b["starts_at"].replace("Z", "+00:00"))
+        z = datetime.fromisoformat(b["ends_at"].replace("Z", "+00:00"))
+        if start < z and end > a:
+            raise HTTPException(status_code=409, detail="Block overlaps an existing appointment; contact administration")
     return await TherapistService.create_block(db, payload, actor_id=user.get("user_id"))
 
 
@@ -70,19 +105,34 @@ async def create_therapist_block(
 async def list_therapist_blocks(
     request: Request,
     therapist_id: Optional[str] = Query(None),
-    user: Dict = Depends(require_admin)
+    user: Dict = Depends(require_staff_or_above)
 ):
-    db = get_db(request)
-    return await TherapistService.list_blocks(db, therapist_id=therapist_id)
+    if user["role"] == "therapist":
+        account = await get_db(request).staff_users.find_one(
+            {"user_id": user["user_id"], "role": "therapist", "active": {"$ne": False}},
+            {"_id": 0, "therapist_id": 1},
+        )
+        if not account or not account.get("therapist_id"):
+            raise HTTPException(status_code=403, detail="Therapist account is not linked")
+        if therapist_id and therapist_id != account["therapist_id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        therapist_id = account["therapist_id"]
+    elif user["role"] not in ("super_admin", "admin", "clinical_admin"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    return await TherapistService.list_blocks(get_db(request), therapist_id=therapist_id)
 
 
 @therapist_router.delete("/blocks/{block_id}")
 async def delete_therapist_block(
     block_id: str,
     request: Request,
-    user: Dict = Depends(require_admin)
+    user: Dict = Depends(require_staff_or_above)
 ):
     db = get_db(request)
+    block = await db.therapist_blocks.find_one({"id": block_id})
+    if not block:
+        raise HTTPException(status_code=404, detail="Block not found")
+    await check_block_access(request, block["therapist_id"])
     success = await TherapistService.delete_block(db, block_id)
     if not success:
         raise HTTPException(status_code=404, detail="Block not found")
