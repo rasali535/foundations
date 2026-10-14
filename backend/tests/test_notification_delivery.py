@@ -195,7 +195,8 @@ async def test_concurrent_admin_allocations_do_not_overwrite(monkeypatch):
         return None
     monkeypatch.setattr(TherapistNotificationService, 'send_booking_whatsapp', no_message)
     request = BookingCreateRequest(client_id='client-pending-1', session_mode='in_person', session_type='individual',
-        starts_at='2026-10-06T09:00:00+00:00', ends_at='2026-10-06T10:00:00+00:00', send_notifications=False)
+        starts_at=(datetime.now(timezone.utc) + timedelta(days=7)).replace(hour=9, minute=0, second=0, microsecond=0).isoformat(),
+        ends_at=(datetime.now(timezone.utc) + timedelta(days=7)).replace(hour=10, minute=0, second=0, microsecond=0).isoformat(), send_notifications=False)
     booking, error = await BookingService.create_booking_request(db, request)
     assert not error
     # Force both calls to observe the same unassigned record before CAS updates.

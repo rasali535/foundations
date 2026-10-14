@@ -182,6 +182,10 @@ class BookingService:
             return None, f"Invalid start/end timestamps: {exc}"
         if end_dt <= start_dt:
             return None, "Appointment end time must be after start time."
+        # Clients booking through the public portal or WhatsApp must give 24 hours' notice.
+        # Leave internal staff-created / historical bookings and therapist workflows unchanged.
+        if start_dt < datetime.now(timezone.utc) + timedelta(hours=24):
+            return None, "Please book your session at least 24 hours in advance (CAT)."
 
         starts_at_iso = start_dt.isoformat()
         ends_at_iso = end_dt.isoformat()

@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from mongomock_motor import AsyncMongoMockClient
 
@@ -68,8 +70,8 @@ async def test_request_assign_accept_lifecycle(monkeypatch):
         therapist_id=None,
         session_type="individual",
         session_mode="in_person",
-        starts_at="2026-10-06T09:00:00+00:00",
-        ends_at="2026-10-06T10:00:00+00:00",
+        starts_at=(datetime.now(timezone.utc) + timedelta(days=7)).replace(hour=9, minute=0, second=0, microsecond=0).isoformat(),
+        ends_at=(datetime.now(timezone.utc) + timedelta(days=7)).replace(hour=10, minute=0, second=0, microsecond=0).isoformat(),
         send_notifications=False,
         source="website_intake",
     )
@@ -133,8 +135,8 @@ async def test_decline_returns_request_for_reassignment(monkeypatch):
             client_id="client-pending-1",
             session_type="individual",
             session_mode="virtual",
-            starts_at="2026-10-07T10:00:00+00:00",
-            ends_at="2026-10-07T11:00:00+00:00",
+            starts_at=(datetime.now(timezone.utc) + timedelta(days=7)).replace(hour=10, minute=0, second=0, microsecond=0).isoformat(),
+            ends_at=(datetime.now(timezone.utc) + timedelta(days=7)).replace(hour=11, minute=0, second=0, microsecond=0).isoformat(),
             send_notifications=False,
             source="whatsapp",
         ),

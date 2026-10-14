@@ -3,7 +3,7 @@ import hmac
 import os
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, Request, status, Query
 from pydantic import BaseModel, Field
@@ -164,7 +164,7 @@ async def public_booking_availability(
 
     therapists = await TherapistService.list_therapists(db, active_only=True, session_mode=mode)
     available = []
-    now = datetime.now(timezone.utc)
+    earliest_booking = datetime.now(timezone.utc) + timedelta(hours=24)
     scheduling_errors = []
     for therapist in therapists:
         try:
@@ -187,7 +187,7 @@ async def public_booking_availability(
             if not slot.get("is_available"):
                 continue
             try:
-                if datetime.fromisoformat(slot["starts_at"].replace("Z", "+00:00")) <= now:
+                if datetime.fromisoformat(slot["starts_at"].replace("Z", "+00:00")).astimezone(timezone.utc) < earliest_booking:
                     continue
             except Exception:
                 continue
