@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Tuple
 from zoneinfo import ZoneInfo
 
@@ -101,7 +101,7 @@ async def fast_slot_options(
         return []
 
     today = datetime.now(CAT_TZ).date().isoformat()
-    now_utc = datetime.now(timezone.utc)
+    earliest_booking = datetime.now(timezone.utc) + timedelta(hours=24)
 
     days_ahead = CORPORATE_AVAILABILITY_DAYS if client_doc.get("organisation_id") else AVAILABILITY_DAYS
     availability_results = await asyncio.gather(
@@ -135,7 +135,7 @@ async def fast_slot_options(
                 start_dt = _parse_iso(slot["starts_at"])
             except Exception:
                 continue
-            if start_dt <= now_utc:
+            if start_dt.astimezone(timezone.utc) < earliest_booking:
                 continue
             candidates.append(
                 {
