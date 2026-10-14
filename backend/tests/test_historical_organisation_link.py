@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from mongomock_motor import AsyncMongoMockClient
@@ -162,8 +163,8 @@ async def test_new_booking_request_inherits_linked_organisation(monkeypatch):
             client_id="client-future-org",
             session_type="individual",
             session_mode="virtual",
-            starts_at="2026-10-06T09:00:00+00:00",
-            ends_at="2026-10-06T10:00:00+00:00",
+            starts_at=(datetime.now(timezone.utc) + timedelta(days=7)).replace(hour=9, minute=0, second=0, microsecond=0).isoformat(),
+            ends_at=(datetime.now(timezone.utc) + timedelta(days=7)).replace(hour=10, minute=0, second=0, microsecond=0).isoformat(),
             send_notifications=False,
             source="website_intake",
         ),
