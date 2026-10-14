@@ -55,4 +55,20 @@ class SchedulingService:
                 days_ahead=days_ahead,
             )
         from services.slot_reservation_service import SlotReservationService
+        # Apply local therapist leave even when slots originate from Setmore.
+        from datetime import datetime, timezone
+
+        def as_utc(value):
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+
+        blocks = await db.therapist_blocks.find(
+            {"therapist_id": therapist_id}, {"_id": 0, "starts_at": 1, "ends_at": 1}
+        ).to_list(1000)
+        intervals = [(as_utc(b["starts_at"]), as_utc(b["ends_at"])) for b in blocks]
+        for slot in slots:
+            if slot.get("is_available") and slot.get("starts_at") and slot.get("ends_at"):
+                start, end = as_utc(slot["starts_at"]), as_utc(slot["ends_at"])
+                if any(start < blocked_end and end > blocked_start for blocked_start, blocked_end in intervals):
+                    slot["is_available"] = False
         return await SlotReservationService.filter_slots(db, slots, exclude_booking_id)
