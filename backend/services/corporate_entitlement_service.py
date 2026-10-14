@@ -164,6 +164,26 @@ class CorporateEntitlementService:
         return await db.bookings.find_one(query, {"_id": 1}) is not None
 
     @staticmethod
+    async def has_session_within_six_days(
+        db: AsyncIOMotorDatabase,
+        client: Any,
+        reference: Any,
+        exclude_booking_id: Optional[str] = None,
+    ) -> bool:
+        """Rolling 144-hour gap, including sessions across calendar weeks/months."""
+        start = CorporateEntitlementService._parse_reference(reference).astimezone(timezone.utc)
+        lower = (start - timedelta(days=6)).isoformat()
+        upper = (start + timedelta(days=6)).isoformat()
+        query = CorporateEntitlementService._client_booking_attribution_filter(client)
+        query.update({
+            "starts_at": {"$gt": lower, "$lt": upper},
+            "status": {"$in": ENTITLEMENT_STATUSES},
+        })
+        if exclude_booking_id:
+            query["id"] = {"$ne": exclude_booking_id}
+        return await db.bookings.find_one(query, {"_id": 1}) is not None
+
+    @staticmethod
     async def remaining_for_client(
         db: AsyncIOMotorDatabase,
         client: Any,
@@ -234,6 +254,13 @@ class CorporateEntitlementService:
             return False, (
                 "Corporate counselling allows one session per calendar week. "
                 "Please choose a date in another week."
+            )
+        if await CorporateEntitlementService.has_session_within_six_days(
+            db, client, starts_at, exclude_booking_id=exclude_booking_id
+        ):
+            return False, (
+                "Please allow at least 6 full days (144 hours) between counselling "
+                "sessions, including across calendar weeks."
             )
         return True, None
 
