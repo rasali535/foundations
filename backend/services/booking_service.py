@@ -829,6 +829,11 @@ class BookingService:
             s_iso = s_dt.isoformat()
             e_iso = e_dt.isoformat()
 
+            # Reject closely spaced appointments within the same multi-booking batch.
+            if any(abs((s_dt - parse_iso(previous_start)).total_seconds()) < 6 * 86400
+                   for previous_start, _, _ in validated_slots):
+                return None, "Each booked session must be at least 6 full days (144 hours) apart."
+
             if getattr(client, "organisation_id", None):
                 month_key = CorporateEntitlementService.month_key(s_iso)
                 week_start, _ = CorporateEntitlementService.week_bounds_utc(s_iso)
