@@ -67,6 +67,7 @@ const AdminLayout = () => {
     { label: 'Enquiries', path: '/admin/enquiries', icon: Inbox, roles: ['super_admin', 'admin', 'staff'] },
     { label: 'Bookings', path: '/admin/bookings', icon: CalendarDays },
     { label: 'Calendar', path: '/admin/calendar', icon: Calendar },
+    { label: 'My Availability', path: '/admin/my-availability', icon: CalendarDays, roles: ['therapist', 'super_admin', 'admin', 'clinical_admin'] },
     { label: 'Therapists', path: '/admin/therapists', icon: UserCheck, roles: ['super_admin', 'admin', 'clinical_admin', 'staff'] },
     { label: 'Corporate Partners', path: '/admin/organisations', icon: Building2, roles: ['super_admin', 'admin'] },
     { label: 'Invoices', path: '/admin/invoices', icon: Receipt, roles: ['super_admin', 'admin'] },

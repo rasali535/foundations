@@ -36,6 +36,7 @@ import AdminClients from "@/admin/pages/AdminClients";
 import AdminClientDetail from "@/admin/pages/AdminClientDetail";
 import AdminBookings from "@/admin/pages/AdminBookings";
 import AdminCalendar from "@/admin/pages/AdminCalendar";
+import TherapistAvailability from "@/admin/pages/TherapistAvailability";
 import AdminTherapists from "@/admin/pages/AdminTherapists";
 import AdminSettings from "@/admin/pages/AdminSettings";
 import AdminOrganisations from "@/admin/pages/AdminOrganisations";
@@ -87,6 +88,7 @@ function App() {
               <Route path="enquiries" element={<AdminEnquiries />} />
               <Route path="bookings" element={<AdminBookings />} />
               <Route path="calendar" element={<AdminCalendar />} />
+              <Route path="my-availability" element={<TherapistAvailability />} />
               <Route path="therapists" element={<AdminTherapists />} />
               <Route path="organisations" element={<AdminOrganisations />} />
               <Route path="invoices" element={<AdminInvoices />} />
