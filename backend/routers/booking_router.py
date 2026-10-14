@@ -204,6 +204,18 @@ async def public_booking_availability(
             detail="Live booking availability is temporarily unavailable. Please try again shortly.",
         )
 
+    # When intake identifies the client, hide sessions within six days of an existing booking.
+    if client_id:
+        prior = await db.bookings.find({
+            "client_id": client_id,
+            "status": {"$in": ["pending", "confirmed", "completed", "late_cancelled_billable", "no_show"]},
+        }, {"_id": 0, "starts_at": 1}).to_list(1000)
+        previous = [datetime.fromisoformat(row["starts_at"].replace("Z", "+00:00")) for row in prior if row.get("starts_at")]
+        available = [
+            slot for slot in available
+            if all(abs((datetime.fromisoformat(slot["starts_at"].replace("Z", "+00:00")) - booked).total_seconds()) >= 6 * 86400
+                   for booked in previous)
+        ]
     available.sort(key=lambda x: x["starts_at"])
     unique_slots = []
     seen_starts = set()
