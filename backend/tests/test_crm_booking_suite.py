@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 import pytest_asyncio
 from mongomock_motor import AsyncMongoMockClient
@@ -278,17 +280,15 @@ async def test_multi_booking_and_independent_lifecycle(mock_db):
         "phone": "+267 76 222 333"
     })
 
-    # 4 Monthly Sessions across October
+    # Four weekly sessions in the future; avoid time-dependent cancellation failures.
+    first_day = (datetime.now(timezone.utc) + timedelta(days=14)).replace(hour=14, minute=0, second=0, microsecond=0)
     multi_req = MultiBookingCreateRequest(
         client_id=client.id,
         therapist_id="test-therapist-dual",
         session_type="family",
         session_mode="virtual",
         slots=[
-            SingleBookingSlot(starts_at="2026-10-05T14:00:00Z"),
-            SingleBookingSlot(starts_at="2026-10-12T14:00:00Z"),
-            SingleBookingSlot(starts_at="2026-10-19T14:00:00Z"),
-            SingleBookingSlot(starts_at="2026-10-26T14:00:00Z"),
+            SingleBookingSlot(starts_at=(first_day + timedelta(weeks=i)).isoformat()) for i in range(4)
         ],
         participants=[
             {"name": "Spouse Test", "participant_role": "partner"},
@@ -312,10 +312,10 @@ async def test_multi_booking_and_independent_lifecycle(mock_db):
     rescheduled_b1, res_err = await BookingService.reschedule_booking(
         mock_db,
         b1.id,
-        BookingRescheduleRequest(new_starts_at="2026-10-05T15:00:00Z", reason="Client work conflict", send_notifications=False)
+        BookingRescheduleRequest(new_starts_at=first_day.replace(hour=15).isoformat(), reason="Client work conflict", send_notifications=False)
     )
     assert res_err is None
-    assert rescheduled_b1.starts_at == "2026-10-05T15:00:00+00:00"
+    assert rescheduled_b1.starts_at == first_day.replace(hour=15).isoformat()
 
     # Cancel b2
     cancelled_b2, can_err = await BookingService.update_booking_status(
