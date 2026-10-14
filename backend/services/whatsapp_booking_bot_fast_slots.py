@@ -158,6 +158,18 @@ async def fast_slot_options(
     if not candidates:
         return []
 
+    # Hide times inside a rolling six-day window of an existing client session.
+    existing = await db.bookings.find({
+        "client_id": client_doc["id"],
+        "status": {"$in": ENTITLEMENT_STATUSES},
+    }, {"_id": 0, "starts_at": 1}).to_list(1000)
+    previous_starts = [_parse_iso(row["starts_at"]) for row in existing if row.get("starts_at")]
+    candidates = [
+        item for item in candidates
+        if all(abs((_parse_iso(item["starts_at"]) - booked).total_seconds()) >= 6 * 86400
+               for booked in previous_starts)
+    ]
+
     # Corporate/EAP clients receive four sessions per calendar month, with no
     # more than one entitlement-consuming session per calendar week.
     if client_doc.get("organisation_id"):
